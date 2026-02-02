@@ -12,6 +12,8 @@ LLM 기반 프로젝트 자동 실행 시스템
 **철학**:
 - **Claritask가 오케스트레이터**, Claude는 실행기
 - Task 단위 독립 실행으로 컨텍스트 격리
+- **FDL(Feature Definition Language)로 계약 정의**, 스켈레톤 자동 생성
+- **LLM은 TODO만 채움** - 함수명/타입/API 경로는 확정적
 - 한 줄 명령으로 프로젝트 완성
 
 ---
@@ -92,8 +94,183 @@ clari memo add --scope task --id 3 "JWT 만료 시간 수정"
 ## 기술 스택
 
 - **Go + SQLite**: 단일 바이너리, 고성능
+- **Python**: FDL 파서 및 스켈레톤 생성기
 - **파일**: `.claritask/db` 하나로 모든 것 관리
 - **성능**: 1000개 Task도 1ms
+
+---
+
+## FDL (Feature Definition Language) 통합
+
+### 핵심 문제: Task 간 불일치
+
+기존 방식의 문제점:
+```
+Task 1 result: "createComment 함수 구현 완료"
+Task 2: createComments로 오타 → 불일치 발생
+```
+
+### 해결책: FDL + 스켈레톤
+
+```
+FDL (YAML)  →  Python Parser  →  Skeleton Code  →  Task (TODO 채우기)
+     ↓              ↓                  ↓                    ↓
+  계약 정의      AST 변환         코드 틀 생성        LLM이 내용만 작성
+```
+
+**LLM의 역할이 "코드 전체 작성"에서 "TODO 채우기"로 축소됨**
+
+### FDL 예시
+
+```yaml
+feature: comment_system
+description: 사용자가 게시글에 댓글을 작성하고 목록을 조회하는 기능
+
+models:
+  - name: Comment
+    table: comments
+    fields:
+      - id: uuid (pk)
+      - content: text (required)
+      - post_id: uuid (fk: posts.id)
+      - user_id: uuid (fk: users.id)
+      - created_at: datetime (default: now)
+
+service:
+  - name: createComment
+    desc: 댓글 생성 및 알림 발송
+    input: { userId: uuid, postId: uuid, content: string }
+    steps:
+      - validate: "content 길이가 1자 이상 1000자 이하인지 검증"
+      - db: "INSERT INTO comments (user_id, post_id, content)"
+      - return: "생성된 Comment 객체"
+
+  - name: listComments
+    desc: 특정 게시글의 댓글 조회
+    input: { postId: uuid }
+    steps:
+      - db: "SELECT * FROM comments WHERE post_id = ?"
+
+api:
+  - path: /posts/{postId}/comments
+    method: POST
+    use: service.createComment
+    request:
+      body: { content: string }
+    response:
+      201: { id: uuid, content: string }
+
+  - path: /posts/{postId}/comments
+    method: GET
+    use: service.listComments
+    response:
+      200: [ { id: uuid, content: string } ]
+
+ui:
+  - component: CommentSection
+    type: Organism
+    state:
+      - comments: Array
+      - newComment: string
+    view:
+      - Button: "등록"
+        action: API.POST /posts/{postId}/comments
+```
+
+### 생성되는 스켈레톤
+
+**`services/comment_system_service.py`**
+```python
+"""
+comment_system Service
+Auto-generated from FDL. DO NOT modify function signatures.
+"""
+from typing import List
+from uuid import UUID
+from app.models.comment import Comment
+
+async def createComment(userId: UUID, postId: UUID, content: str) -> Comment:
+    """
+    댓글 생성 및 알림 발송
+
+    Steps (from FDL):
+    - validate: "content 길이가 1자 이상 1000자 이하인지 검증"
+    - db: "INSERT INTO comments (user_id, post_id, content)"
+    - return: "생성된 Comment 객체"
+    """
+    # TODO: 위 Steps를 구현하세요
+    raise NotImplementedError("createComment not implemented")
+
+
+async def listComments(postId: UUID) -> List[Comment]:
+    """
+    특정 게시글의 댓글 조회
+
+    Steps (from FDL):
+    - db: "SELECT * FROM comments WHERE post_id = ?"
+    """
+    # TODO: 위 Steps를 구현하세요
+    raise NotImplementedError("listComments not implemented")
+```
+
+### FDL 워크플로우
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│  1. FDL 작성 (사람 or LLM)                                       │
+│     clari fdl create comment_system                             │
+│     → features/comment_system.fdl.yaml 생성                      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  2. FDL 등록                                                     │
+│     clari fdl register comment_system.fdl.yaml                  │
+│     → DB에 FDL 저장, Feature 생성                                 │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  3. 스켈레톤 생성 (Python - 확정적)                                │
+│     clari fdl skeleton <feature_id>                             │
+│     → models/comment.py                                         │
+│     → services/comment_system_service.py                        │
+│     → api/comment_system_api.py                                 │
+│     → components/CommentSection.tsx                             │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  4. Task 자동 생성                                               │
+│     clari fdl tasks <feature_id>                                │
+│     → Task 1: Comment 모델 구현 (models/comment.py)              │
+│     → Task 2: createComment 로직 (services/...:15)              │
+│     → Task 3: listComments 로직 (services/...:28)               │
+│     → Task 4: POST /comments 핸들러 (api/...:20)                │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  5. 실행                                                         │
+│     clari project start                                         │
+│     → 각 Task가 스켈레톤의 TODO 부분만 채움                        │
+│     → 함수 시그니처 변경 불가                                      │
+└─────────────────────────────────────────────────────────────────┘
+                              ↓
+┌─────────────────────────────────────────────────────────────────┐
+│  6. 검증                                                         │
+│     clari fdl verify <feature_id>                               │
+│     → 구현이 FDL과 일치하는지 검사                                 │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### FDL의 장점
+
+| 기존 (result만 공유) | FDL + 스켈레톤 |
+|---------------------|---------------|
+| LLM이 함수명 결정 → 오타 가능 | FDL에서 확정 |
+| LLM이 타입 결정 → 불일치 가능 | FDL에서 확정 |
+| Task 간 import 경로 불일치 | 스켈레톤이 Single Source |
+| 전체 코드 작성 | TODO만 채우기 |
+| 검증 불가 | FDL 기반 검증 가능 |
+
+**"LLM의 창의성은 로직 구현에만, 구조는 확정적으로"**
 
 ---
 
@@ -172,10 +349,27 @@ CREATE TABLE features (
     name TEXT NOT NULL,
     description TEXT,
     spec TEXT DEFAULT '',           -- Feature 상세 스펙 (LLM 대화로 수립)
+    fdl TEXT DEFAULT '',            -- FDL YAML 원문
+    fdl_hash TEXT DEFAULT '',       -- FDL 변경 감지용 해시
+    skeleton_generated INTEGER DEFAULT 0,  -- 스켈레톤 생성 완료 여부
     status TEXT DEFAULT 'pending'
         CHECK(status IN ('pending', 'active', 'done')),
     created_at TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id)
+);
+```
+
+### skeletons (생성된 스켈레톤 파일 추적)
+```sql
+CREATE TABLE skeletons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,        -- 생성된 파일 경로
+    layer TEXT NOT NULL             -- model, service, api, ui
+        CHECK(layer IN ('model', 'service', 'api', 'ui')),
+    checksum TEXT NOT NULL,         -- 파일 변경 감지용
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (feature_id) REFERENCES features(id)
 );
 ```
 
@@ -196,17 +390,22 @@ CREATE TABLE feature_edges (
 CREATE TABLE tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     feature_id INTEGER NOT NULL,
+    skeleton_id INTEGER,            -- 연결된 스켈레톤 (nullable)
     status TEXT NOT NULL DEFAULT 'pending'
         CHECK(status IN ('pending', 'doing', 'done', 'failed')),
     title TEXT NOT NULL,
     content TEXT DEFAULT '',
+    target_file TEXT DEFAULT '',    -- 구현 대상 파일 경로
+    target_line INTEGER,            -- 구현 대상 라인 번호
+    target_function TEXT DEFAULT '',-- 구현 대상 함수명
     result TEXT DEFAULT '',         -- Task 완료 시 결과 (의존 Task에 전달됨)
     error TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
     failed_at TEXT,
-    FOREIGN KEY (feature_id) REFERENCES features(id)
+    FOREIGN KEY (feature_id) REFERENCES features(id),
+    FOREIGN KEY (skeleton_id) REFERENCES skeletons(id)
 );
 ```
 
@@ -507,6 +706,32 @@ clari memo list 1:42
 - 한 번만 설정하면 됨
 - Task 반환 시 자동 포함 (manifest)
 
+### FDL 관리
+```bash
+clari fdl create <feature_name>           # FDL 템플릿 생성
+clari fdl register <fdl_file>             # FDL 등록 (Feature 생성)
+clari fdl validate <feature_id>           # FDL 문법 검증
+clari fdl show <feature_id>               # FDL 내용 조회
+```
+
+### 스켈레톤 생성
+```bash
+clari fdl skeleton <feature_id>           # 스켈레톤 코드 생성
+clari fdl skeleton <feature_id> --dry-run # 생성될 파일 목록만 출력
+clari fdl skeleton <feature_id> --force   # 기존 스켈레톤 덮어쓰기
+```
+
+### FDL 기반 Task 생성
+```bash
+clari fdl tasks <feature_id>              # 스켈레톤 기반 Task 자동 생성
+```
+
+### 검증
+```bash
+clari fdl verify <feature_id>             # 구현이 FDL과 일치하는지 검증
+clari fdl diff <feature_id>               # FDL과 실제 코드 차이점 출력
+```
+
 ### 유틸리티
 ```bash
 clari required                  # 필수 입력 중 입력하지 않은 항목 안내.
@@ -518,22 +743,43 @@ clari required                  # 필수 입력 중 입력하지 않은 항목 �
 
 ### pop 명령 응답
 
-`clari task pop` 실행 시 Task + 의존 Task 결과 + Manifest 함께 반환
+`clari task pop` 실행 시 Task + FDL + 스켈레톤 + Manifest 함께 반환
 
 ```json
 {
   "task": {
     "id": 42,
     "feature_id": 2,
-    "title": "auth_service",
-    "content": "JWT 기반 인증 서비스 구현",
+    "title": "Implement createComment",
+    "content": "createComment 함수 내부 로직 구현",
+    "target_file": "services/comment_system_service.py",
+    "target_line": 15,
+    "target_function": "createComment",
     "status": "pending"
+  },
+  "fdl": {
+    "feature": "comment_system",
+    "service": {
+      "name": "createComment",
+      "input": {"userId": "uuid", "postId": "uuid", "content": "string"},
+      "steps": [
+        "validate: content 길이 검증",
+        "db: INSERT INTO comments",
+        "return: 생성된 Comment 객체"
+      ]
+    }
+  },
+  "skeleton": {
+    "file": "services/comment_system_service.py",
+    "line": 15,
+    "current_content": "async def createComment(userId: UUID, postId: UUID, content: str) -> Comment:\n    \"\"\"\n    ...\n    \"\"\"\n    # TODO: 위 Steps를 구현하세요\n    raise NotImplementedError(\"createComment not implemented\")"
   },
   "dependencies": [
     {
       "id": 41,
-      "title": "user_model",
-      "result": "User 모델 구현 완료. 필드: id, email, password_hash, created_at"
+      "title": "Comment model",
+      "result": "Comment 모델 구현 완료",
+      "file": "models/comment.py"
     }
   ],
   "manifest": {
@@ -542,7 +788,7 @@ clari required                  # 필수 입력 중 입력하지 않은 항목 �
       "description": "Developer blogging platform"
     },
     "tech": {
-      "backend": "Go",
+      "backend": "FastAPI",
       "frontend": "React",
       "database": "PostgreSQL"
     },
@@ -553,20 +799,14 @@ clari required                  # 필수 입력 중 입력하지 않은 항목 �
     },
     "feature": {
       "id": 2,
-      "name": "로그인",
-      "spec": "JWT 기반 인증. Access token 1시간, Refresh token 7일..."
+      "name": "comment_system",
+      "fdl_hash": "abc123..."
     },
     "memos": [
       {
         "scope": "project",
-        "key": "jwt_security",
-        "value": "Use httpOnly cookies"
-      },
-      {
-        "scope": "feature",
-        "scope_id": 2,
-        "key": "token_expiry",
-        "value": "Access 1h, Refresh 7d"
+        "key": "coding_style",
+        "value": "Use async/await for all DB operations"
       }
     ]
   }
@@ -574,12 +814,14 @@ clari required                  # 필수 입력 중 입력하지 않은 항목 �
 ```
 
 **Manifest 포함 내용**:
-1. `dependencies`: 의존 Task들의 `result` (핵심!)
-2. `context`: 프로젝트 컨텍스트
-3. `tech`: 기술 스택
-4. `design`: 설계 결정
-5. `feature`: 현재 Feature 정보 및 spec
-6. `memos`: priority 1인 메모만
+1. `fdl`: 현재 Task의 FDL 정의 (함수명, 입력, Steps)
+2. `skeleton`: 스켈레톤 코드 현재 상태 (TODO 위치)
+3. `dependencies`: 의존 Task들의 `result` + 파일 경로
+4. `context`: 프로젝트 컨텍스트
+5. `tech`: 기술 스택
+6. `design`: 설계 결정
+7. `feature`: 현재 Feature 정보
+8. `memos`: priority 1인 메모만
 
 **장점**:
 - 의존 Task 결과가 자동 주입 → 정보 누락 없음
@@ -668,9 +910,9 @@ clari design set '{
 
 ## 워크플로우
 
-### Planning Phase: 구조화된 LLM 호출
+### Planning Phase: FDL 기반 구조화
 
-Planning 단계에서 LLM 호출을 구조화하여 호출 횟수를 최소화한다.
+FDL을 사용하면 Planning이 더 체계적이고, LLM 호출이 최소화된다.
 
 ```
 Project Description
@@ -678,31 +920,32 @@ Project Description
         ▼ (LLM 1회)
 Feature 목록 산출
         │
-        ▼ (LLM N회, 대화형)
-Feature별 Spec 수립
+        ▼ (LLM N회)
+Feature별 FDL 작성        ← 핵심: 계약 정의
+        │
+        ▼ (Python - 확정적)
+스켈레톤 코드 생성         ← LLM 호출 없음
+        │
+        ▼ (Python - 확정적)
+Task 자동 생성            ← LLM 호출 없음
         │
         ▼ (LLM 1회)
 Feature 간 Edge 추출
-        │
-        ▼ (LLM N회)
-Feature별 Task 생성
-        │
-        ▼ (LLM N회)
-Feature별 Task Edge 추출
         │
         ▼
 실행 준비 완료
 ```
 
-**LLM 호출 횟수 (Feature 20개 기준)**:
-| 단계 | 호출 수 |
-|------|---------|
-| Feature 목록 산출 | 1회 |
-| Feature Spec 수립 | 20회 (대화) |
-| Feature Edge 추출 | 1회 |
-| Task 생성 | 20회 |
-| Task Edge 추출 | 20회 |
-| **총 Planning** | **~60회** |
+**LLM 호출 횟수 비교 (Feature 20개 기준)**:
+| 단계 | 기존 방식 | FDL 방식 |
+|------|----------|---------|
+| Feature 목록 산출 | 1회 | 1회 |
+| Feature Spec/FDL | 20회 | 20회 |
+| 스켈레톤 생성 | - | 0회 (Python) |
+| Task 생성 | 20회 | 0회 (Python) |
+| Task Edge 추출 | 20회 | 0회 (자동) |
+| Feature Edge 추출 | 1회 | 1회 |
+| **총 Planning** | **~60회** | **~22회** |
 
 ### 1. 프로젝트 초기화
 
@@ -711,7 +954,7 @@ clari init blog-platform "개발자 블로그 플랫폼"
 
 # 필수 설정
 clari context set '{"project_name": "Blog Platform", ...}'
-clari tech set '{"backend": "Go", "frontend": "React", ...}'
+clari tech set '{"backend": "FastAPI", "frontend": "React", ...}'
 clari design set '{"architecture": "Monolithic", ...}'
 ```
 
@@ -723,68 +966,100 @@ clari plan features
 # → 결과: 로그인, 블로그, 댓글, 알림 등
 ```
 
-### 3. Feature Spec 수립 (대화형, Feature별)
+### 3. FDL 작성 (Feature별)
 
 ```bash
-clari feature 1 spec
-# → LLM과 대화하며 Feature spec 상세화
-# → "로그인 방식은? JWT vs Session"
-# → "소셜 로그인 필요?"
-# → spec 저장
+# FDL 템플릿 생성
+clari fdl create comment_system
+# → features/comment_system.fdl.yaml 생성
+
+# LLM과 대화하며 FDL 상세화
+# → 모델, 서비스 함수, API, UI 정의
+# → FDL 파일에 저장
+
+# FDL 등록
+clari fdl register features/comment_system.fdl.yaml
+# → Feature 생성, FDL 저장
 ```
 
-### 4. Edge 추출 (LLM 자동 추론)
+### 4. 스켈레톤 생성 (Python - 확정적)
 
 ```bash
-# Feature 간 의존성 추출 (1회)
+clari fdl skeleton 1
+# → Python이 FDL 파싱하여 코드 생성
+# → models/comment.py
+# → services/comment_system_service.py
+# → api/comment_system_api.py
+# → 함수명, 타입, import 모두 확정
+```
+
+### 5. Task 자동 생성 (Python - 확정적)
+
+```bash
+clari fdl tasks 1
+# → 스켈레톤의 TODO 위치에서 Task 추출
+# → Task 1: Comment 모델 구현 (line 12-25)
+# → Task 2: createComment 로직 (line 15)
+# → Task 3: listComments 로직 (line 28)
+# → Edge도 자동 추론 (Model → Service → API)
+```
+
+### 6. Feature 간 Edge 추출 (LLM 1회)
+
+```bash
 clari edge infer --project
 # → LLM: "결제 Feature는 로그인 Feature에 의존"
-
-# Feature 내 Task Edge 추출 (Feature별 1회)
-clari edge infer --feature 1
-# → LLM: "user_model은 user_table_sql에 의존"
 ```
 
-**Edge 추론이 쉬운 이유**:
-- Feature 내 Task는 5-15개 → LLM 컨텍스트에 충분히 들어감
-- Feature 목록은 10-30개 → 한 번에 분석 가능
-- LLM이 코드 의존성 패턴을 잘 이해함 (SQL → Model → Service → API)
-
-### 5. 자동 실행 (Claritask 드라이버)
+### 7. 자동 실행 (Claritask 드라이버)
 
 ```bash
 clari project start
 
 # Claritask 내부 동작:
-# 1. Feature Edge 기반 실행 순서 결정 (Topological Sort)
-# 2. Feature 내 Task Edge 기반 실행 순서 결정
-
 for feature in sorted_features:
     for task in sorted_tasks(feature):
-        # 의존 Task의 result 수집
+        # FDL + 스켈레톤 + 의존 결과 수집
+        fdl = get_fdl(task)
+        skeleton = get_skeleton(task)
         deps = get_dependency_results(task)
 
-        # Prompt 생성 (Task + 의존 결과 + Manifest)
-        prompt = build_prompt(task, deps, manifest)
+        # Prompt 생성
+        prompt = build_prompt(task, fdl, skeleton, deps)
 
         # LLM 호출 (독립 컨텍스트)
+        # → LLM은 TODO 부분만 채움
+        # → 함수 시그니처 변경 불가
         result = exec("claude --print", prompt)
 
         if result.success:
-            save_result(task, result)  # result 저장 (다음 Task에 전달됨)
+            verify_against_fdl(task, result)  # FDL 일치 검증
+            save_result(task, result)
         else:
             mark_failed(task)
             break
 ```
 
-### 6. 수동 실행 (탐색/디버깅용)
+### 8. 검증
+
+```bash
+clari fdl verify 1
+# → 구현된 코드가 FDL과 일치하는지 검사
+# → 함수 시그니처 일치 여부
+# → API 경로 일치 여부
+# → 모델 필드 일치 여부
+```
+
+### 9. 수동 실행 (탐색/디버깅용)
 
 ```bash
 # 특정 Task만 실행
 clari task pop
+# → FDL + 스켈레톤 + Manifest 함께 반환
+
 clari task start 42
-# ... 작업 ...
-clari task complete 42 '{"result": "구현 완료"}'
+# ... TODO 채우기 ...
+clari task complete 42 '{"result": "createComment 로직 구현 완료"}'
 ```
 
 ---
@@ -813,18 +1088,33 @@ pending → doing → done/failed
 
 ## 제약사항
 
+### FDL
+- `feature`, `description` 필수
+- `models`, `service`, `api` 중 최소 하나 필수
+- 서비스 함수명은 camelCase
+- API path는 RESTful 규칙 준수
+- `service.use`로 API-Service 연결 명시 필수
+
+### 스켈레톤
+- 자동 생성된 함수 시그니처 수정 금지
+- `# TODO:` 주석 위치의 내용만 구현
+- import 경로 변경 금지
+
 ### Task
 - `title`, `content` 필수
 - `feature_id` 필수
+- FDL 기반 Task는 `target_file`, `target_function` 자동 설정
 - Edge는 최대 4-7개 권장
 
 ### Feature
 - `name`, `description` 필수
-- `spec`은 LLM 대화로 수립
+- FDL 사용 시 `fdl` 필드에 YAML 저장
+- 스켈레톤 생성 후 `skeleton_generated = 1`
 
 ### Edge
 - Task Edge: 같은 Feature 내 또는 Feature 경계 넘어 가능
 - Feature Edge: Feature 간 의존성
+- FDL 기반 Task는 Edge 자동 추론 (Model → Service → API)
 - 순환 의존성 불가 (DAG)
 
 ### 필수 설정
@@ -891,12 +1181,22 @@ blog-api/
 ## 핵심 가치
 
 1. **제어 역전**: Claritask가 오케스트레이터, Claude는 실행기
-2. **그래프 기반**: Task 간 의존성을 Edge로 명시, 정밀한 컨텍스트 주입
-3. **컨텍스트 최소화**: 전체 manifest 대신 의존 Task result만 주입
-4. **구조화된 Planning**: Feature 단위로 Edge 추론, LLM 호출 최소화
-5. **무제한 확장**: Task 수천 개도 자동 처리
-6. **복구 가능**: 실패 시 해당 Task부터 재개
+2. **FDL 기반 계약**: 함수명, 타입, API 경로를 먼저 확정
+3. **스켈레톤 자동 생성**: Python이 FDL → 코드 틀 생성 (오타 원천 차단)
+4. **TODO만 채우기**: LLM은 로직만 작성, 구조 변경 불가
+5. **그래프 기반**: Task 간 의존성을 Edge로 명시, 정밀한 컨텍스트 주입
+6. **검증 가능**: 구현이 FDL과 일치하는지 자동 검사
+7. **무제한 확장**: Task 수천 개도 자동 처리
+8. **복구 가능**: 실패 시 해당 Task부터 재개
 
-**Claritask = LLM 컨텍스트 한계를 우회하는 프로젝트 실행 엔진**
+**Claritask = FDL 기반 계약 → 스켈레톤 → LLM 구현의 파이프라인**
 
-사람은 Feature를 정의하고 시작 버튼만 누른다. Claritask가 의존성을 분석하고, 필요한 컨텍스트만 주입하며, Claude를 수천 번이고 호출해 작업을 완료한다. 컨텍스트 폭발도, 정보 누락도, 수동 개입도 없다.
+```
+사람: FDL로 "무엇을" 정의
+      ↓
+Python: "어떤 구조로" 스켈레톤 생성
+      ↓
+LLM: "어떻게" TODO 채우기
+```
+
+사람은 FDL로 Feature를 정의하고 시작 버튼만 누른다. Python이 스켈레톤을 생성하고, Claritask가 Task를 분할하며, Claude가 TODO를 채운다. 함수명 불일치도, 타입 오류도, 컨텍스트 폭발도 없다.

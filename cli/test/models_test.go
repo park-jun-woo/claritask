@@ -63,7 +63,7 @@ func TestTaskStruct(t *testing.T) {
 	t.Helper()
 	now := time.Now()
 	task := model.Task{
-		ID:          "1",
+		ID:          1,
 		FeatureID:   1,
 		Status:      "pending",
 		Title:       "Task 1",
@@ -76,8 +76,8 @@ func TestTaskStruct(t *testing.T) {
 		FailedAt:    nil,
 	}
 
-	if task.ID != "1" {
-		t.Errorf("expected ID '1', got '%s'", task.ID)
+	if task.ID != 1 {
+		t.Errorf("expected ID 1, got %d", task.ID)
 	}
 	if task.FeatureID != 1 {
 		t.Errorf("expected FeatureID 1, got %d", task.FeatureID)
@@ -283,7 +283,7 @@ func TestTaskPopResponseJSON(t *testing.T) {
 	t.Helper()
 	now := time.Now()
 	task := &model.Task{
-		ID:        "1",
+		ID:        1,
 		FeatureID: 1,
 		Status:    "doing",
 		Title:     "Test Task",

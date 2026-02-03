@@ -79,12 +79,16 @@ func init() {
 }
 
 type taskPushInput struct {
-	FeatureID      int64  `json:"feature_id"`
-	Title          string `json:"title"`
-	Content        string `json:"content"`
-	TargetFile     string `json:"target_file"`
-	TargetLine     *int   `json:"target_line"`
-	TargetFunction string `json:"target_function"`
+	FeatureID      int64    `json:"feature_id"`
+	ParentID       *int64   `json:"parent_id"`
+	Title          string   `json:"title"`
+	Level          string   `json:"level"`
+	Skill          string   `json:"skill"`
+	References     []string `json:"references"`
+	Content        string   `json:"content"`
+	TargetFile     string   `json:"target_file"`
+	TargetLine     *int     `json:"target_line"`
+	TargetFunction string   `json:"target_function"`
 }
 
 func runTaskPush(cmd *cobra.Command, args []string) error {
@@ -116,7 +120,11 @@ func runTaskPush(cmd *cobra.Command, args []string) error {
 
 	taskInput := service.TaskCreateInput{
 		FeatureID:      input.FeatureID,
+		ParentID:       input.ParentID,
 		Title:          input.Title,
+		Level:          input.Level,
+		Skill:          input.Skill,
+		References:     input.References,
 		Content:        input.Content,
 		TargetFile:     input.TargetFile,
 		TargetLine:     input.TargetLine,

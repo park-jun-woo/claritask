@@ -2,7 +2,6 @@ package cmd
 
 import (
 	"fmt"
-	"strconv"
 
 	"github.com/spf13/cobra"
 	"parkjunwoo.com/claritask/internal/service"
@@ -120,13 +119,10 @@ func runEdgeAdd(cmd *cobra.Command, args []string) error {
 		})
 	} else {
 		// Task edge
-		fromIDStr := strconv.FormatInt(fromID, 10)
-		toIDStr := strconv.FormatInt(toID, 10)
-
-		err := service.AddTaskEdge(database, fromIDStr, toIDStr)
+		err := service.AddTaskEdge(database, fromID, toID)
 		if err != nil {
 			if err.Error() == "adding edge would create a cycle" {
-				hasCycle, path, _ := service.CheckTaskCycle(database, fromIDStr, toIDStr)
+				hasCycle, path, _ := service.CheckTaskCycle(database, fromID, toID)
 				if hasCycle {
 					outputJSON(map[string]interface{}{
 						"success": false,
@@ -256,10 +252,7 @@ func runEdgeRemove(cmd *cobra.Command, args []string) error {
 			"message": "Edge removed successfully",
 		})
 	} else {
-		fromIDStr := strconv.FormatInt(fromID, 10)
-		toIDStr := strconv.FormatInt(toID, 10)
-
-		err := service.RemoveTaskEdge(database, fromIDStr, toIDStr)
+		err := service.RemoveTaskEdge(database, fromID, toID)
 		if err != nil {
 			outputError(fmt.Errorf("remove task edge: %w", err))
 			return nil

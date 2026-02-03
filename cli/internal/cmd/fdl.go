@@ -293,7 +293,7 @@ func runFDLSkeleton(cmd *cobra.Command, args []string) error {
 	}
 
 	// Check if skeleton already generated
-	if feature.SkeletonGenerated && !force {
+	if feature.SkeletonGenerated && !force && !dryRun {
 		outputJSON(map[string]interface{}{
 			"success":    false,
 			"feature_id": featureID,
@@ -302,37 +302,20 @@ func runFDLSkeleton(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Parse FDL
-	spec, err := service.ParseFDL(feature.FDL)
+	// Generate skeletons using Go implementation
+	result, err := service.GenerateSkeletons(database, featureID, dryRun)
 	if err != nil {
-		outputError(fmt.Errorf("parse FDL: %w", err))
+		outputError(fmt.Errorf("generate skeletons: %w", err))
 		return nil
 	}
 
-	// Get tech stack
-	tech, _ := service.GetTech(database)
-	if tech == nil {
-		tech = make(map[string]interface{})
-	}
-
-	// Extract task mappings to determine files
-	mappings, err := service.ExtractTaskMappings(spec, tech)
-	if err != nil {
-		outputError(fmt.Errorf("extract task mappings: %w", err))
-		return nil
-	}
-
-	// Build file list
+	// Build file list for response
 	var generatedFiles []map[string]interface{}
-	seen := make(map[string]bool)
-	for _, m := range mappings {
-		if m.TargetFile != "" && !seen[m.TargetFile] {
-			seen[m.TargetFile] = true
-			generatedFiles = append(generatedFiles, map[string]interface{}{
-				"path":  m.TargetFile,
-				"layer": m.Layer,
-			})
-		}
+	for _, f := range result.Files {
+		generatedFiles = append(generatedFiles, map[string]interface{}{
+			"path":  f.Path,
+			"layer": f.Layer,
+		})
 	}
 
 	if dryRun {
@@ -347,19 +330,12 @@ func runFDLSkeleton(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// TODO: Call Python skeleton generator (TASK-DEV-028)
-	// For now, just mark as generated and return the file list
-	feature.SkeletonGenerated = true
-	if err := service.UpdateFeature(database, feature); err != nil {
-		outputError(fmt.Errorf("update feature: %w", err))
-		return nil
-	}
-
 	outputJSON(map[string]interface{}{
 		"success":         true,
 		"feature_id":      featureID,
 		"generated_files": generatedFiles,
 		"total":           len(generatedFiles),
+		"errors":          result.Errors,
 		"message":         "Skeletons generated successfully",
 	})
 
@@ -442,9 +418,7 @@ func runFDLTasks(cmd *cobra.Command, args []string) error {
 		fromID := taskIDMap[m.Title]
 		for _, depTitle := range m.Dependencies {
 			if toID, ok := taskIDMap[depTitle]; ok {
-				fromIDStr := strconv.FormatInt(fromID, 10)
-				toIDStr := strconv.FormatInt(toID, 10)
-				if err := service.AddTaskEdge(database, fromIDStr, toIDStr); err == nil {
+				if err := service.AddTaskEdge(database, fromID, toID); err == nil {
 					edgesCreated = append(edgesCreated, map[string]interface{}{
 						"from": fromID,
 						"to":   toID,

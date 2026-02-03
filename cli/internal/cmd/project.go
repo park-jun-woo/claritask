@@ -171,7 +171,7 @@ func runProjectPlan(cmd *cobra.Command, args []string) error {
 		"ready":      true,
 		"project_id": project.ID,
 		"mode":       "planning",
-		"message":    "Project is ready for planning. Use 'clari phase create' to add phases.",
+		"message":    "Project is ready for planning. Use 'clari feature add' to add features.",
 	})
 
 	return nil

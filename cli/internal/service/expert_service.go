@@ -2,6 +2,8 @@ package service
 
 import (
 	"bufio"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -45,12 +47,16 @@ func AddExpert(database *db.DB, expertID string) (*model.Expert, error) {
 		return nil, fmt.Errorf("create expert file: %w", err)
 	}
 
-	// Save to database
+	// Calculate content hash
+	hash := sha256.Sum256([]byte(template))
+	contentHash := hex.EncodeToString(hash[:])
+
+	// Save to database with content
 	now := db.TimeNow()
 	_, err := database.Exec(
-		`INSERT INTO experts (id, name, version, domain, language, framework, path, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-		expertID, expertID, "1.0.0", "", "", "", expertPath, now,
+		`INSERT INTO experts (id, name, version, domain, language, framework, path, description, content, content_hash, content_backup, status, created_at, updated_at)
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		expertID, expertID, "1.0.0", "", "", "", expertPath, "", template, contentHash, "", "active", now, now,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("save expert to database: %w", err)
@@ -198,6 +204,9 @@ func RemoveExpert(database *db.DB, expertID string, force bool) error {
 	// Remove from project_experts
 	database.Exec(`DELETE FROM project_experts WHERE expert_id = ?`, expertID)
 
+	// Remove from expert_assignments (feature-level)
+	database.Exec(`DELETE FROM expert_assignments WHERE expert_id = ?`, expertID)
+
 	// Remove from experts table
 	database.Exec(`DELETE FROM experts WHERE id = ?`, expertID)
 
@@ -257,6 +266,104 @@ func UnassignExpert(database *db.DB, projectID, expertID string) error {
 	}
 
 	return nil
+}
+
+// AssignExpertToFeature assigns an expert to a feature
+func AssignExpertToFeature(database *db.DB, expertID string, featureID int64) error {
+	// Check if expert exists
+	expertPath := filepath.Join(ExpertsDir, expertID, ExpertFileName)
+	if _, err := os.Stat(expertPath); os.IsNotExist(err) {
+		return fmt.Errorf("expert '%s' not found", expertID)
+	}
+
+	// Check if feature exists
+	var featureCount int
+	err := database.QueryRow(`SELECT COUNT(*) FROM features WHERE id = ?`, featureID).Scan(&featureCount)
+	if err != nil || featureCount == 0 {
+		return fmt.Errorf("feature %d not found", featureID)
+	}
+
+	// Check if already assigned
+	var count int
+	database.QueryRow(
+		`SELECT COUNT(*) FROM expert_assignments WHERE expert_id = ? AND feature_id = ?`,
+		expertID, featureID,
+	).Scan(&count)
+
+	if count > 0 {
+		return fmt.Errorf("expert '%s' is already assigned to feature %d", expertID, featureID)
+	}
+
+	// Insert assignment
+	now := db.TimeNow()
+	_, err = database.Exec(
+		`INSERT INTO expert_assignments (expert_id, feature_id, created_at) VALUES (?, ?, ?)`,
+		expertID, featureID, now,
+	)
+	if err != nil {
+		return fmt.Errorf("assign expert to feature: %w", err)
+	}
+
+	return nil
+}
+
+// UnassignExpertFromFeature removes an expert from a feature
+func UnassignExpertFromFeature(database *db.DB, expertID string, featureID int64) error {
+	result, err := database.Exec(
+		`DELETE FROM expert_assignments WHERE expert_id = ? AND feature_id = ?`,
+		expertID, featureID,
+	)
+	if err != nil {
+		return fmt.Errorf("unassign expert from feature: %w", err)
+	}
+
+	rowsAffected, _ := result.RowsAffected()
+	if rowsAffected == 0 {
+		return fmt.Errorf("expert '%s' is not assigned to feature %d", expertID, featureID)
+	}
+
+	return nil
+}
+
+// GetAssignedExpertsByFeature returns experts assigned to a feature with full content
+func GetAssignedExpertsByFeature(database *db.DB, featureID int64) ([]model.ExpertInfo, error) {
+	rows, err := database.Query(
+		`SELECT expert_id FROM expert_assignments WHERE feature_id = ?`,
+		featureID,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query assigned experts by feature: %w", err)
+	}
+	defer rows.Close()
+
+	var experts []model.ExpertInfo
+	for rows.Next() {
+		var expertID string
+		if err := rows.Scan(&expertID); err != nil {
+			continue
+		}
+
+		expertPath := filepath.Join(ExpertsDir, expertID, ExpertFileName)
+		content, err := os.ReadFile(expertPath)
+		if err != nil {
+			continue
+		}
+
+		// Get name from metadata
+		expert, _ := parseExpertMetadata(expertPath)
+		name := expertID
+		if expert != nil && expert.Name != "" {
+			name = expert.Name
+		}
+
+		experts = append(experts, model.ExpertInfo{
+			ID:      expertID,
+			Name:    name,
+			Content: string(content),
+		})
+	}
+
+	return experts, nil
 }
 
 // GetAssignedExperts returns experts assigned to a project with full content
@@ -411,4 +518,91 @@ func parseExpertMetadata(filePath string) (*model.Expert, error) {
 	}
 
 	return expert, nil
+}
+
+// SyncExpert syncs expert file with DB
+func SyncExpert(database *db.DB, expertID string) error {
+	expertPath := filepath.Join(ExpertsDir, expertID, ExpertFileName)
+
+	// Check if file exists
+	content, err := os.ReadFile(expertPath)
+	if os.IsNotExist(err) {
+		// File deleted - restore from DB backup
+		return restoreExpertFromDB(database, expertID, expertPath)
+	}
+	if err != nil {
+		return fmt.Errorf("read expert file: %w", err)
+	}
+
+	// Calculate hash
+	hash := sha256.Sum256(content)
+	contentHash := hex.EncodeToString(hash[:])
+
+	// Check if content changed
+	var dbHash string
+	database.QueryRow("SELECT content_hash FROM experts WHERE id = ?", expertID).Scan(&dbHash)
+
+	if dbHash != contentHash {
+		// File modified - update DB backup
+		now := db.TimeNow()
+		_, err := database.Exec(
+			`UPDATE experts SET content = ?, content_hash = ?, updated_at = ? WHERE id = ?`,
+			string(content), contentHash, now, expertID,
+		)
+		if err != nil {
+			return fmt.Errorf("update expert content: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// restoreExpertFromDB restores expert file from DB backup
+func restoreExpertFromDB(database *db.DB, expertID, expertPath string) error {
+	var content string
+	err := database.QueryRow("SELECT content FROM experts WHERE id = ?", expertID).Scan(&content)
+	if err != nil {
+		return fmt.Errorf("expert '%s' not found in DB", expertID)
+	}
+
+	if content == "" {
+		return fmt.Errorf("no backup content for expert '%s'", expertID)
+	}
+
+	// Create directory
+	dir := filepath.Dir(expertPath)
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		return fmt.Errorf("create directory: %w", err)
+	}
+
+	// Write file
+	if err := os.WriteFile(expertPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write expert file: %w", err)
+	}
+
+	return nil
+}
+
+// SyncAllExperts syncs all experts
+func SyncAllExperts(database *db.DB) error {
+	// Get all expert IDs from DB
+	rows, err := database.Query("SELECT id FROM experts")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var expertIDs []string
+	for rows.Next() {
+		var id string
+		rows.Scan(&id)
+		expertIDs = append(expertIDs, id)
+	}
+
+	// Sync each expert
+	for _, id := range expertIDs {
+		SyncExpert(database, id) // Ignore errors, continue with others
+	}
+
+	return nil
 }

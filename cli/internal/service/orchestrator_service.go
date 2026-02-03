@@ -143,7 +143,7 @@ func GenerateExecutionPlan(database *db.DB, featureID *int64) (*ExecutionPlan, e
 
 			order++
 			planned := PlannedTask{
-				ID:      task.ID,
+				ID:      strconv.FormatInt(task.ID, 10),
 				Title:   task.Title,
 				Feature: feature.Name,
 				Order:   order,
@@ -152,7 +152,7 @@ func GenerateExecutionPlan(database *db.DB, featureID *int64) (*ExecutionPlan, e
 			// Get dependencies
 			deps, _ := GetTaskDependencies(database, task.ID)
 			for _, dep := range deps {
-				planned.DependsOn = append(planned.DependsOn, dep.ID)
+				planned.DependsOn = append(planned.DependsOn, strconv.FormatInt(dep.ID, 10))
 			}
 
 			plan.Tasks = append(plan.Tasks, planned)
@@ -195,7 +195,7 @@ func ExecuteTaskWithClaude(task *model.Task, manifest *model.Manifest) (*ClaudeR
 func buildTaskPrompt(task *model.Task, manifest *model.Manifest) string {
 	prompt := fmt.Sprintf(`[CLARITASK EXECUTION]
 
-Task ID: %s
+Task ID: %d
 Title: %s
 Content:
 %s
@@ -267,37 +267,35 @@ func ExecuteAllTasks(database *db.DB, options ExecutionOptions) error {
 		// Filter by feature if specified
 		if options.FeatureID != nil && task.FeatureID != *options.FeatureID {
 			// Reset task and continue
-			taskID, _ := strconv.ParseInt(task.ID, 10, 64)
-			ResetTaskToPending(database, taskID)
+			ResetTaskToPending(database, task.ID)
 			continue
 		}
 
 		// Update current task
-		taskID, _ := strconv.ParseInt(task.ID, 10, 64)
-		UpdateExecutionCurrentTask(database, taskID)
+		UpdateExecutionCurrentTask(database, task.ID)
 
 		// Execute with Claude
 		result, err := ExecuteTaskWithClaude(task, &response.Manifest)
 		if err != nil {
-			FailTask(database, taskID, err.Error())
+			FailTask(database, task.ID, err.Error())
 			if options.FallbackInteractive {
 				// TODO: Call interactive debugging
 				continue
 			}
-			return fmt.Errorf("execute task %s: %w", task.ID, err)
+			return fmt.Errorf("execute task %d: %w", task.ID, err)
 		}
 
 		// Process result
 		if result.Success {
-			CompleteTask(database, taskID, result.Output)
+			CompleteTask(database, task.ID, result.Output)
 		} else {
 			if options.FallbackInteractive {
 				// Mark as failed, will need interactive debugging
-				FailTask(database, taskID, result.Error)
+				FailTask(database, task.ID, result.Error)
 				// Continue to next task instead of blocking
 			} else {
-				FailTask(database, taskID, result.Error)
-				return fmt.Errorf("task %s failed: %s", task.ID, result.Error)
+				FailTask(database, task.ID, result.Error)
+				return fmt.Errorf("task %d failed: %s", task.ID, result.Error)
 			}
 		}
 	}
@@ -385,7 +383,7 @@ func GetExecutionProgress(database *db.DB) (*ExecutionProgress, error) {
 			task, err := GetTask(database, id)
 			if err == nil {
 				progress.CurrentTask = &TaskInfo{
-					ID:     task.ID,
+					ID:     strconv.FormatInt(task.ID, 10),
 					Title:  task.Title,
 					Status: task.Status,
 				}

@@ -10,7 +10,7 @@ import (
 
 // AddTaskEdge adds a dependency edge between tasks
 // from depends on to (to must be completed before from can start)
-func AddTaskEdge(database *db.DB, fromID, toID string) error {
+func AddTaskEdge(database *db.DB, fromID, toID int64) error {
 	// Check for cycle
 	hasCycle, _, err := CheckTaskCycle(database, fromID, toID)
 	if err != nil {
@@ -32,7 +32,7 @@ func AddTaskEdge(database *db.DB, fromID, toID string) error {
 }
 
 // RemoveTaskEdge removes a dependency edge between tasks
-func RemoveTaskEdge(database *db.DB, fromID, toID string) error {
+func RemoveTaskEdge(database *db.DB, fromID, toID int64) error {
 	_, err := database.Exec(
 		`DELETE FROM task_edges WHERE from_task_id = ? AND to_task_id = ?`,
 		fromID, toID,
@@ -94,9 +94,9 @@ func GetTaskEdgesByFeature(database *db.DB, featureID int64) ([]model.TaskEdge, 
 }
 
 // GetTaskDependencies retrieves tasks that this task depends on
-func GetTaskDependencies(database *db.DB, taskID string) ([]model.Task, error) {
+func GetTaskDependencies(database *db.DB, taskID int64) ([]model.Task, error) {
 	rows, err := database.Query(
-		`SELECT t.id, t.feature_id, t.skeleton_id, t.status, t.title, t.content,
+		`SELECT t.id, t.feature_id, t.parent_id, t.skeleton_id, t.status, t.title, t.level, t.skill, t.refs, t.content,
 		        t.target_file, t.target_line, t.target_function, t.result, t.error,
 		        t.created_at, t.started_at, t.completed_at, t.failed_at
 		 FROM tasks t
@@ -112,9 +112,9 @@ func GetTaskDependencies(database *db.DB, taskID string) ([]model.Task, error) {
 }
 
 // GetTaskDependents retrieves tasks that depend on this task
-func GetTaskDependents(database *db.DB, taskID string) ([]model.Task, error) {
+func GetTaskDependents(database *db.DB, taskID int64) ([]model.Task, error) {
 	rows, err := database.Query(
-		`SELECT t.id, t.feature_id, t.skeleton_id, t.status, t.title, t.content,
+		`SELECT t.id, t.feature_id, t.parent_id, t.skeleton_id, t.status, t.title, t.level, t.skill, t.refs, t.content,
 		        t.target_file, t.target_line, t.target_function, t.result, t.error,
 		        t.created_at, t.started_at, t.completed_at, t.failed_at
 		 FROM tasks t
@@ -130,7 +130,7 @@ func GetTaskDependents(database *db.DB, taskID string) ([]model.Task, error) {
 }
 
 // GetDependencyResults retrieves results of tasks that this task depends on
-func GetDependencyResults(database *db.DB, taskID string) ([]model.Dependency, error) {
+func GetDependencyResults(database *db.DB, taskID int64) ([]model.Dependency, error) {
 	deps, err := GetTaskDependencies(database, taskID)
 	if err != nil {
 		return nil, err
@@ -139,7 +139,7 @@ func GetDependencyResults(database *db.DB, taskID string) ([]model.Dependency, e
 	var results []model.Dependency
 	for _, t := range deps {
 		results = append(results, model.Dependency{
-			ID:     t.ID,
+			ID:     strconv.FormatInt(t.ID, 10),
 			Title:  t.Title,
 			Result: t.Result,
 			File:   t.TargetFile,
@@ -150,12 +150,12 @@ func GetDependencyResults(database *db.DB, taskID string) ([]model.Dependency, e
 
 // CheckTaskCycle checks if adding an edge would create a cycle
 // Uses DFS to detect if there's a path from toID to fromID
-func CheckTaskCycle(database *db.DB, fromID, toID string) (bool, []string, error) {
-	visited := make(map[string]bool)
+func CheckTaskCycle(database *db.DB, fromID, toID int64) (bool, []string, error) {
+	visited := make(map[int64]bool)
 	path := []string{}
 
-	var dfs func(current string) bool
-	dfs = func(current string) bool {
+	var dfs func(current int64) bool
+	dfs = func(current int64) bool {
 		if current == fromID {
 			return true
 		}
@@ -163,7 +163,7 @@ func CheckTaskCycle(database *db.DB, fromID, toID string) (bool, []string, error
 			return false
 		}
 		visited[current] = true
-		path = append(path, current)
+		path = append(path, strconv.FormatInt(current, 10))
 
 		deps, err := GetTaskDependencies(database, current)
 		if err != nil {
@@ -182,7 +182,7 @@ func CheckTaskCycle(database *db.DB, fromID, toID string) (bool, []string, error
 
 	hasCycle := dfs(toID)
 	if hasCycle {
-		path = append(path, fromID)
+		path = append(path, strconv.FormatInt(fromID, 10))
 	}
 	return hasCycle, path, nil
 }
@@ -195,8 +195,8 @@ func DetectAllCycles(database *db.DB) ([][]string, error) {
 	}
 
 	// Build adjacency list
-	graph := make(map[string][]string)
-	nodes := make(map[string]bool)
+	graph := make(map[int64][]int64)
+	nodes := make(map[int64]bool)
 	for _, e := range edges {
 		graph[e.FromTaskID] = append(graph[e.FromTaskID], e.ToTaskID)
 		nodes[e.FromTaskID] = true
@@ -204,12 +204,12 @@ func DetectAllCycles(database *db.DB) ([][]string, error) {
 	}
 
 	var cycles [][]string
-	visited := make(map[string]bool)
-	recStack := make(map[string]bool)
-	path := []string{}
+	visited := make(map[int64]bool)
+	recStack := make(map[int64]bool)
+	path := []int64{}
 
-	var dfs func(node string)
-	dfs = func(node string) {
+	var dfs func(node int64)
+	dfs = func(node int64) {
 		visited[node] = true
 		recStack[node] = true
 		path = append(path, node)
@@ -228,7 +228,9 @@ func DetectAllCycles(database *db.DB) ([][]string, error) {
 				}
 				if cycleStart >= 0 {
 					cycle := make([]string, len(path)-cycleStart)
-					copy(cycle, path[cycleStart:])
+					for i := cycleStart; i < len(path); i++ {
+						cycle[i-cycleStart] = strconv.FormatInt(path[i], 10)
+					}
 					cycles = append(cycles, cycle)
 				}
 			}
@@ -260,9 +262,9 @@ func TopologicalSortTasks(database *db.DB, featureID int64) ([]model.Task, error
 	}
 
 	// Build in-degree map and adjacency list
-	inDegree := make(map[string]int)
-	outEdges := make(map[string][]string)
-	taskMap := make(map[string]model.Task)
+	inDegree := make(map[int64]int)
+	outEdges := make(map[int64][]int64)
+	taskMap := make(map[int64]model.Task)
 
 	for _, t := range tasks {
 		inDegree[t.ID] = 0
@@ -275,7 +277,7 @@ func TopologicalSortTasks(database *db.DB, featureID int64) ([]model.Task, error
 	}
 
 	// Find nodes with no incoming edges
-	var queue []string
+	var queue []int64
 	for id, degree := range inDegree {
 		if degree == 0 {
 			queue = append(queue, id)
@@ -361,7 +363,7 @@ func TopologicalSortFeatures(database *db.DB, projectID string) ([]model.Feature
 // GetExecutableTasks retrieves pending tasks with all dependencies completed
 func GetExecutableTasks(database *db.DB) ([]model.Task, error) {
 	rows, err := database.Query(
-		`SELECT t.id, t.feature_id, t.skeleton_id, t.status, t.title, t.content,
+		`SELECT t.id, t.feature_id, t.parent_id, t.skeleton_id, t.status, t.title, t.level, t.skill, t.refs, t.content,
 		        t.target_file, t.target_line, t.target_function, t.result, t.error,
 		        t.created_at, t.started_at, t.completed_at, t.failed_at
 		 FROM tasks t
@@ -382,7 +384,7 @@ func GetExecutableTasks(database *db.DB) ([]model.Task, error) {
 }
 
 // IsTaskExecutable checks if a task can be executed
-func IsTaskExecutable(database *db.DB, taskID string) (bool, []model.Task, error) {
+func IsTaskExecutable(database *db.DB, taskID int64) (bool, []model.Task, error) {
 	task, err := GetTask(database, taskID)
 	if err != nil {
 		return false, nil, err
@@ -435,7 +437,7 @@ type FeatureRef struct {
 
 // TaskRef represents a task reference
 type TaskRef struct {
-	ID    string `json:"id"`
+	ID    int64  `json:"id"`
 	Title string `json:"title"`
 }
 
@@ -478,13 +480,10 @@ func ListAllEdges(database *db.DB) (*EdgeListResult, error) {
 
 	for rows.Next() {
 		var item TaskEdgeItem
-		var fromID, toID int64
-		if err := rows.Scan(&fromID, &item.From.Title, &toID, &item.To.Title); err != nil {
+		if err := rows.Scan(&item.From.ID, &item.From.Title, &item.To.ID, &item.To.Title); err != nil {
 			rows.Close()
 			return nil, fmt.Errorf("scan task edge: %w", err)
 		}
-		item.From.ID = strconv.FormatInt(fromID, 10)
-		item.To.ID = strconv.FormatInt(toID, 10)
 		result.TaskEdges = append(result.TaskEdges, item)
 	}
 	rows.Close()
@@ -573,12 +572,10 @@ func PrepareTaskEdgeInference(database *db.DB, featureID int64) (*InferenceConte
 			fromTask, _ := GetTask(database, e.FromTaskID)
 			toTask, _ := GetTask(database, e.ToTaskID)
 			if fromTask != nil && toTask != nil {
-				fromID, _ := strconv.ParseInt(e.FromTaskID, 10, 64)
-				toID, _ := strconv.ParseInt(e.ToTaskID, 10, 64)
 				ctx.Existing = append(ctx.Existing, InferenceExisting{
-					FromID:   fromID,
+					FromID:   e.FromTaskID,
 					FromName: fromTask.Title,
-					ToID:     toID,
+					ToID:     e.ToTaskID,
 					ToName:   toTask.Title,
 				})
 			}

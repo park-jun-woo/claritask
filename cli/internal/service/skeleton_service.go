@@ -2,17 +2,829 @@ package service
 
 import (
 	"bufio"
+	"bytes"
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"unicode"
 
 	"parkjunwoo.com/claritask/internal/db"
 	"parkjunwoo.com/claritask/internal/model"
 )
+
+// TechConfig holds tech stack configuration
+type TechConfig struct {
+	Backend  string // go, python, node, java
+	Frontend string // react, vue, angular, svelte
+}
+
+// ParseTechConfig parses tech map into TechConfig
+func ParseTechConfig(tech map[string]interface{}) TechConfig {
+	config := TechConfig{
+		Backend:  "python",
+		Frontend: "react",
+	}
+	if tech == nil {
+		return config
+	}
+	if b, ok := tech["backend"].(string); ok {
+		config.Backend = strings.ToLower(b)
+	}
+	if f, ok := tech["frontend"].(string); ok {
+		config.Frontend = strings.ToLower(f)
+	}
+	return config
+}
+
+// toSnakeCase converts PascalCase to snake_case
+func toSnakeCase(s string) string {
+	var result bytes.Buffer
+	for i, r := range s {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				result.WriteByte('_')
+			}
+			result.WriteRune(unicode.ToLower(r))
+		} else {
+			result.WriteRune(r)
+		}
+	}
+	return result.String()
+}
+
+// toPascalCase converts snake_case to PascalCase
+func toPascalCase(s string) string {
+	parts := strings.Split(s, "_")
+	var result bytes.Buffer
+	for _, part := range parts {
+		if len(part) > 0 {
+			result.WriteString(strings.ToUpper(string(part[0])))
+			if len(part) > 1 {
+				result.WriteString(part[1:])
+			}
+		}
+	}
+	return result.String()
+}
+
+// toCamelCase converts snake_case to camelCase
+func toCamelCase(s string) string {
+	pascal := toPascalCase(s)
+	if len(pascal) == 0 {
+		return ""
+	}
+	return strings.ToLower(string(pascal[0])) + pascal[1:]
+}
+
+// GetModelPath returns model file path based on tech config
+func GetModelPath(tech TechConfig, modelName string) string {
+	snake := toSnakeCase(modelName)
+	switch tech.Backend {
+	case "go", "golang":
+		return fmt.Sprintf("internal/model/%s.go", snake)
+	case "python", "fastapi", "django":
+		return fmt.Sprintf("models/%s.py", snake)
+	case "node", "typescript", "express":
+		return fmt.Sprintf("src/models/%s.ts", toCamelCase(modelName))
+	case "java", "spring":
+		return fmt.Sprintf("src/main/java/models/%s.java", toPascalCase(modelName))
+	default:
+		return fmt.Sprintf("models/%s.py", snake)
+	}
+}
+
+// GetServicePath returns service file path based on tech config
+func GetServicePath(tech TechConfig, serviceName, featureName string) string {
+	snake := toSnakeCase(featureName)
+	switch tech.Backend {
+	case "go", "golang":
+		return fmt.Sprintf("internal/service/%s_service.go", snake)
+	case "python", "fastapi", "django":
+		return fmt.Sprintf("services/%s_service.py", snake)
+	case "node", "typescript", "express":
+		return fmt.Sprintf("src/services/%sService.ts", toCamelCase(featureName))
+	case "java", "spring":
+		return fmt.Sprintf("src/main/java/services/%sService.java", toPascalCase(featureName))
+	default:
+		return fmt.Sprintf("services/%s_service.py", snake)
+	}
+}
+
+// GetAPIPath returns API handler file path based on tech config
+func GetAPIPath(tech TechConfig, featureName string) string {
+	snake := toSnakeCase(featureName)
+	switch tech.Backend {
+	case "go", "golang":
+		return fmt.Sprintf("internal/api/%s_handler.go", snake)
+	case "python", "fastapi":
+		return fmt.Sprintf("api/%s_router.py", snake)
+	case "django":
+		return fmt.Sprintf("api/views/%s.py", snake)
+	case "node", "typescript", "express":
+		return fmt.Sprintf("src/routes/%sRoutes.ts", toCamelCase(featureName))
+	case "java", "spring":
+		return fmt.Sprintf("src/main/java/controllers/%sController.java", toPascalCase(featureName))
+	default:
+		return fmt.Sprintf("api/%s_router.py", snake)
+	}
+}
+
+// GetUIPath returns UI component file path based on tech config
+func GetUIPath(tech TechConfig, componentName string) string {
+	pascal := toPascalCase(componentName)
+	switch tech.Frontend {
+	case "react":
+		return fmt.Sprintf("src/components/%s.tsx", pascal)
+	case "vue":
+		return fmt.Sprintf("src/components/%s.vue", pascal)
+	case "angular":
+		return fmt.Sprintf("src/app/components/%s/%s.component.ts", toSnakeCase(componentName), toSnakeCase(componentName))
+	case "svelte":
+		return fmt.Sprintf("src/lib/components/%s.svelte", pascal)
+	default:
+		return fmt.Sprintf("components/%s.tsx", pascal)
+	}
+}
+
+// goType converts FDL type to Go type
+func goType(fdlType string) string {
+	// Parse base type
+	baseType, _ := parseFieldType(fdlType)
+	switch baseType {
+	case "uuid":
+		return "string"
+	case "string":
+		return "string"
+	case "text":
+		return "string"
+	case "int":
+		return "int"
+	case "bigint":
+		return "int64"
+	case "float":
+		return "float64"
+	case "decimal":
+		return "float64"
+	case "boolean":
+		return "bool"
+	case "datetime":
+		return "time.Time"
+	case "date":
+		return "time.Time"
+	case "time":
+		return "string"
+	case "json":
+		return "json.RawMessage"
+	case "blob":
+		return "[]byte"
+	case "enum":
+		return "string"
+	default:
+		return "interface{}"
+	}
+}
+
+// pythonType converts FDL type to Python type hint
+func pythonType(fdlType string) string {
+	baseType, _ := parseFieldType(fdlType)
+	switch baseType {
+	case "uuid":
+		return "str"
+	case "string":
+		return "str"
+	case "text":
+		return "str"
+	case "int":
+		return "int"
+	case "bigint":
+		return "int"
+	case "float":
+		return "float"
+	case "decimal":
+		return "Decimal"
+	case "boolean":
+		return "bool"
+	case "datetime":
+		return "datetime"
+	case "date":
+		return "date"
+	case "time":
+		return "time"
+	case "json":
+		return "dict"
+	case "blob":
+		return "bytes"
+	case "enum":
+		return "str"
+	default:
+		return "Any"
+	}
+}
+
+// tsType converts FDL type to TypeScript type
+func tsType(fdlType string) string {
+	baseType, _ := parseFieldType(fdlType)
+	switch baseType {
+	case "uuid":
+		return "string"
+	case "string":
+		return "string"
+	case "text":
+		return "string"
+	case "int", "bigint":
+		return "number"
+	case "float", "decimal":
+		return "number"
+	case "boolean":
+		return "boolean"
+	case "datetime", "date", "time":
+		return "Date"
+	case "json":
+		return "Record<string, any>"
+	case "blob":
+		return "Buffer"
+	case "enum":
+		return "string"
+	default:
+		return "any"
+	}
+}
+
+// GenerateGoModel generates Go model skeleton
+func GenerateGoModel(m *FDLModel) string {
+	var buf bytes.Buffer
+	buf.WriteString("package model\n\n")
+
+	// Check if we need time import
+	needsTime := false
+	needsJSON := false
+	for _, f := range m.Fields {
+		baseType, _ := parseFieldType(f.Type)
+		if baseType == "datetime" || baseType == "date" {
+			needsTime = true
+		}
+		if baseType == "json" {
+			needsJSON = true
+		}
+	}
+
+	if needsTime || needsJSON {
+		buf.WriteString("import (\n")
+		if needsJSON {
+			buf.WriteString("\t\"encoding/json\"\n")
+		}
+		if needsTime {
+			buf.WriteString("\t\"time\"\n")
+		}
+		buf.WriteString(")\n\n")
+	}
+
+	buf.WriteString(fmt.Sprintf("// %s represents %s entity\n", toPascalCase(m.Name), m.Name))
+	buf.WriteString(fmt.Sprintf("type %s struct {\n", toPascalCase(m.Name)))
+	for _, field := range m.Fields {
+		fieldName := toPascalCase(field.Name)
+		fieldType := goType(field.Type)
+		jsonTag := toSnakeCase(field.Name)
+		buf.WriteString(fmt.Sprintf("\t%s %s `json:\"%s\"`\n", fieldName, fieldType, jsonTag))
+	}
+	buf.WriteString("}\n")
+	return buf.String()
+}
+
+// GeneratePythonModel generates Python model skeleton
+func GeneratePythonModel(m *FDLModel) string {
+	var buf bytes.Buffer
+	buf.WriteString("from dataclasses import dataclass\n")
+	buf.WriteString("from typing import Optional, Any\n")
+	buf.WriteString("from datetime import datetime, date, time\n")
+	buf.WriteString("from decimal import Decimal\n\n")
+
+	buf.WriteString("@dataclass\n")
+	buf.WriteString(fmt.Sprintf("class %s:\n", toPascalCase(m.Name)))
+	buf.WriteString(fmt.Sprintf("    \"\"\"Represents %s entity\"\"\"\n", m.Name))
+	for _, field := range m.Fields {
+		pyType := pythonType(field.Type)
+		buf.WriteString(fmt.Sprintf("    %s: %s\n", toSnakeCase(field.Name), pyType))
+	}
+	buf.WriteString("\n")
+	return buf.String()
+}
+
+// GenerateTSModel generates TypeScript model skeleton
+func GenerateTSModel(m *FDLModel) string {
+	var buf bytes.Buffer
+	buf.WriteString(fmt.Sprintf("// %s entity\n", m.Name))
+	buf.WriteString(fmt.Sprintf("export interface %s {\n", toPascalCase(m.Name)))
+	for _, field := range m.Fields {
+		fieldName := toCamelCase(field.Name)
+		fieldType := tsType(field.Type)
+		buf.WriteString(fmt.Sprintf("  %s: %s;\n", fieldName, fieldType))
+	}
+	buf.WriteString("}\n")
+	return buf.String()
+}
+
+// GenerateModelSkeleton generates model skeleton based on tech config
+func GenerateModelSkeleton(tech TechConfig, m *FDLModel) string {
+	switch tech.Backend {
+	case "go", "golang":
+		return GenerateGoModel(m)
+	case "python", "fastapi", "django":
+		return GeneratePythonModel(m)
+	case "node", "typescript", "express":
+		return GenerateTSModel(m)
+	default:
+		return GeneratePythonModel(m)
+	}
+}
+
+// GenerateGoService generates Go service skeleton
+func GenerateGoService(featureName string, services []FDLService) string {
+	var buf bytes.Buffer
+	buf.WriteString("package service\n\n")
+	buf.WriteString("import (\n")
+	buf.WriteString("\t\"fmt\"\n")
+	buf.WriteString("\n")
+	buf.WriteString("\t\"parkjunwoo.com/claritask/internal/db\"\n")
+	buf.WriteString(")\n\n")
+
+	for _, svc := range services {
+		funcName := toPascalCase(svc.Name)
+		buf.WriteString(fmt.Sprintf("// %s %s\n", funcName, svc.Desc))
+		buf.WriteString(fmt.Sprintf("func %s(database *db.DB) error {\n", funcName))
+		buf.WriteString("\t// TODO: Implement service logic\n")
+		for _, step := range svc.Steps {
+			if s, ok := step.(string); ok {
+				buf.WriteString(fmt.Sprintf("\t// Step: %s\n", s))
+			}
+		}
+		buf.WriteString("\treturn fmt.Errorf(\"not implemented\")\n")
+		buf.WriteString("}\n\n")
+	}
+	return buf.String()
+}
+
+// GeneratePythonService generates Python service skeleton
+func GeneratePythonService(featureName string, services []FDLService) string {
+	var buf bytes.Buffer
+	buf.WriteString("from typing import Any, Optional\n\n\n")
+
+	for _, svc := range services {
+		funcName := toSnakeCase(svc.Name)
+		buf.WriteString(fmt.Sprintf("def %s():\n", funcName))
+		buf.WriteString(fmt.Sprintf("    \"\"\"%s\"\"\"\n", svc.Desc))
+		buf.WriteString("    # TODO: Implement service logic\n")
+		for _, step := range svc.Steps {
+			if s, ok := step.(string); ok {
+				buf.WriteString(fmt.Sprintf("    # Step: %s\n", s))
+			}
+		}
+		buf.WriteString("    raise NotImplementedError()\n\n\n")
+	}
+	return buf.String()
+}
+
+// GenerateTSService generates TypeScript service skeleton
+func GenerateTSService(featureName string, services []FDLService) string {
+	var buf bytes.Buffer
+	buf.WriteString("// Service functions\n\n")
+
+	for _, svc := range services {
+		funcName := toCamelCase(svc.Name)
+		buf.WriteString(fmt.Sprintf("/**\n * %s\n */\n", svc.Desc))
+		buf.WriteString(fmt.Sprintf("export async function %s(): Promise<void> {\n", funcName))
+		buf.WriteString("  // TODO: Implement service logic\n")
+		for _, step := range svc.Steps {
+			if s, ok := step.(string); ok {
+				buf.WriteString(fmt.Sprintf("  // Step: %s\n", s))
+			}
+		}
+		buf.WriteString("  throw new Error('Not implemented');\n")
+		buf.WriteString("}\n\n")
+	}
+	return buf.String()
+}
+
+// GenerateServiceSkeleton generates service skeleton based on tech config
+func GenerateServiceSkeleton(tech TechConfig, featureName string, services []FDLService) string {
+	switch tech.Backend {
+	case "go", "golang":
+		return GenerateGoService(featureName, services)
+	case "python", "fastapi", "django":
+		return GeneratePythonService(featureName, services)
+	case "node", "typescript", "express":
+		return GenerateTSService(featureName, services)
+	default:
+		return GeneratePythonService(featureName, services)
+	}
+}
+
+// GenerateGoAPI generates Go API handler skeleton
+func GenerateGoAPI(featureName string, apis []FDLAPI) string {
+	var buf bytes.Buffer
+	buf.WriteString("package api\n\n")
+	buf.WriteString("import (\n")
+	buf.WriteString("\t\"net/http\"\n")
+	buf.WriteString(")\n\n")
+
+	for _, api := range apis {
+		methodName := methodToHandler(api.Method, api.Path)
+		buf.WriteString(fmt.Sprintf("// %s handles %s %s\n", methodName, api.Method, api.Path))
+		buf.WriteString(fmt.Sprintf("func %s(w http.ResponseWriter, r *http.Request) {\n", methodName))
+		buf.WriteString(fmt.Sprintf("\t// TODO: Implement %s %s\n", api.Method, api.Path))
+		if api.Use != "" {
+			buf.WriteString(fmt.Sprintf("\t// Uses: %s\n", api.Use))
+		}
+		buf.WriteString("\tw.WriteHeader(http.StatusNotImplemented)\n")
+		buf.WriteString("}\n\n")
+	}
+	return buf.String()
+}
+
+// GeneratePythonAPI generates Python FastAPI router skeleton
+func GeneratePythonAPI(featureName string, apis []FDLAPI) string {
+	var buf bytes.Buffer
+	buf.WriteString("from fastapi import APIRouter, HTTPException\n")
+	buf.WriteString("from typing import Any\n\n")
+	buf.WriteString(fmt.Sprintf("router = APIRouter(prefix=\"/api/%s\", tags=[\"%s\"])\n\n\n", toSnakeCase(featureName), featureName))
+
+	for _, api := range apis {
+		method := strings.ToLower(api.Method)
+		buf.WriteString(fmt.Sprintf("@router.%s(\"%s\")\n", method, api.Path))
+		funcName := pathToFuncName(api.Method, api.Path)
+		buf.WriteString(fmt.Sprintf("async def %s():\n", funcName))
+		if api.Summary != "" {
+			buf.WriteString(fmt.Sprintf("    \"\"\"%s\"\"\"\n", api.Summary))
+		}
+		buf.WriteString(fmt.Sprintf("    # TODO: Implement %s %s\n", api.Method, api.Path))
+		if api.Use != "" {
+			buf.WriteString(fmt.Sprintf("    # Uses: %s\n", api.Use))
+		}
+		buf.WriteString("    raise HTTPException(status_code=501, detail=\"Not implemented\")\n\n\n")
+	}
+	return buf.String()
+}
+
+// GenerateTSAPI generates TypeScript Express router skeleton
+func GenerateTSAPI(featureName string, apis []FDLAPI) string {
+	var buf bytes.Buffer
+	buf.WriteString("import { Router, Request, Response } from 'express';\n\n")
+	buf.WriteString("const router = Router();\n\n")
+
+	for _, api := range apis {
+		method := strings.ToLower(api.Method)
+		buf.WriteString(fmt.Sprintf("// %s\n", api.Summary))
+		buf.WriteString(fmt.Sprintf("router.%s('%s', async (req: Request, res: Response) => {\n", method, api.Path))
+		buf.WriteString(fmt.Sprintf("  // TODO: Implement %s %s\n", api.Method, api.Path))
+		if api.Use != "" {
+			buf.WriteString(fmt.Sprintf("  // Uses: %s\n", api.Use))
+		}
+		buf.WriteString("  res.status(501).json({ error: 'Not implemented' });\n")
+		buf.WriteString("});\n\n")
+	}
+
+	buf.WriteString("export default router;\n")
+	return buf.String()
+}
+
+// GenerateAPISkeleton generates API skeleton based on tech config
+func GenerateAPISkeleton(tech TechConfig, featureName string, apis []FDLAPI) string {
+	switch tech.Backend {
+	case "go", "golang":
+		return GenerateGoAPI(featureName, apis)
+	case "python", "fastapi":
+		return GeneratePythonAPI(featureName, apis)
+	case "node", "typescript", "express":
+		return GenerateTSAPI(featureName, apis)
+	default:
+		return GeneratePythonAPI(featureName, apis)
+	}
+}
+
+// GenerateReactComponent generates React component skeleton
+func GenerateReactComponent(ui *FDLUI) string {
+	var buf bytes.Buffer
+	componentName := toPascalCase(ui.Component)
+
+	buf.WriteString("import React, { useState, useEffect } from 'react';\n\n")
+
+	// Props interface
+	if ui.Props != nil && len(ui.Props) > 0 {
+		buf.WriteString(fmt.Sprintf("interface %sProps {\n", componentName))
+		for name, spec := range ui.Props {
+			propType := "any"
+			required := ""
+			if specMap, ok := spec.(map[string]interface{}); ok {
+				if t, ok := specMap["type"].(string); ok {
+					propType = tsType(t)
+				}
+				if opt, ok := specMap["optional"].(bool); ok && opt {
+					required = "?"
+				}
+			} else if t, ok := spec.(string); ok {
+				propType = tsType(t)
+			}
+			buf.WriteString(fmt.Sprintf("  %s%s: %s;\n", name, required, propType))
+		}
+		buf.WriteString("}\n\n")
+	}
+
+	// Component
+	propsArg := ""
+	if ui.Props != nil && len(ui.Props) > 0 {
+		propsArg = fmt.Sprintf("props: %sProps", componentName)
+	}
+	buf.WriteString(fmt.Sprintf("export const %s: React.FC<%sProps> = (%s) => {\n", componentName, componentName, propsArg))
+
+	// State
+	if ui.State != nil {
+		for _, state := range ui.State {
+			if s, ok := state.(string); ok {
+				// Parse "name: type = default" format
+				parts := strings.SplitN(s, ":", 2)
+				if len(parts) >= 1 {
+					stateName := strings.TrimSpace(parts[0])
+					defaultVal := "null"
+					if strings.Contains(s, "=") {
+						eqIdx := strings.Index(s, "=")
+						defaultVal = strings.TrimSpace(s[eqIdx+1:])
+					}
+					buf.WriteString(fmt.Sprintf("  const [%s, set%s] = useState(%s);\n", stateName, toPascalCase(stateName), defaultVal))
+				}
+			}
+		}
+		buf.WriteString("\n")
+	}
+
+	// Init useEffect
+	if ui.Init != nil && len(ui.Init) > 0 {
+		buf.WriteString("  useEffect(() => {\n")
+		buf.WriteString("    // TODO: Implement initialization\n")
+		for _, init := range ui.Init {
+			if s, ok := init.(string); ok {
+				buf.WriteString(fmt.Sprintf("    // %s\n", s))
+			}
+		}
+		buf.WriteString("  }, []);\n\n")
+	}
+
+	// Methods
+	if ui.Methods != nil {
+		for name, steps := range ui.Methods {
+			buf.WriteString(fmt.Sprintf("  const %s = () => {\n", name))
+			buf.WriteString("    // TODO: Implement method\n")
+			if stepsList, ok := steps.([]interface{}); ok {
+				for _, step := range stepsList {
+					if s, ok := step.(string); ok {
+						buf.WriteString(fmt.Sprintf("    // %s\n", s))
+					}
+				}
+			}
+			buf.WriteString("  };\n\n")
+		}
+	}
+
+	// Render
+	buf.WriteString("  return (\n")
+	buf.WriteString("    <div>\n")
+	buf.WriteString(fmt.Sprintf("      {/* TODO: Implement %s UI */}\n", componentName))
+	buf.WriteString("    </div>\n")
+	buf.WriteString("  );\n")
+	buf.WriteString("};\n\n")
+	buf.WriteString(fmt.Sprintf("export default %s;\n", componentName))
+
+	return buf.String()
+}
+
+// GenerateVueComponent generates Vue component skeleton
+func GenerateVueComponent(ui *FDLUI) string {
+	var buf bytes.Buffer
+	componentName := toPascalCase(ui.Component)
+
+	buf.WriteString("<template>\n")
+	buf.WriteString("  <div>\n")
+	buf.WriteString(fmt.Sprintf("    <!-- TODO: Implement %s UI -->\n", componentName))
+	buf.WriteString("  </div>\n")
+	buf.WriteString("</template>\n\n")
+
+	buf.WriteString("<script setup lang=\"ts\">\n")
+	buf.WriteString("import { ref, onMounted } from 'vue';\n\n")
+
+	// Props
+	if ui.Props != nil && len(ui.Props) > 0 {
+		buf.WriteString("const props = defineProps<{\n")
+		for name, spec := range ui.Props {
+			propType := "any"
+			if specMap, ok := spec.(map[string]interface{}); ok {
+				if t, ok := specMap["type"].(string); ok {
+					propType = tsType(t)
+				}
+			} else if t, ok := spec.(string); ok {
+				propType = tsType(t)
+			}
+			buf.WriteString(fmt.Sprintf("  %s?: %s;\n", name, propType))
+		}
+		buf.WriteString("}>;\n\n")
+	}
+
+	// State
+	if ui.State != nil {
+		for _, state := range ui.State {
+			if s, ok := state.(string); ok {
+				parts := strings.SplitN(s, ":", 2)
+				if len(parts) >= 1 {
+					stateName := strings.TrimSpace(parts[0])
+					defaultVal := "null"
+					if strings.Contains(s, "=") {
+						eqIdx := strings.Index(s, "=")
+						defaultVal = strings.TrimSpace(s[eqIdx+1:])
+					}
+					buf.WriteString(fmt.Sprintf("const %s = ref(%s);\n", stateName, defaultVal))
+				}
+			}
+		}
+		buf.WriteString("\n")
+	}
+
+	// Init
+	if ui.Init != nil && len(ui.Init) > 0 {
+		buf.WriteString("onMounted(() => {\n")
+		buf.WriteString("  // TODO: Implement initialization\n")
+		buf.WriteString("});\n\n")
+	}
+
+	// Methods
+	if ui.Methods != nil {
+		for name := range ui.Methods {
+			buf.WriteString(fmt.Sprintf("const %s = () => {\n", name))
+			buf.WriteString("  // TODO: Implement method\n")
+			buf.WriteString("};\n\n")
+		}
+	}
+
+	buf.WriteString("</script>\n\n")
+	buf.WriteString("<style scoped>\n")
+	buf.WriteString("</style>\n")
+
+	return buf.String()
+}
+
+// GenerateUISkeleton generates UI skeleton based on tech config
+func GenerateUISkeleton(tech TechConfig, ui *FDLUI) string {
+	switch tech.Frontend {
+	case "react":
+		return GenerateReactComponent(ui)
+	case "vue":
+		return GenerateVueComponent(ui)
+	default:
+		return GenerateReactComponent(ui)
+	}
+}
+
+// methodToHandler converts HTTP method and path to handler function name
+func methodToHandler(method, path string) string {
+	// Extract resource name from path
+	parts := strings.Split(path, "/")
+	resourceName := ""
+	for _, p := range parts {
+		if p != "" && !strings.HasPrefix(p, "{") && !strings.HasPrefix(p, ":") {
+			resourceName = p
+		}
+	}
+	return fmt.Sprintf("Handle%s%s", toPascalCase(strings.ToLower(method)), toPascalCase(resourceName))
+}
+
+// pathToFuncName converts HTTP method and path to Python function name
+func pathToFuncName(method, path string) string {
+	parts := strings.Split(path, "/")
+	resourceName := ""
+	for _, p := range parts {
+		if p != "" && !strings.HasPrefix(p, "{") && !strings.HasPrefix(p, ":") {
+			resourceName = p
+		}
+	}
+	return fmt.Sprintf("%s_%s", strings.ToLower(method), toSnakeCase(resourceName))
+}
+
+// SkeletonFile represents a skeleton file to be generated
+type SkeletonFile struct {
+	Path    string `json:"path"`
+	Layer   string `json:"layer"`
+	Content string `json:"content,omitempty"`
+}
+
+// SkeletonResult represents the result of skeleton generation
+type SkeletonResult struct {
+	FeatureID int64          `json:"feature_id"`
+	Files     []SkeletonFile `json:"files"`
+	Errors    []string       `json:"errors,omitempty"`
+}
+
+// GenerateSkeletons generates all skeleton files for a feature from FDL
+func GenerateSkeletons(database *db.DB, featureID int64, dryRun bool) (*SkeletonResult, error) {
+	result := &SkeletonResult{
+		FeatureID: featureID,
+		Files:     []SkeletonFile{},
+	}
+
+	// Get feature
+	feature, err := GetFeature(database, featureID)
+	if err != nil {
+		return nil, fmt.Errorf("get feature: %w", err)
+	}
+
+	if feature.FDL == "" {
+		return nil, fmt.Errorf("no FDL defined for feature %d", featureID)
+	}
+
+	// Parse FDL
+	spec, err := ParseFDL(feature.FDL)
+	if err != nil {
+		return nil, fmt.Errorf("parse FDL: %w", err)
+	}
+
+	// Get tech stack
+	tech, _ := GetTech(database)
+	techConfig := ParseTechConfig(tech)
+
+	// Generate model skeletons
+	for _, m := range spec.Models {
+		path := GetModelPath(techConfig, m.Name)
+		content := GenerateModelSkeleton(techConfig, &m)
+		result.Files = append(result.Files, SkeletonFile{
+			Path:    path,
+			Layer:   "model",
+			Content: content,
+		})
+	}
+
+	// Generate service skeletons (one file for all services)
+	if len(spec.Service) > 0 {
+		path := GetServicePath(techConfig, "", spec.Feature)
+		content := GenerateServiceSkeleton(techConfig, spec.Feature, spec.Service)
+		result.Files = append(result.Files, SkeletonFile{
+			Path:    path,
+			Layer:   "service",
+			Content: content,
+		})
+	}
+
+	// Generate API skeletons (one file for all APIs)
+	if len(spec.API) > 0 {
+		path := GetAPIPath(techConfig, spec.Feature)
+		content := GenerateAPISkeleton(techConfig, spec.Feature, spec.API)
+		result.Files = append(result.Files, SkeletonFile{
+			Path:    path,
+			Layer:   "api",
+			Content: content,
+		})
+	}
+
+	// Generate UI skeletons
+	for _, ui := range spec.UI {
+		path := GetUIPath(techConfig, ui.Component)
+		content := GenerateUISkeleton(techConfig, &ui)
+		result.Files = append(result.Files, SkeletonFile{
+			Path:    path,
+			Layer:   "ui",
+			Content: content,
+		})
+	}
+
+	// If not dry-run, write files and save to DB
+	if !dryRun {
+		for _, f := range result.Files {
+			// Create directory if needed
+			dir := filepath.Dir(f.Path)
+			if err := os.MkdirAll(dir, 0755); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("create dir %s: %v", dir, err))
+				continue
+			}
+
+			// Write file
+			if err := os.WriteFile(f.Path, []byte(f.Content), 0644); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("write file %s: %v", f.Path, err))
+				continue
+			}
+
+			// Save to database
+			if _, err := CreateSkeleton(database, featureID, f.Path, f.Layer); err != nil {
+				result.Errors = append(result.Errors, fmt.Sprintf("save skeleton %s: %v", f.Path, err))
+			}
+		}
+
+		// Mark feature as skeleton generated
+		feature.SkeletonGenerated = true
+		UpdateFeature(database, feature)
+	}
+
+	return result, nil
+}
 
 // CreateSkeleton creates a skeleton record
 func CreateSkeleton(database *db.DB, featureID int64, filePath, layer string) (int64, error) {

@@ -13,8 +13,12 @@ import (
 // TaskCreateInput represents input for creating a task
 type TaskCreateInput struct {
 	FeatureID      int64
+	ParentID       *int64
 	SkeletonID     *int64
 	Title          string
+	Level          string   // leaf, parent
+	Skill          string   // sql, python, go, etc
+	References     []string // 참조 파일 경로들
 	Content        string
 	TargetFile     string
 	TargetLine     *int
@@ -25,11 +29,25 @@ type TaskCreateInput struct {
 func CreateTask(database *db.DB, input TaskCreateInput) (int64, error) {
 	now := db.TimeNow()
 
+	// Default level to "leaf" if not specified
+	level := input.Level
+	if level == "" {
+		level = "leaf"
+	}
+
+	// Convert references to JSON
+	refsJSON := "[]"
+	if len(input.References) > 0 {
+		if data, err := json.Marshal(input.References); err == nil {
+			refsJSON = string(data)
+		}
+	}
+
 	result, err := database.Exec(
-		`INSERT INTO tasks (feature_id, skeleton_id, title, content,
+		`INSERT INTO tasks (feature_id, parent_id, skeleton_id, title, level, skill, refs, content,
 		 target_file, target_line, target_function, status, created_at)
-		 VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
-		input.FeatureID, input.SkeletonID, input.Title, input.Content,
+		 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		input.FeatureID, input.ParentID, input.SkeletonID, input.Title, level, input.Skill, refsJSON, input.Content,
 		input.TargetFile, input.TargetLine, input.TargetFunction, now,
 	)
 	if err != nil {
@@ -59,7 +77,7 @@ func GetTask(database *db.DB, id interface{}) (*model.Task, error) {
 	}
 
 	row := database.QueryRow(
-		`SELECT id, feature_id, skeleton_id, status, title, content,
+		`SELECT id, feature_id, parent_id, skeleton_id, status, title, level, skill, refs, content,
 		        target_file, target_line, target_function, result, error,
 		        created_at, started_at, completed_at, failed_at
 		 FROM tasks WHERE id = ?`, idInt,
@@ -69,14 +87,14 @@ func GetTask(database *db.DB, id interface{}) (*model.Task, error) {
 
 func scanTask(row *sql.Row) (*model.Task, error) {
 	var t model.Task
-	var idInt, featureIDInt int64
-	var skeletonID sql.NullInt64
+	var parentID, skeletonID sql.NullInt64
 	var targetLine sql.NullInt64
+	var refsJSON string
 	var createdAt string
 	var startedAt, completedAt, failedAt sql.NullString
 
 	err := row.Scan(
-		&idInt, &featureIDInt, &skeletonID, &t.Status, &t.Title, &t.Content,
+		&t.ID, &t.FeatureID, &parentID, &skeletonID, &t.Status, &t.Title, &t.Level, &t.Skill, &refsJSON, &t.Content,
 		&t.TargetFile, &targetLine, &t.TargetFunction, &t.Result, &t.Error,
 		&createdAt, &startedAt, &completedAt, &failedAt,
 	)
@@ -84,14 +102,20 @@ func scanTask(row *sql.Row) (*model.Task, error) {
 		return nil, fmt.Errorf("scan task: %w", err)
 	}
 
-	t.ID = strconv.FormatInt(idInt, 10)
-	t.FeatureID = featureIDInt
+	if parentID.Valid {
+		t.ParentID = &parentID.Int64
+	}
 	if skeletonID.Valid {
 		t.SkeletonID = &skeletonID.Int64
 	}
 	if targetLine.Valid {
 		line := int(targetLine.Int64)
 		t.TargetLine = &line
+	}
+
+	// Parse refs JSON
+	if refsJSON != "" && refsJSON != "[]" {
+		json.Unmarshal([]byte(refsJSON), &t.References)
 	}
 
 	t.CreatedAt, _ = db.ParseTime(createdAt)
@@ -116,14 +140,14 @@ func scanTasks(rows *sql.Rows) ([]model.Task, error) {
 	var tasks []model.Task
 	for rows.Next() {
 		var t model.Task
-		var idInt, featureIDInt int64
-		var skeletonID sql.NullInt64
+		var parentID, skeletonID sql.NullInt64
 		var targetLine sql.NullInt64
+		var refsJSON string
 		var createdAt string
 		var startedAt, completedAt, failedAt sql.NullString
 
 		err := rows.Scan(
-			&idInt, &featureIDInt, &skeletonID, &t.Status, &t.Title, &t.Content,
+			&t.ID, &t.FeatureID, &parentID, &skeletonID, &t.Status, &t.Title, &t.Level, &t.Skill, &refsJSON, &t.Content,
 			&t.TargetFile, &targetLine, &t.TargetFunction, &t.Result, &t.Error,
 			&createdAt, &startedAt, &completedAt, &failedAt,
 		)
@@ -131,14 +155,20 @@ func scanTasks(rows *sql.Rows) ([]model.Task, error) {
 			return nil, fmt.Errorf("scan task: %w", err)
 		}
 
-		t.ID = strconv.FormatInt(idInt, 10)
-		t.FeatureID = featureIDInt
+		if parentID.Valid {
+			t.ParentID = &parentID.Int64
+		}
 		if skeletonID.Valid {
 			t.SkeletonID = &skeletonID.Int64
 		}
 		if targetLine.Valid {
 			line := int(targetLine.Int64)
 			t.TargetLine = &line
+		}
+
+		// Parse refs JSON
+		if refsJSON != "" && refsJSON != "[]" {
+			json.Unmarshal([]byte(refsJSON), &t.References)
 		}
 
 		t.CreatedAt, _ = db.ParseTime(createdAt)
@@ -163,7 +193,7 @@ func scanTasks(rows *sql.Rows) ([]model.Task, error) {
 // ListTasksByFeature lists all tasks for a feature
 func ListTasksByFeature(database *db.DB, featureID int64) ([]model.Task, error) {
 	rows, err := database.Query(
-		`SELECT id, feature_id, skeleton_id, status, title, content,
+		`SELECT id, feature_id, parent_id, skeleton_id, status, title, level, skill, refs, content,
 		        target_file, target_line, target_function, result, error,
 		        created_at, started_at, completed_at, failed_at
 		 FROM tasks WHERE feature_id = ? ORDER BY id`, featureID,
@@ -179,7 +209,7 @@ func ListTasksByFeature(database *db.DB, featureID int64) ([]model.Task, error) 
 // ListAllTasks lists all tasks
 func ListAllTasks(database *db.DB) ([]model.Task, error) {
 	rows, err := database.Query(
-		`SELECT id, feature_id, skeleton_id, status, title, content,
+		`SELECT id, feature_id, parent_id, skeleton_id, status, title, level, skill, refs, content,
 		        target_file, target_line, target_function, result, error,
 		        created_at, started_at, completed_at, failed_at
 		 FROM tasks ORDER BY id`,
@@ -250,13 +280,21 @@ type TaskPopResult struct {
 }
 
 // PopTask pops the next pending task with manifest
+// Only returns tasks whose dependencies (task_edges) are all completed
 func PopTask(database *db.DB) (*TaskPopResult, error) {
-	// Get next pending task
+	// Get next pending task with all dependencies completed
 	row := database.QueryRow(
-		`SELECT id, feature_id, skeleton_id, status, title, content,
+		`SELECT id, feature_id, parent_id, skeleton_id, status, title, level, skill, refs, content,
 		        target_file, target_line, target_function, result, error,
 		        created_at, started_at, completed_at, failed_at
-		 FROM tasks WHERE status = 'pending' ORDER BY id LIMIT 1`,
+		 FROM tasks t
+		 WHERE t.status = 'pending'
+		 AND NOT EXISTS (
+		     SELECT 1 FROM task_edges e
+		     JOIN tasks dep ON e.to_task_id = dep.id
+		     WHERE e.from_task_id = t.id AND dep.status != 'done'
+		 )
+		 ORDER BY t.id LIMIT 1`,
 	)
 	task, err := scanTask(row)
 	if err != nil {
@@ -267,8 +305,7 @@ func PopTask(database *db.DB) (*TaskPopResult, error) {
 	}
 
 	// Start the task
-	taskID, _ := strconv.ParseInt(task.ID, 10, 64)
-	if err := StartTask(database, taskID); err != nil {
+	if err := StartTask(database, task.ID); err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
 	}
 
@@ -280,6 +317,7 @@ func PopTask(database *db.DB) (*TaskPopResult, error) {
 		Context: make(map[string]interface{}),
 		Tech:    make(map[string]interface{}),
 		Design:  make(map[string]interface{}),
+		Experts: []model.ExpertInfo{},
 		State:   make(map[string]string),
 		Memos:   []model.MemoData{},
 	}
@@ -320,8 +358,22 @@ func PopTask(database *db.DB) (*TaskPopResult, error) {
 		}
 	}
 
-	// Update current state
+	// Get assigned experts (project-level)
 	project, _ := GetProject(database)
+	if project != nil {
+		experts, err := GetAssignedExperts(database, project.ID)
+		if err == nil {
+			manifest.Experts = experts
+		}
+	}
+
+	// Get feature-level experts and merge
+	featureExperts, err := GetAssignedExpertsByFeature(database, task.FeatureID)
+	if err == nil && len(featureExperts) > 0 {
+		manifest.Experts = mergeExperts(manifest.Experts, featureExperts)
+	}
+
+	// Update current state
 	projectID := ""
 	if project != nil {
 		projectID = project.ID
@@ -329,10 +381,10 @@ func PopTask(database *db.DB) (*TaskPopResult, error) {
 
 	// Find next task
 	var nextTaskID int64
-	row = database.QueryRow(`SELECT id FROM tasks WHERE status = 'pending' AND id > ? ORDER BY id LIMIT 1`, taskID)
+	row = database.QueryRow(`SELECT id FROM tasks WHERE status = 'pending' AND id > ? ORDER BY id LIMIT 1`, task.ID)
 	row.Scan(&nextTaskID)
 
-	UpdateCurrentState(database, projectID, task.FeatureID, taskID, nextTaskID)
+	UpdateCurrentState(database, projectID, task.FeatureID, task.ID, nextTaskID)
 
 	// Start feature if pending
 	feature, err := GetFeature(database, task.FeatureID)
@@ -391,8 +443,7 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 	}
 
 	// Start the task
-	taskID, _ := strconv.ParseInt(task.ID, 10, 64)
-	if err := StartTask(database, taskID); err != nil {
+	if err := StartTask(database, task.ID); err != nil {
 		return nil, fmt.Errorf("start task: %w", err)
 	}
 	task.Status = "doing"
@@ -458,13 +509,19 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 		}
 	}
 
-	// Add assigned experts to manifest
+	// Add assigned experts to manifest (project-level)
 	project, _ := GetProject(database)
 	if project != nil {
 		experts, err := GetAssignedExperts(database, project.ID)
 		if err == nil {
 			manifest.Experts = experts
 		}
+	}
+
+	// Add feature-level experts and merge
+	featureExperts, err := GetAssignedExpertsByFeature(database, task.FeatureID)
+	if err == nil && len(featureExperts) > 0 {
+		manifest.Experts = mergeExperts(manifest.Experts, featureExperts)
 	}
 
 	if state, err := GetAllStates(database); err == nil {
@@ -493,9 +550,9 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 	}
 
 	var nextTaskID int64
-	row := database.QueryRow(`SELECT id FROM tasks WHERE status = 'pending' AND id > ? ORDER BY id LIMIT 1`, taskID)
+	row := database.QueryRow(`SELECT id FROM tasks WHERE status = 'pending' AND id > ? ORDER BY id LIMIT 1`, task.ID)
 	row.Scan(&nextTaskID)
-	UpdateCurrentState(database, projectID, task.FeatureID, taskID, nextTaskID)
+	UpdateCurrentState(database, projectID, task.FeatureID, task.ID, nextTaskID)
 
 	// Start feature if pending
 	if feature != nil && feature.Status == "pending" {
@@ -508,17 +565,17 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 // GetNextExecutableTask returns the next pending task with all dependencies completed
 func GetNextExecutableTask(database *db.DB) (*model.Task, error) {
 	rows, err := database.Query(
-		`SELECT id, feature_id, skeleton_id, status, title, content,
+		`SELECT id, feature_id, parent_id, skeleton_id, status, title, level, skill, refs, content,
 		        target_file, target_line, target_function, result, error,
 		        created_at, started_at, completed_at, failed_at
-		 FROM tasks
-		 WHERE status = 'pending'
+		 FROM tasks t
+		 WHERE t.status = 'pending'
 		 AND NOT EXISTS (
 		     SELECT 1 FROM task_edges e
 		     JOIN tasks dep ON e.to_task_id = dep.id
-		     WHERE e.from_task_id = tasks.id AND dep.status != 'done'
+		     WHERE e.from_task_id = t.id AND dep.status != 'done'
 		 )
-		 ORDER BY id LIMIT 1`,
+		 ORDER BY t.id LIMIT 1`,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("get next executable task: %w", err)
@@ -556,7 +613,7 @@ func ListTasksWithDependencies(database *db.DB, featureID int64) ([]TaskListItem
 	var items []TaskListItem
 	for _, t := range tasks {
 		item := TaskListItem{
-			ID:             t.ID,
+			ID:             strconv.FormatInt(t.ID, 10),
 			FeatureID:      t.FeatureID,
 			Title:          t.Title,
 			Status:         t.Status,
@@ -567,7 +624,7 @@ func ListTasksWithDependencies(database *db.DB, featureID int64) ([]TaskListItem
 		// Get dependencies
 		deps, _ := GetTaskDependencies(database, t.ID)
 		for _, dep := range deps {
-			item.DependsOn = append(item.DependsOn, dep.ID)
+			item.DependsOn = append(item.DependsOn, strconv.FormatInt(dep.ID, 10))
 		}
 
 		items = append(items, item)
@@ -591,4 +648,24 @@ func ResetTaskToPending(database *db.DB, id int64) error {
 		return fmt.Errorf("reset task: %w", err)
 	}
 	return nil
+}
+
+// mergeExperts merges two expert lists, removing duplicates
+func mergeExperts(a, b []model.ExpertInfo) []model.ExpertInfo {
+	seen := make(map[string]bool)
+	result := []model.ExpertInfo{}
+
+	for _, e := range a {
+		if !seen[e.ID] {
+			seen[e.ID] = true
+			result = append(result, e)
+		}
+	}
+	for _, e := range b {
+		if !seen[e.ID] {
+			seen[e.ID] = true
+			result = append(result, e)
+		}
+	}
+	return result
 }

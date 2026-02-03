@@ -13,15 +13,19 @@ type Project struct {
 
 // Task - 작업 테이블
 type Task struct {
-	ID             string
-	FeatureID      int64  // Feature ID (required)
-	SkeletonID     *int64 // Skeleton ID (nullable)
-	Status         string // pending, doing, done, failed
+	ID             int64      // Task ID (auto increment)
+	FeatureID      int64      // Feature ID (required)
+	ParentID       *int64     // Parent Task ID (nullable, for hierarchy)
+	SkeletonID     *int64     // Skeleton ID (nullable)
+	Status         string     // pending, doing, done, failed
 	Title          string
+	Level          string     // leaf, parent
+	Skill          string     // sql, python, go, etc
+	References     []string   // 참조 파일 경로들
 	Content        string
-	TargetFile     string // 구현 대상 파일 경로
-	TargetLine     *int   // 구현 대상 라인 번호
-	TargetFunction string // 구현 대상 함수명
+	TargetFile     string     // 구현 대상 파일 경로
+	TargetLine     *int       // 구현 대상 라인 번호
+	TargetFunction string     // 구현 대상 함수명
 	Result         string
 	Error          string
 	CreatedAt      time.Time
@@ -82,6 +86,7 @@ type Feature struct {
 	FDLHash           string // FDL 변경 감지용 해시
 	SkeletonGenerated bool   // 스켈레톤 생성 완료 여부
 	Status            string // pending, active, done
+	Version           int    // Optimistic locking 버전
 	CreatedAt         time.Time
 }
 
@@ -94,8 +99,8 @@ type FeatureEdge struct {
 
 // TaskEdge - Task 간 의존성
 type TaskEdge struct {
-	FromTaskID string
-	ToTaskID   string
+	FromTaskID int64
+	ToTaskID   int64
 	CreatedAt  time.Time
 }
 
@@ -124,6 +129,13 @@ type MemoData struct {
 	Priority int                    `json:"priority"`
 }
 
+// MemoContent - 메모 내용 구조 (Data 필드 내부 형식)
+type MemoContent struct {
+	Value   string   `json:"value"`             // 메모 내용 (필수)
+	Summary string   `json:"summary,omitempty"` // 요약
+	Tags    []string `json:"tags,omitempty"`    // 태그 목록
+}
+
 // FDLInfo - FDL 정보 (task pop 시 반환)
 type FDLInfo struct {
 	Feature string                 `json:"feature"`
@@ -142,15 +154,21 @@ type SkeletonInfo struct {
 
 // Expert - Expert 정의 (파일 기반, 메타데이터만 DB 저장)
 type Expert struct {
-	ID        string    // expert-id (폴더명)
-	Name      string    // Expert 이름
-	Version   string    // 버전
-	Domain    string    // 도메인 설명
-	Language  string    // 주 언어
-	Framework string    // 주 프레임워크
-	Path      string    // EXPERT.md 파일 경로
-	Assigned  bool      // 현재 프로젝트에 할당 여부
-	CreatedAt time.Time
+	ID            string    // expert-id (폴더명)
+	Name          string    // Expert 이름
+	Version       string    // 버전
+	Domain        string    // 도메인 설명
+	Language      string    // 주 언어
+	Framework     string    // 주 프레임워크
+	Path          string    // EXPERT.md 파일 경로
+	Description   string    // 간단한 설명
+	Content       string    // EXPERT.md 내용
+	ContentHash   string    // 변경 감지용 해시
+	ContentBackup string    // VSCode 편집 전 백업
+	Status        string    // active, archived
+	Assigned      bool      // 현재 프로젝트에 할당 여부
+	CreatedAt     time.Time
+	UpdatedAt     time.Time
 }
 
 // ProjectExpert - 프로젝트-Expert 연결
@@ -158,6 +176,13 @@ type ProjectExpert struct {
 	ProjectID  string
 	ExpertID   string
 	AssignedAt time.Time
+}
+
+// ExpertAssignment - Feature-Expert 연결
+type ExpertAssignment struct {
+	ExpertID  string
+	FeatureID int64
+	CreatedAt time.Time
 }
 
 // ExpertInfo - Expert 정보 (manifest 포함용)

@@ -1,16 +1,10 @@
 package test
 
 import (
-	"fmt"
 	"testing"
 
 	"parkjunwoo.com/claritask/internal/service"
 )
-
-// Helper to convert int64 to string for edge functions
-func taskIDStr(id int64) string {
-	return fmt.Sprintf("%d", id)
-}
 
 func TestAddTaskEdge(t *testing.T) {
 	database, cleanup := setupTestDB(t)
@@ -22,7 +16,7 @@ func TestAddTaskEdge(t *testing.T) {
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 
 	// Add edge: task2 depends on task1
-	err := service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	err := service.AddTaskEdge(database, task2, task1)
 	if err != nil {
 		t.Fatalf("AddTaskEdge failed: %v", err)
 	}
@@ -37,9 +31,9 @@ func TestRemoveTaskEdge(t *testing.T) {
 	task1, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 1"})
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	service.AddTaskEdge(database, task2, task1)
 
-	err := service.RemoveTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	err := service.RemoveTaskEdge(database, task2, task1)
 	if err != nil {
 		t.Fatalf("RemoveTaskEdge failed: %v", err)
 	}
@@ -55,8 +49,8 @@ func TestGetTaskEdges(t *testing.T) {
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 	task3, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 3"})
 
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
-	service.AddTaskEdge(database, taskIDStr(task3), taskIDStr(task2))
+	service.AddTaskEdge(database, task2, task1)
+	service.AddTaskEdge(database, task3, task2)
 
 	edges, err := service.GetTaskEdges(database)
 	if err != nil {
@@ -77,9 +71,9 @@ func TestGetTaskDependencies(t *testing.T) {
 	task1, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 1"})
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	service.AddTaskEdge(database, task2, task1)
 
-	deps, err := service.GetTaskDependencies(database, taskIDStr(task2))
+	deps, err := service.GetTaskDependencies(database, task2)
 	if err != nil {
 		t.Fatalf("GetTaskDependencies failed: %v", err)
 	}
@@ -88,7 +82,7 @@ func TestGetTaskDependencies(t *testing.T) {
 		t.Errorf("Expected 1 dependency, got %d", len(deps))
 	}
 
-	if deps[0].ID != taskIDStr(task1) {
+	if deps[0].ID != task1 {
 		t.Errorf("Expected dependency on task1")
 	}
 }
@@ -102,9 +96,9 @@ func TestGetTaskDependents(t *testing.T) {
 	task1, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 1"})
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	service.AddTaskEdge(database, task2, task1)
 
-	dependents, err := service.GetTaskDependents(database, taskIDStr(task1))
+	dependents, err := service.GetTaskDependents(database, task1)
 	if err != nil {
 		t.Fatalf("GetTaskDependents failed: %v", err)
 	}
@@ -125,11 +119,11 @@ func TestCheckTaskCycle(t *testing.T) {
 	task3, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 3"})
 
 	// Create chain: task3 -> task2 -> task1
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
-	service.AddTaskEdge(database, taskIDStr(task3), taskIDStr(task2))
+	service.AddTaskEdge(database, task2, task1)
+	service.AddTaskEdge(database, task3, task2)
 
 	// Check if adding task1 -> task3 would create cycle
-	hasCycle, _, err := service.CheckTaskCycle(database, taskIDStr(task1), taskIDStr(task3))
+	hasCycle, _, err := service.CheckTaskCycle(database, task1, task3)
 	if err != nil {
 		t.Fatalf("CheckTaskCycle failed: %v", err)
 	}
@@ -150,8 +144,8 @@ func TestTopologicalSortTasks(t *testing.T) {
 	task3, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 3"})
 
 	// Create chain: task3 -> task2 -> task1
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
-	service.AddTaskEdge(database, taskIDStr(task3), taskIDStr(task2))
+	service.AddTaskEdge(database, task2, task1)
+	service.AddTaskEdge(database, task3, task2)
 
 	sorted, err := service.TopologicalSortTasks(database, featureID)
 	if err != nil {
@@ -166,11 +160,11 @@ func TestTopologicalSortTasks(t *testing.T) {
 	task1Pos, task2Pos, task3Pos := -1, -1, -1
 	for i, task := range sorted {
 		switch task.ID {
-		case taskIDStr(task1):
+		case task1:
 			task1Pos = i
-		case taskIDStr(task2):
+		case task2:
 			task2Pos = i
-		case taskIDStr(task3):
+		case task3:
 			task3Pos = i
 		}
 	}
@@ -190,7 +184,7 @@ func TestGetExecutableTasks(t *testing.T) {
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 
 	// Task2 depends on Task1
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	service.AddTaskEdge(database, task2, task1)
 
 	executable, err := service.GetExecutableTasks(database)
 	if err != nil {
@@ -202,7 +196,7 @@ func TestGetExecutableTasks(t *testing.T) {
 		t.Errorf("Expected 1 executable task, got %d", len(executable))
 	}
 
-	if executable[0].ID != taskIDStr(task1) {
+	if executable[0].ID != task1 {
 		t.Error("Expected Task1 to be executable")
 	}
 }
@@ -217,10 +211,10 @@ func TestIsTaskExecutable(t *testing.T) {
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
 
 	// Task2 depends on Task1
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	service.AddTaskEdge(database, task2, task1)
 
 	// Task1 should be executable
-	executable, _, err := service.IsTaskExecutable(database, taskIDStr(task1))
+	executable, _, err := service.IsTaskExecutable(database, task1)
 	if err != nil {
 		t.Fatalf("IsTaskExecutable failed: %v", err)
 	}
@@ -229,7 +223,7 @@ func TestIsTaskExecutable(t *testing.T) {
 	}
 
 	// Task2 should not be executable
-	executable, blocking, err := service.IsTaskExecutable(database, taskIDStr(task2))
+	executable, blocking, err := service.IsTaskExecutable(database, task2)
 	if err != nil {
 		t.Fatalf("IsTaskExecutable failed: %v", err)
 	}
@@ -256,7 +250,7 @@ func TestListAllEdges(t *testing.T) {
 	// Create task edges
 	task1, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 1"})
 	task2, _ := service.CreateTask(database, service.TaskCreateInput{FeatureID: featureID, Title: "Task 2"})
-	service.AddTaskEdge(database, taskIDStr(task2), taskIDStr(task1))
+	service.AddTaskEdge(database, task2, task1)
 
 	result, err := service.ListAllEdges(database)
 	if err != nil {

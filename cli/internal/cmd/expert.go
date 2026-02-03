@@ -68,6 +68,8 @@ var (
 	expertListAvailable bool
 	expertRemoveForce   bool
 	expertAssignProject string
+	expertAssignFeature int64
+	expertAddOpenEditor bool
 )
 
 func init() {
@@ -79,13 +81,17 @@ func init() {
 	expertCmd.AddCommand(expertAssignCmd)
 	expertCmd.AddCommand(expertUnassignCmd)
 
+	expertAddCmd.Flags().BoolVar(&expertAddOpenEditor, "edit", false, "Open editor after creation")
+
 	expertListCmd.Flags().BoolVar(&expertListAssigned, "assigned", false, "List only assigned experts")
 	expertListCmd.Flags().BoolVar(&expertListAvailable, "available", false, "List only available experts")
 
 	expertRemoveCmd.Flags().BoolVar(&expertRemoveForce, "force", false, "Force remove even if assigned")
 
 	expertAssignCmd.Flags().StringVar(&expertAssignProject, "project", "", "Project ID (default: current project)")
+	expertAssignCmd.Flags().Int64Var(&expertAssignFeature, "feature", 0, "Feature ID for feature-level assignment")
 	expertUnassignCmd.Flags().StringVar(&expertAssignProject, "project", "", "Project ID (default: current project)")
+	expertUnassignCmd.Flags().Int64Var(&expertAssignFeature, "feature", 0, "Feature ID for feature-level unassignment")
 }
 
 func runExpertAdd(cmd *cobra.Command, args []string) error {
@@ -103,6 +109,11 @@ func runExpertAdd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Open editor if --edit flag is set
+	if expertAddOpenEditor {
+		openEditor(expert.Path)
+	}
+
 	outputJSON(map[string]interface{}{
 		"success":   true,
 		"expert_id": expert.ID,
@@ -111,6 +122,25 @@ func runExpertAdd(cmd *cobra.Command, args []string) error {
 	})
 
 	return nil
+}
+
+// openEditor opens the specified file in the system editor
+func openEditor(filePath string) error {
+	editor := os.Getenv("EDITOR")
+	if editor == "" {
+		if runtime.GOOS == "windows" {
+			editor = "notepad"
+		} else {
+			editor = "vi"
+		}
+	}
+
+	execCmd := exec.Command(editor, filePath)
+	execCmd.Stdin = os.Stdin
+	execCmd.Stdout = os.Stdout
+	execCmd.Stderr = os.Stderr
+
+	return execCmd.Run()
 }
 
 func runExpertList(cmd *cobra.Command, args []string) error {
@@ -200,23 +230,7 @@ func runExpertEdit(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Determine editor
-	editor := os.Getenv("EDITOR")
-	if editor == "" {
-		if runtime.GOOS == "windows" {
-			editor = "notepad"
-		} else {
-			editor = "vi"
-		}
-	}
-
-	// Execute editor
-	execCmd := exec.Command(editor, expert.Path)
-	execCmd.Stdin = os.Stdin
-	execCmd.Stdout = os.Stdout
-	execCmd.Stderr = os.Stderr
-
-	if err := execCmd.Run(); err != nil {
+	if err := openEditor(expert.Path); err != nil {
 		outputError(fmt.Errorf("run editor: %w", err))
 		return nil
 	}
@@ -264,7 +278,23 @@ func runExpertAssign(cmd *cobra.Command, args []string) error {
 
 	expertID := args[0]
 
-	// Get project ID
+	// Feature-level assignment
+	if expertAssignFeature > 0 {
+		if err := service.AssignExpertToFeature(database, expertID, expertAssignFeature); err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(map[string]interface{}{
+			"success":    true,
+			"expert_id":  expertID,
+			"feature_id": expertAssignFeature,
+			"message":    "Expert assigned to feature",
+		})
+		return nil
+	}
+
+	// Project-level assignment
 	projectID := expertAssignProject
 	if projectID == "" {
 		project, err := service.GetProject(database)
@@ -300,7 +330,23 @@ func runExpertUnassign(cmd *cobra.Command, args []string) error {
 
 	expertID := args[0]
 
-	// Get project ID
+	// Feature-level unassignment
+	if expertAssignFeature > 0 {
+		if err := service.UnassignExpertFromFeature(database, expertID, expertAssignFeature); err != nil {
+			outputError(err)
+			return nil
+		}
+
+		outputJSON(map[string]interface{}{
+			"success":    true,
+			"expert_id":  expertID,
+			"feature_id": expertAssignFeature,
+			"message":    "Expert unassigned from feature",
+		})
+		return nil
+	}
+
+	// Project-level unassignment
 	projectID := expertAssignProject
 	if projectID == "" {
 		project, err := service.GetProject(database)

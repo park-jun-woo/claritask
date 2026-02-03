@@ -124,4 +124,38 @@ clari feature start <id>
 
 ---
 
+## clari feature tasks
+
+Feature의 Task 목록 조회
+
+```bash
+clari feature tasks <id>
+clari feature tasks <id> --generate  # FDL 없이 LLM으로 생성
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "feature_id": 1,
+  "tasks": [
+    {
+      "id": 1,
+      "title": "Create user model",
+      "status": "pending"
+    }
+  ],
+  "total": 1
+}
+```
+
+**옵션:**
+- `--generate`: FDL 없이 LLM으로 Task 생성 (실험적)
+
+**관련 명령어:**
+- `clari fdl tasks <id>`: FDL 기반 Task 생성 (권장)
+- `clari task list <feature_id>`: Task 목록 조회 (동일 기능)
+
+---
+
 *Claritask Commands Reference v0.0.4*

@@ -180,10 +180,18 @@ func runMemoList(cmd *cobra.Command, args []string) error {
 	for _, m := range memos {
 		var data map[string]interface{}
 		json.Unmarshal([]byte(m.Data), &data)
+
+		// Extract summary for display
+		summary := ""
+		if s, ok := data["summary"].(string); ok {
+			summary = s
+		}
+
 		memoList = append(memoList, map[string]interface{}{
 			"key":      m.Key,
 			"data":     data,
 			"priority": m.Priority,
+			"summary":  summary,
 		})
 	}
 

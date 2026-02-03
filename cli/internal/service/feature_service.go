@@ -28,13 +28,13 @@ func CreateFeature(database *db.DB, projectID, name, description string) (int64,
 // GetFeature retrieves a feature by ID
 func GetFeature(database *db.DB, id int64) (*model.Feature, error) {
 	row := database.QueryRow(
-		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated, status, created_at
+		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated, status, version, created_at
 		 FROM features WHERE id = ?`, id,
 	)
 	var f model.Feature
 	var createdAt string
 	var skeletonGenerated int
-	err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &createdAt)
+	err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &f.Version, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("get feature: %w", err)
 	}
@@ -46,7 +46,7 @@ func GetFeature(database *db.DB, id int64) (*model.Feature, error) {
 // ListFeatures retrieves all features for a project
 func ListFeatures(database *db.DB, projectID string) ([]model.Feature, error) {
 	rows, err := database.Query(
-		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated, status, created_at
+		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated, status, version, created_at
 		 FROM features WHERE project_id = ? ORDER BY id`, projectID,
 	)
 	if err != nil {
@@ -59,7 +59,7 @@ func ListFeatures(database *db.DB, projectID string) ([]model.Feature, error) {
 		var f model.Feature
 		var createdAt string
 		var skeletonGenerated int
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &createdAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &f.Version, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan feature: %w", err)
 		}
 		f.SkeletonGenerated = skeletonGenerated == 1
@@ -227,7 +227,7 @@ func GetFeatureEdges(database *db.DB, featureID int64) ([]model.FeatureEdge, err
 // GetFeatureDependencies retrieves features that this feature depends on
 func GetFeatureDependencies(database *db.DB, featureID int64) ([]model.Feature, error) {
 	rows, err := database.Query(
-		`SELECT f.id, f.project_id, f.name, f.description, f.spec, f.fdl, f.fdl_hash, f.skeleton_generated, f.status, f.created_at
+		`SELECT f.id, f.project_id, f.name, f.description, f.spec, f.fdl, f.fdl_hash, f.skeleton_generated, f.status, f.version, f.created_at
 		 FROM features f
 		 JOIN feature_edges e ON f.id = e.to_feature_id
 		 WHERE e.from_feature_id = ?`, featureID,
@@ -242,7 +242,7 @@ func GetFeatureDependencies(database *db.DB, featureID int64) ([]model.Feature, 
 		var f model.Feature
 		var createdAt string
 		var skeletonGenerated int
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &createdAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &f.Version, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan feature: %w", err)
 		}
 		f.SkeletonGenerated = skeletonGenerated == 1
@@ -255,7 +255,7 @@ func GetFeatureDependencies(database *db.DB, featureID int64) ([]model.Feature, 
 // GetFeatureDependents retrieves features that depend on this feature
 func GetFeatureDependents(database *db.DB, featureID int64) ([]model.Feature, error) {
 	rows, err := database.Query(
-		`SELECT f.id, f.project_id, f.name, f.description, f.spec, f.fdl, f.fdl_hash, f.skeleton_generated, f.status, f.created_at
+		`SELECT f.id, f.project_id, f.name, f.description, f.spec, f.fdl, f.fdl_hash, f.skeleton_generated, f.status, f.version, f.created_at
 		 FROM features f
 		 JOIN feature_edges e ON f.id = e.from_feature_id
 		 WHERE e.to_feature_id = ?`, featureID,
@@ -270,7 +270,7 @@ func GetFeatureDependents(database *db.DB, featureID int64) ([]model.Feature, er
 		var f model.Feature
 		var createdAt string
 		var skeletonGenerated int
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &createdAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &f.Version, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan feature: %w", err)
 		}
 		f.SkeletonGenerated = skeletonGenerated == 1

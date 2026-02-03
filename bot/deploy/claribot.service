@@ -1,0 +1,38 @@
+[Unit]
+Description=Claribot - Claritask Telegram Bot
+Documentation=https://github.com/yourrepo/claritask
+After=network.target
+
+[Service]
+Type=simple
+User=claribot
+Group=claribot
+
+# Environment file
+EnvironmentFile=/etc/claribot/claribot.env
+
+# Execution
+ExecStart=/usr/local/bin/claribot
+ExecReload=/bin/kill -HUP $MAINPID
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Resource limits
+MemoryMax=256M
+CPUQuota=50%
+
+# Security settings
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=claribot
+
+[Install]
+WantedBy=multi-user.target

@@ -12,7 +12,7 @@ import (
 )
 
 // LatestVersion is the current schema version
-const LatestVersion = 6
+const LatestVersion = 7
 
 // DB wraps sql.DB with additional functionality
 type DB struct {
@@ -221,6 +221,30 @@ CREATE TABLE IF NOT EXISTS expert_assignments (
     FOREIGN KEY (expert_id) REFERENCES experts(id),
     FOREIGN KEY (feature_id) REFERENCES features(id)
 );
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    feature_id INTEGER,
+    content TEXT NOT NULL,
+    response TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (feature_id) REFERENCES features(id)
+);
+
+CREATE TABLE IF NOT EXISTS message_tasks (
+    message_id INTEGER NOT NULL,
+    task_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (message_id, task_id),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
 `
 	_, err := db.Exec(schema)
 	if err != nil {
@@ -334,6 +358,9 @@ func (db *DB) runMigration(version int) error {
 	case 6:
 		// Add file sync fields to features
 		return db.migrateV6()
+	case 7:
+		// Add messages and message_tasks tables
+		return db.migrateV7()
 	}
 	return nil
 }
@@ -349,6 +376,41 @@ func (db *DB) migrateV6() error {
 		db.Exec(m) // Ignore errors (column may already exist)
 	}
 	return nil
+}
+
+// migrateV7 adds messages and message_tasks tables
+func (db *DB) migrateV7() error {
+	schema := `
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    feature_id INTEGER,
+    content TEXT NOT NULL,
+    response TEXT DEFAULT '',
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (feature_id) REFERENCES features(id)
+);
+
+CREATE TABLE IF NOT EXISTS message_tasks (
+    message_id INTEGER NOT NULL,
+    task_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (message_id, task_id),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id);
+CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
+CREATE INDEX IF NOT EXISTS idx_message_tasks_message ON message_tasks(message_id);
+`
+	_, err := db.Exec(schema)
+	return err
 }
 
 // migrateV5 adds indexes for performance

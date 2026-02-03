@@ -6,12 +6,57 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"parkjunwoo.com/claritask/internal/db"
 	"parkjunwoo.com/claritask/internal/docs"
 	"parkjunwoo.com/claritask/internal/model"
 )
+
+// Session management
+var (
+	sessionMutex   sync.Mutex
+	activeSessions int
+	sessionCond    *sync.Cond
+)
+
+func init() {
+	sessionCond = sync.NewCond(&sessionMutex)
+}
+
+// acquireSession waits until a session slot is available
+func acquireSession(maxSessions int) {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+
+	for activeSessions >= maxSessions {
+		fmt.Printf("[Claritask] Waiting for session slot... (%d/%d active)\n", activeSessions, maxSessions)
+		sessionCond.Wait()
+	}
+
+	activeSessions++
+	fmt.Printf("[Claritask] Session acquired (%d/%d active)\n", activeSessions, maxSessions)
+}
+
+// releaseSession releases a session slot
+func releaseSession() {
+	sessionMutex.Lock()
+	activeSessions--
+	fmt.Printf("[Claritask] Session released (%d active)\n", activeSessions)
+	sessionMutex.Unlock()
+
+	sessionCond.Signal()
+}
+
+// GetSessionStatus returns current session status
+func GetSessionStatus() (active, max int) {
+	sessionMutex.Lock()
+	defer sessionMutex.Unlock()
+
+	config, _ := LoadConfig()
+	return activeSessions, config.TTY.MaxParallelSessions
+}
 
 // RunWithTTYHandover executes Claude with TTY handover
 func RunWithTTYHandover(systemPrompt, initialPrompt string, permissionMode string) error {
@@ -20,6 +65,11 @@ func RunWithTTYHandover(systemPrompt, initialPrompt string, permissionMode strin
 
 // RunWithTTYHandoverEx executes Claude with TTY handover and optional completion file watching
 func RunWithTTYHandoverEx(systemPrompt, initialPrompt string, permissionMode string, completeFile string) error {
+	// Load config and acquire session slot
+	config, _ := LoadConfig()
+	acquireSession(config.TTY.MaxParallelSessions)
+	defer releaseSession()
+
 	args := []string{"--dangerously-skip-permissions"}
 
 	if systemPrompt != "" {

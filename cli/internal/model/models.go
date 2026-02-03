@@ -203,6 +203,56 @@ type Dependency struct {
 	File   string `json:"file,omitempty"`
 }
 
+// Message - 사용자 수정 요청 메시지
+type Message struct {
+	ID          int64
+	ProjectID   string
+	FeatureID   *int64
+	Content     string
+	Response    string
+	Status      string // pending, processing, completed, failed
+	Error       string
+	CreatedAt   time.Time
+	CompletedAt *time.Time
+}
+
+// MessageTask - Message-Task 연결
+type MessageTask struct {
+	MessageID int64
+	TaskID    int64
+	CreatedAt time.Time
+}
+
+// MessageListItem - 메시지 목록 항목
+type MessageListItem struct {
+	ID         int64  `json:"id"`
+	Content    string `json:"content"`
+	Status     string `json:"status"`
+	FeatureID  *int64 `json:"feature_id,omitempty"`
+	TasksCount int    `json:"tasks_count"`
+	CreatedAt  string `json:"created_at"`
+}
+
+// MessageDetail - 메시지 상세 정보 (Task 포함)
+type MessageDetail struct {
+	ID          int64          `json:"id"`
+	Content     string         `json:"content"`
+	Status      string         `json:"status"`
+	FeatureID   *int64         `json:"feature_id,omitempty"`
+	Response    string         `json:"response,omitempty"`
+	Error       string         `json:"error,omitempty"`
+	CreatedAt   string         `json:"created_at"`
+	CompletedAt *string        `json:"completed_at,omitempty"`
+	Tasks       []TaskListItem `json:"tasks,omitempty"`
+}
+
+// TaskListItem - Task 목록 항목 (간략 정보)
+type TaskListItem struct {
+	ID     int64  `json:"id"`
+	Title  string `json:"title"`
+	Status string `json:"status"`
+}
+
 // TaskPopResponse - task pop 응답
 type TaskPopResponse struct {
 	Task         *Task         `json:"task"`

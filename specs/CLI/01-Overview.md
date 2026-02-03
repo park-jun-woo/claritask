@@ -1,6 +1,6 @@
 # Claritask CLI Overview
 
-> **현재 버전**: v0.0.8 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.10 ([변경이력](../HISTORY.md))
 
 ---
 
@@ -68,6 +68,8 @@ clari
 │   ├── assign / unassign
 ├── memo                    # 메모 관리
 │   ├── set / get / list / del
+├── message                 # 메시지 관리
+│   ├── send / list / get / delete
 ├── context                 # 컨텍스트 관리
 │   ├── set / get
 ├── tech                    # 기술 스택 관리
@@ -92,9 +94,10 @@ clari
 | Plan | 1 | 구현 완료 |
 | Expert | 7 | 구현 완료 |
 | Memo | 4 | 구현 완료 |
+| Message | 4 | 미구현 |
 | Context/Tech/Design | 6 | 구현 완료 |
 | Required | 1 | 구현 완료 |
-| **총계** | **54** | - |
+| **총계** | **58** | - |
 
 ---
 
@@ -105,7 +108,9 @@ clari
 | [TTY/01-Overview.md](../TTY/01-Overview.md) | TTY Handover 아키텍처 |
 | [DB/01-Overview.md](../DB/01-Overview.md) | 데이터베이스 스키마 |
 | [FDL/01-Overview.md](../FDL/01-Overview.md) | Feature Definition Language |
+| [15-Message.md](15-Message.md) | Message 명령어 |
+| [16-Config.md](16-Config.md) | Config 설정 파일 |
 
 ---
 
-*Claritask Commands Reference v0.0.8*
+*Claritask Commands Reference v0.0.10*

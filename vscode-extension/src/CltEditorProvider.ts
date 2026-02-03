@@ -5,6 +5,7 @@ import * as crypto from 'crypto';
 import { Database, setExtensionPath } from './database';
 import { SyncManager } from './sync';
 import { createFeature as createFeatureCLI, validateFDL, generateTasks, generateSkeleton, CreateFeatureInput } from './cliService';
+import { ttySessionManager } from './extension';
 
 export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
@@ -299,35 +300,40 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
     }
   }
 
-  private handleCreateFeature(
+  private async handleCreateFeature(
     message: { name: string; description: string },
     database: Database,
     webview: vscode.Webview,
     sync: SyncManager
-  ): void {
+  ): Promise<void> {
     try {
       // Escape for bash single quotes
       const escapeName = message.name.replace(/'/g, "'\\''");
       const escapeDesc = message.description.replace(/'/g, "'\\''");
       const command = `~/bin/clari feature add --name '${escapeName}' --description '${escapeDesc}'`;
 
-      // Create WSL Terminal for CLI execution (TTY Handover support)
-      // WSL provides better shell compatibility and Claude Code support
+      // Build full command with cd for WSL
       const isWindows = process.platform === 'win32';
       const workspacePath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+      let fullCommand = command;
 
-      const terminal = vscode.window.createTerminal({
-        name: 'Claritask - Create Feature',
-        shellPath: isWindows ? 'wsl.exe' : undefined,
-      });
-      terminal.show();
-
-      // For WSL, convert Windows path to WSL path and cd first
       if (isWindows && workspacePath) {
         const wslPath = windowsToWslPath(workspacePath);
-        terminal.sendText(`cd '${wslPath}' && ${command}`);
+        fullCommand = `cd '${wslPath}' && ${command}`;
+      }
+
+      // Use TTY Session Manager if available (respects max_parallel_sessions)
+      if (ttySessionManager) {
+        const sessionId = `feature-add-${escapeName}-${Date.now()}`;
+        await ttySessionManager.startSession(sessionId, fullCommand);
       } else {
-        terminal.sendText(command);
+        // Fallback: Create terminal directly
+        const terminal = vscode.window.createTerminal({
+          name: 'Claritask - Create Feature',
+          shellPath: isWindows ? 'wsl.exe' : undefined,
+        });
+        terminal.show();
+        terminal.sendText(fullCommand);
       }
 
       // Send notification to webview

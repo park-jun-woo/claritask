@@ -1,6 +1,63 @@
 # Database: Content Tables
 
-> **현재 버전**: v0.0.5 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.6 ([변경이력](../HISTORY.md))
+
+---
+
+## messages
+
+사용자 수정 요청 메시지
+
+```sql
+CREATE TABLE messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    feature_id INTEGER,                -- 관련 Feature (선택)
+    content TEXT NOT NULL,             -- 요청 내용
+    response TEXT DEFAULT '',          -- Claude 분석 결과 (MD)
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'processing', 'completed', 'failed')),
+    error TEXT DEFAULT '',             -- 에러 메시지 (failed 시)
+    created_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (feature_id) REFERENCES features(id)
+);
+```
+
+**Status**:
+
+| 상태 | 설명 |
+|------|------|
+| `pending` | 대기 중 |
+| `processing` | Claude 분석 중 |
+| `completed` | 완료 (Task 생성됨) |
+| `failed` | 실패 |
+
+**워크플로우**:
+1. `clari message send` → INSERT (status: pending)
+2. Claude 호출 → UPDATE (status: processing)
+3. Task 생성 완료 → UPDATE (status: completed, response: 보고서)
+4. 에러 발생 시 → UPDATE (status: failed, error: 메시지)
+
+---
+
+## message_tasks
+
+Message와 생성된 Task 연결
+
+```sql
+CREATE TABLE message_tasks (
+    message_id INTEGER NOT NULL,
+    task_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (message_id, task_id),
+    FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE,
+    FOREIGN KEY (task_id) REFERENCES tasks(id) ON DELETE CASCADE
+);
+```
+
+**용도**: Message로부터 생성된 Task 추적
 
 ---
 

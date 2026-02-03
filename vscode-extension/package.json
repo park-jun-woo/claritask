@@ -2,7 +2,7 @@
   "name": "claritask",
   "displayName": "Claritask",
   "description": "Visual editor for Claritask projects",
-  "version": "0.0.7",
+  "version": "0.0.8",
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -52,6 +52,7 @@
     "typescript": "^5.3.0"
   },
   "dependencies": {
-    "sql.js": "^1.13.0"
+    "sql.js": "^1.13.0",
+    "yaml": "^2.3.4"
   }
 }

@@ -1,0 +1,348 @@
+feature: blog_system
+description: 블로그 글쓰기, 상세, 목록, 댓글 기능
+
+models:
+  - name: Post
+    table: posts
+    fields:
+      - id: uuid (pk)
+      - title: string (required, index)
+      - content: text (required)
+      - summary: string(500) (nullable)
+      - author_id: uuid (fk: users.id, onDelete: cascade)
+      - status: enum(draft,published,archived) (default: "draft", index)
+      - view_count: int (default: 0)
+      - created_at: datetime (default: now)
+      - updated_at: datetime (default: now)
+      - published_at: datetime (nullable)
+
+  - name: Comment
+    table: comments
+    fields:
+      - id: uuid (pk)
+      - content: text (required)
+      - post_id: uuid (fk: posts.id, onDelete: cascade, index)
+      - author_id: uuid (fk: users.id, onDelete: cascade)
+      - parent_id: uuid (fk: comments.id, nullable, onDelete: cascade)
+      - created_at: datetime (default: now)
+      - updated_at: datetime (default: now)
+
+service:
+  - name: createPost
+    input: { authorId: uuid, title: string, content: string, summary?: string, status?: string }
+    steps:
+      - validate: "title 1-200자, content 1-50000자 검증"
+      - db: "INSERT INTO posts (id, title, content, summary, author_id, status)"
+      - event: "status가 published면 published_at 설정"
+      - return: "생성된 Post"
+
+  - name: getPost
+    input: { postId: uuid, incrementView?: boolean }
+    steps:
+      - db: "SELECT * FROM posts WHERE id = ?"
+      - validate: "게시글 존재 여부 확인"
+      - db: "incrementView가 true면 view_count 증가"
+      - return: "Post with author info"
+
+  - name: listPosts
+    input: { status?: string, page?: int, limit?: int, authorId?: uuid }
+    steps:
+      - db: "SELECT * FROM posts WHERE status = ? ORDER BY created_at DESC"
+      - db: "페이지네이션 적용 (LIMIT, OFFSET)"
+      - return: "Post[] with pagination info"
+
+  - name: updatePost
+    input: { postId: uuid, authorId: uuid, title?: string, content?: string, summary?: string, status?: string }
+    steps:
+      - validate: "작성자 본인 확인"
+      - validate: "title 1-200자, content 1-50000자 검증"
+      - db: "UPDATE posts SET ... WHERE id = ?"
+      - event: "status가 published로 변경되면 published_at 설정"
+      - return: "수정된 Post"
+
+  - name: deletePost
+    input: { postId: uuid, authorId: uuid }
+    steps:
+      - validate: "작성자 본인 확인"
+      - db: "DELETE FROM posts WHERE id = ?"
+      - return: "삭제 결과"
+
+  - name: createComment
+    input: { postId: uuid, authorId: uuid, content: string, parentId?: uuid }
+    steps:
+      - validate: "content 1-2000자 검증"
+      - validate: "게시글 존재 확인"
+      - validate: "parentId가 있으면 부모 댓글 존재 확인"
+      - db: "INSERT INTO comments (id, content, post_id, author_id, parent_id)"
+      - return: "생성된 Comment"
+
+  - name: listComments
+    input: { postId: uuid, page?: int, limit?: int }
+    steps:
+      - db: "SELECT * FROM comments WHERE post_id = ? AND parent_id IS NULL ORDER BY created_at ASC"
+      - db: "각 댓글의 대댓글 조회"
+      - return: "Comment[] with replies and author info"
+
+  - name: deleteComment
+    input: { commentId: uuid, authorId: uuid }
+    steps:
+      - validate: "작성자 본인 확인"
+      - db: "DELETE FROM comments WHERE id = ?"
+      - return: "삭제 결과"
+
+api:
+  - path: /posts
+    method: POST
+    summary: 게시글 작성
+    use: service.createPost
+    request:
+      body: { title: string, content: string, summary?: string, status?: string }
+    response:
+      201: { id: uuid, title: string, status: string, created_at: datetime }
+      400: { error: string, message: string }
+
+  - path: /posts
+    method: GET
+    summary: 게시글 목록 조회
+    use: service.listPosts
+    request:
+      query: { status?: string, page?: int, limit?: int, author_id?: uuid }
+    response:
+      200: {
+        items: [{ id: uuid, title: string, summary: string, author: { id: uuid, name: string }, view_count: int, created_at: datetime }],
+        pagination: { page: int, limit: int, total: int, total_pages: int }
+      }
+
+  - path: /posts/{postId}
+    method: GET
+    summary: 게시글 상세 조회
+    use: service.getPost
+    request:
+      params: { postId: uuid }
+      query: { increment_view?: boolean }
+    response:
+      200: { id: uuid, title: string, content: string, summary: string, author: { id: uuid, name: string }, status: string, view_count: int, created_at: datetime, updated_at: datetime }
+      404: { error: string, message: string }
+
+  - path: /posts/{postId}
+    method: PUT
+    summary: 게시글 수정
+    use: service.updatePost
+    request:
+      params: { postId: uuid }
+      body: { title?: string, content?: string, summary?: string, status?: string }
+    response:
+      200: { id: uuid, title: string, status: string, updated_at: datetime }
+      403: { error: string, message: string }
+      404: { error: string, message: string }
+
+  - path: /posts/{postId}
+    method: DELETE
+    summary: 게시글 삭제
+    use: service.deletePost
+    request:
+      params: { postId: uuid }
+    response:
+      204: null
+      403: { error: string, message: string }
+      404: { error: string, message: string }
+
+  - path: /posts/{postId}/comments
+    method: POST
+    summary: 댓글 작성
+    use: service.createComment
+    request:
+      params: { postId: uuid }
+      body: { content: string, parent_id?: uuid }
+    response:
+      201: { id: uuid, content: string, author: { id: uuid, name: string }, created_at: datetime }
+      400: { error: string, message: string }
+      404: { error: string, message: string }
+
+  - path: /posts/{postId}/comments
+    method: GET
+    summary: 댓글 목록 조회
+    use: service.listComments
+    request:
+      params: { postId: uuid }
+      query: { page?: int, limit?: int }
+    response:
+      200: {
+        items: [{ id: uuid, content: string, author: { id: uuid, name: string }, replies: [{ id: uuid, content: string, author: { id: uuid, name: string }, created_at: datetime }], created_at: datetime }],
+        pagination: { page: int, limit: int, total: int }
+      }
+
+  - path: /posts/{postId}/comments/{commentId}
+    method: DELETE
+    summary: 댓글 삭제
+    use: service.deleteComment
+    request:
+      params: { postId: uuid, commentId: uuid }
+    response:
+      204: null
+      403: { error: string, message: string }
+      404: { error: string, message: string }
+
+ui:
+  - component: PostListPage
+    type: Page
+    props: {}
+    state:
+      - posts: Array
+      - currentPage: int
+      - totalPages: int
+      - statusFilter: string
+    init:
+      - call: API.GET /posts?status=published -> posts, pagination
+    view:
+      - Header: "블로그"
+      - Button: "글쓰기"
+        action: navigate /posts/write
+      - Select: "상태 필터"
+        bind: statusFilter
+        options: [전체, 발행됨, 임시저장]
+        onChange: API.GET /posts?status={statusFilter}
+      - PostCardList: "게시글 목록"
+        bind: posts
+      - Pagination: "페이지네이션"
+        bind: currentPage, totalPages
+        onPageChange: API.GET /posts?page={page}
+
+  - component: PostCard
+    type: Molecule
+    parent: PostListPage
+    props: { post: Post }
+    view:
+      - Link: "{post.title}"
+        action: navigate /posts/{post.id}
+      - Text: "{post.summary}"
+      - Text: "{post.author.name}"
+      - Text: "{post.view_count} views"
+      - Text: "{post.created_at}"
+
+  - component: PostDetailPage
+    type: Page
+    props: { postId: uuid }
+    state:
+      - post: Post
+      - isAuthor: boolean
+    init:
+      - call: API.GET /posts/{postId}?increment_view=true -> post
+      - compute: isAuthor = currentUser.id === post.author.id
+    view:
+      - BackButton: "목록으로"
+        action: navigate /posts
+      - Title: "{post.title}"
+      - AuthorInfo: "{post.author.name} · {post.created_at}"
+      - Content: "{post.content}"
+      - ViewCount: "{post.view_count} views"
+      - ButtonGroup:
+        - Button: "수정"
+          visible: isAuthor
+          action: navigate /posts/{postId}/edit
+        - Button: "삭제"
+          visible: isAuthor
+          action: API.DELETE /posts/{postId}
+          onSuccess: navigate /posts
+          confirm: "정말 삭제하시겠습니까?"
+      - CommentSection: "댓글"
+        props: { postId: postId }
+
+  - component: PostWritePage
+    type: Page
+    props: { postId?: uuid }
+    state:
+      - title: string
+      - content: string
+      - summary: string
+      - status: string
+      - isEditMode: boolean
+    init:
+      - compute: isEditMode = postId !== undefined
+      - call: isEditMode ? API.GET /posts/{postId} -> title, content, summary, status : null
+    view:
+      - Header: "{isEditMode ? '글 수정' : '새 글 작성'}"
+      - Input: "제목"
+        bind: title
+        placeholder: "제목을 입력하세요"
+        maxLength: 200
+      - Textarea: "요약"
+        bind: summary
+        placeholder: "요약을 입력하세요 (선택)"
+        maxLength: 500
+      - RichTextEditor: "내용"
+        bind: content
+        placeholder: "내용을 입력하세요"
+      - Select: "상태"
+        bind: status
+        options: [draft, published]
+      - ButtonGroup:
+        - Button: "취소"
+          action: navigate -1
+        - Button: "임시저장"
+          action: "{isEditMode ? API.PUT : API.POST} /posts{isEditMode ? '/' + postId : ''}"
+          payload: { title, content, summary, status: 'draft' }
+        - Button: "발행"
+          action: "{isEditMode ? API.PUT : API.POST} /posts{isEditMode ? '/' + postId : ''}"
+          payload: { title, content, summary, status: 'published' }
+          onSuccess: navigate /posts/{response.id}
+
+  - component: CommentSection
+    type: Organism
+    parent: PostDetailPage
+    props: { postId: uuid }
+    state:
+      - comments: Array
+      - newComment: string
+      - replyingTo: uuid | null
+    init:
+      - call: API.GET /posts/{postId}/comments -> comments
+    view:
+      - CommentCount: "{comments.length}개의 댓글"
+      - CommentForm: "댓글 작성"
+        props: { postId: postId }
+      - CommentList: "댓글 목록"
+        bind: comments
+
+  - component: CommentForm
+    type: Molecule
+    parent: CommentSection
+    props: { postId: uuid, parentId?: uuid }
+    state:
+      - content: string
+    view:
+      - Textarea: "댓글 입력"
+        bind: content
+        placeholder: "댓글을 입력하세요"
+        maxLength: 2000
+      - Button: "등록"
+        action: API.POST /posts/{postId}/comments
+        payload: { content, parent_id: parentId }
+        onSuccess: "comments에 추가, content 초기화"
+        disabled: content.length === 0
+
+  - component: CommentItem
+    type: Molecule
+    parent: CommentSection
+    props: { comment: Comment, postId: uuid }
+    state:
+      - isReplying: boolean
+      - showReplies: boolean
+    view:
+      - AuthorInfo: "{comment.author.name}"
+      - Text: "{comment.content}"
+      - Text: "{comment.created_at}"
+      - ButtonGroup:
+        - Button: "답글"
+          action: toggle isReplying
+        - Button: "삭제"
+          visible: currentUser.id === comment.author.id
+          action: API.DELETE /posts/{postId}/comments/{comment.id}
+          onSuccess: "comments에서 제거"
+          confirm: "댓글을 삭제하시겠습니까?"
+      - CommentForm: "답글 작성"
+        visible: isReplying
+        props: { postId: postId, parentId: comment.id }
+      - ReplyList: "답글 목록"
+        visible: showReplies
+        bind: comment.replies

@@ -3,6 +3,11 @@
   "displayName": "Claritask",
   "description": "Visual editor for Claritask projects",
   "version": "0.1.0",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://parkjunwoo.com/claritask"
+  },
   "publisher": "claritask",
   "engines": {
     "vscode": "^1.85.0"
@@ -29,7 +34,7 @@
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
     "build:webview": "cd webview-ui && npm install && npm run build",
-    "package": "vsce package",
+    "package": "npx vsce package",
     "lint": "eslint src --ext ts",
     "test": "node ./out/test/runTest.js"
   },
@@ -37,6 +42,7 @@
     "@types/better-sqlite3": "^7.6.8",
     "@types/node": "^20.0.0",
     "@types/vscode": "^1.85.0",
+    "@vscode/vsce": "^3.2.0",
     "typescript": "^5.3.0"
   },
   "dependencies": {

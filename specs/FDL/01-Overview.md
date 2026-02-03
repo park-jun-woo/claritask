@@ -1,12 +1,8 @@
 # ClariSpec: Feature Definition DSL - Overview
 
-> **버전**: v0.0.1
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
 
-## 변경이력
-
-| 버전 | 날짜 | 내용 |
-|------|------|------|
-| v0.0.1 | 2026-02-03 | 최초 작성 |
+---
 
 ## 개요
 
@@ -28,10 +24,10 @@ ClariSpec은 다음 4개의 계층으로 구성됩니다:
 
 | 계층 | 섹션 | 역할 | 상세 문서 |
 |------|------|------|----------|
-| DATA | `models` | 데이터베이스 스키마 및 모델 정의 | [02a-DataLayer.md](02a-DataLayer.md) |
-| LOGIC | `service` | 비즈니스 로직 및 규칙 | [02b-LogicLayer.md](02b-LogicLayer.md) |
-| INTERFACE | `api` | HTTP API 계약 (Controller/Router) | [02c-InterfaceLayer.md](02c-InterfaceLayer.md) |
-| PRESENTATION | `ui` | UI 컴포넌트 및 상태 관리 | [02d-PresentationLayer.md](02d-PresentationLayer.md) |
+| DATA | `models` | 데이터베이스 스키마 및 모델 정의 | [02-A-DataLayer.md](02-A-DataLayer.md) |
+| LOGIC | `service` | 비즈니스 로직 및 규칙 | [02-B-LogicLayer.md](02-B-LogicLayer.md) |
+| INTERFACE | `api` | HTTP API 계약 (Controller/Router) | [02-C-InterfaceLayer.md](02-C-InterfaceLayer.md) |
+| PRESENTATION | `ui` | UI 컴포넌트 및 상태 관리 | [02-D-PresentationLayer.md](02-D-PresentationLayer.md) |
 
 ---
 
@@ -41,13 +37,22 @@ ClariSpec은 다음 4개의 계층으로 구성됩니다:
 |------|------|
 | [01-Overview.md](01-Overview.md) | 개요 및 핵심 철학 |
 | [02-Schema.md](02-Schema.md) | DSL 구조 개요 및 계층간 연결 |
-| [02a-DataLayer.md](02a-DataLayer.md) | DATA LAYER 상세 (models) |
-| [02b-LogicLayer.md](02b-LogicLayer.md) | LOGIC LAYER 상세 (service) |
-| [02c-InterfaceLayer.md](02c-InterfaceLayer.md) | INTERFACE LAYER 상세 (api) |
-| [02d-PresentationLayer.md](02d-PresentationLayer.md) | PRESENTATION LAYER 상세 (ui) |
+| [02-A-DataLayer.md](02-A-DataLayer.md) | DATA LAYER 상세 (models) |
+| [02-B-LogicLayer.md](02-B-LogicLayer.md) | LOGIC LAYER 상세 (service) |
+| [02-C-InterfaceLayer.md](02-C-InterfaceLayer.md) | INTERFACE LAYER 상세 (api) |
+| [02-D-PresentationLayer.md](02-D-PresentationLayer.md) | PRESENTATION LAYER 상세 (ui) |
 | [03-Examples.md](03-Examples.md) | 작성 예시 (댓글 시스템) |
 | [04-Guidelines.md](04-Guidelines.md) | 작성 가이드라인 및 네이밍 컨벤션 |
 
 ---
 
-*ClariSpec FDL Specification v0.0.1 - 2026-02-03*
+## 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| [CLI/09-FDL.md](../CLI/09-FDL.md) | FDL CLI 명령어 |
+| [TTY/04-Phase2.md](../TTY/04-Phase2.md) | Task 실행 시 FDL 활용 |
+
+---
+
+*ClariSpec FDL Specification v0.0.4*

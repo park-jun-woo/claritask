@@ -1,13 +1,8 @@
 # clari init - 프로젝트 초기화
 
-> **버전**: v0.0.3
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
 
-## 변경이력
-
-| 버전 | 날짜 | 내용 |
-|------|------|------|
-| v0.0.3 | 2026-02-03 | ClariInit.md 통합 |
-| v0.0.1 | 2026-02-03 | 최초 작성 |
+---
 
 ## 개요
 
@@ -46,6 +41,29 @@ clari init <project-id> [options]
 
 ---
 
+## TTY Handover 연동
+
+`clari init`은 **TTY Handover**를 통해 Claude Code에게 터미널 제어권을 넘깁니다.
+
+> 상세: [TTY/03-Phase1.md](../TTY/03-Phase1.md)
+
+```
+clari init <project-id>
+    │
+    ├─▶ DB 초기화 (.claritask/db.clt 생성)
+    │
+    └─▶ TTY Handover ──▶ Claude Code
+                              │
+                              ├─ 프로젝트 파일 분석
+                              ├─ tech/design 제안
+                              ├─ 사용자와 대화형 확정
+                              ├─ specs 문서 생성
+                              │
+                              └─▶ 종료 ──▶ clari 복귀
+```
+
+---
+
 ## 전체 흐름
 
 ```
@@ -63,38 +81,19 @@ clari init <project-id> [options]
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Phase 2: 컨텍스트 분석 (claude --print)                          │
+│ Phase 2: TTY Handover → Claude Code                             │
 │   - 프로젝트 파일 스캔                                           │
 │   - tech stack 추론                                             │
 │   - design 패턴 제안                                             │
+│   - 사용자와 대화형 확정                                         │
+│   - specs 문서 생성 및 피드백 반영                                │
 └─────────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│ Phase 3: 사용자 승인                                             │
-│   - 제안된 tech/design 출력                                      │
-│   - 사용자 수정 또는 승인                                         │
-│   - DB에 저장                                                    │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Phase 4: Specs 초안 생성 (claude --print)                        │
-│   - context, tech, design 기반                                   │
-│   - 프로젝트 스펙 문서 초안 생성                                   │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ Phase 5: 피드백 루프                                             │
-│   - 사용자 의견 입력                                             │
-│   - claude --print로 수정                                        │
-│   - 승인될 때까지 반복                                           │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│ 완료: specs/ 폴더에 문서 저장                                     │
+│ 완료: Claude Code 종료 → clari 복귀                              │
+│   - specs/ 폴더에 문서 저장 완료                                  │
+│   - 다음 단계 안내                                               │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
@@ -105,10 +104,12 @@ clari init <project-id> [options]
 | Phase | 설명 | 건너뛰기 |
 |-------|------|----------|
 | 1 | .claritask/db.clt 생성, 프로젝트 레코드 | 불가 |
-| 2 | 파일 스캔, LLM으로 tech/design 분석 | --skip-analysis |
-| 3 | 분석 결과 사용자 승인 | --non-interactive (자동 승인) |
-| 4 | LLM으로 specs 문서 생성 | --skip-specs |
-| 5 | 피드백 반영, 최종 승인 | --non-interactive (자동 승인) |
+| 2 | TTY Handover로 Claude Code 실행 (분석, 승인, specs 생성) | --skip-analysis, --skip-specs |
+
+**Phase 2 내부 동작** (Claude Code가 수행):
+- 파일 스캔 및 tech/design 분석
+- 사용자와 대화형 승인
+- specs 문서 생성 및 피드백 반영
 
 ---
 
@@ -571,4 +572,14 @@ func PromptMultilineInput(prompt string) string {
 
 ---
 
-*Claritask Commands Reference v0.0.3 - 2026-02-03*
+## 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| [TTY/03-Phase1.md](../TTY/03-Phase1.md) | Phase 1: 요구사항 수립 |
+| [TTY/05-Implementation.md](../TTY/05-Implementation.md) | Go 구현 |
+| [TTY/06-ClaudeCLI.md](../TTY/06-ClaudeCLI.md) | Claude CLI 옵션 |
+
+---
+
+*Claritask Commands Reference v0.0.4*

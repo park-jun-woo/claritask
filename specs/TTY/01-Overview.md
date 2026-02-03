@@ -1,12 +1,6 @@
 # TTY Handover: Overview
 
-> **버전**: v0.0.1
-
-## 변경이력
-
-| 버전 | 날짜 | 내용 |
-|------|------|------|
-| v0.0.1 | 2026-02-03 | 최초 작성 |
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
 
 ---
 
@@ -60,4 +54,14 @@ Claritask는 두 개의 Phase로 동작하며, 두 Phase 모두 TTY Handover를 
 
 ---
 
-*TTY Handover Specification v0.0.1 - 2026-02-03*
+## 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| [CLI/02-Init.md](../CLI/02-Init.md) | clari init 명령어 |
+| [CLI/03-Project.md](../CLI/03-Project.md) | clari project start 명령어 |
+| [DB/01-Overview.md](../DB/01-Overview.md) | 상태 저장 DB 스키마 |
+
+---
+
+*TTY Handover Specification v0.0.4*

@@ -1,14 +1,8 @@
 # Claritask CLI Overview
 
-> **버전**: v0.0.3
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
 
-## 변경이력
-
-| 버전 | 날짜 | 내용 |
-|------|------|------|
-| v0.0.3 | 2026-02-03 | Expert DB 스키마 백업 필드 추가, 동기화 정책 |
-| v0.0.2 | 2026-02-03 | Expert 명령어 추가 |
-| v0.0.1 | 2026-02-03 | 최초 작성 |
+---
 
 ## 개요
 
@@ -73,4 +67,14 @@ clari
 
 ---
 
-*Claritask Commands Reference v0.0.3 - 2026-02-03*
+## 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| [TTY/01-Overview.md](../TTY/01-Overview.md) | TTY Handover 아키텍처 |
+| [DB/01-Overview.md](../DB/01-Overview.md) | 데이터베이스 스키마 |
+| [FDL/01-Overview.md](../FDL/01-Overview.md) | Feature Definition Language |
+
+---
+
+*Claritask Commands Reference v0.0.4*

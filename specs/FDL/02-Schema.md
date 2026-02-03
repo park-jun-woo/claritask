@@ -1,6 +1,8 @@
 # ClariSpec: DSL 구조 개요
 
-> **버전**: v0.0.1
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
+
+---
 
 ## 전체 구조
 
@@ -50,10 +52,10 @@ ui:
 
 | 계층 | 문서 | 역할 |
 |------|------|------|
-| DATA | [02a-DataLayer.md](02a-DataLayer.md) | 데이터베이스 스키마 및 모델 정의 |
-| LOGIC | [02b-LogicLayer.md](02b-LogicLayer.md) | 비즈니스 로직 및 규칙 |
-| INTERFACE | [02c-InterfaceLayer.md](02c-InterfaceLayer.md) | HTTP API 계약 |
-| PRESENTATION | [02d-PresentationLayer.md](02d-PresentationLayer.md) | UI 컴포넌트 및 상태 관리 |
+| DATA | [02-A-DataLayer.md](02-A-DataLayer.md) | 데이터베이스 스키마 및 모델 정의 |
+| LOGIC | [02-B-LogicLayer.md](02-B-LogicLayer.md) | 비즈니스 로직 및 규칙 |
+| INTERFACE | [02-C-InterfaceLayer.md](02-C-InterfaceLayer.md) | HTTP API 계약 |
+| PRESENTATION | [02-D-PresentationLayer.md](02-D-PresentationLayer.md) | UI 컴포넌트 및 상태 관리 |
 
 ---
 
@@ -93,4 +95,4 @@ ui:
 
 ---
 
-*ClariSpec FDL Specification v0.0.1 - 2026-02-03*
+*ClariSpec FDL Specification v0.0.4*

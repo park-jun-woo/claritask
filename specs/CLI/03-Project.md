@@ -1,6 +1,8 @@
 # clari project - 프로젝트 관리
 
-> **버전**: v0.0.3
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
+
+---
 
 ## clari project set
 
@@ -105,7 +107,9 @@ clari project plan
 
 ## clari project start
 
-실행 모드 시작 (Task 상태 확인)
+실행 모드 시작 (**TTY Handover** 기반 자동 실행)
+
+> 상세: [TTY/04-Phase2.md](../TTY/04-Phase2.md)
 
 ```bash
 clari project start
@@ -114,12 +118,31 @@ clari project start --dry-run
 clari project start --fallback-interactive
 ```
 
-**플래그:**
+### TTY Handover 동작
+
+```
+clari project start
+    │
+    └─▶ Loop (각 Task마다):
+          │
+          ├─▶ TTY Handover ──▶ Claude Code
+          │         │
+          │         ├─ Task 컨텍스트 주입
+          │         ├─ 코딩 + 테스트 + 디버깅
+          │         │
+          │         └─▶ 종료 ──▶ clari 복귀
+          │
+          └─▶ 다음 Task (pending이 없을 때까지)
+```
+
+### 플래그
+
 - `--feature <id>`: 특정 Feature만 실행
-- `--dry-run`: 실행 계획만 표시
+- `--dry-run`: 실행 계획만 표시 (TTY Handover 없음)
 - `--fallback-interactive`: 실패 시 대화형 전환
 
-**응답:**
+### 응답
+
 ```json
 {
   "success": true,
@@ -184,4 +207,13 @@ clari project status
 
 ---
 
-*Claritask Commands Reference v0.0.3 - 2026-02-03*
+## 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| [TTY/04-Phase2.md](../TTY/04-Phase2.md) | Phase 2: 자동 실행 |
+| [TTY/05-Implementation.md](../TTY/05-Implementation.md) | Go 구현 |
+
+---
+
+*Claritask Commands Reference v0.0.4*

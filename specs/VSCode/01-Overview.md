@@ -1,15 +1,8 @@
 # VSCode Extension Overview
 
-> **버전**: v0.0.4
+> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
 
-## 변경이력
-
-| 버전 | 날짜 | 내용 |
-|------|------|------|
-| v0.0.4 | 2026-02-03 | Experts 탭 추가, FileSystemWatcher 동기화 |
-| v0.0.3 | 2026-02-03 | Execution Status 섹션 추가 |
-| v0.0.2 | 2026-02-03 | Project 탭 설계 추가 |
-| v0.0.1 | 2026-02-03 | 최초 작성 |
+---
 
 ## 개요
 
@@ -79,4 +72,14 @@ VSCode에서 `.clt` 파일 열면 Custom Editor가 활성화됨.
 
 ---
 
-*Claritask VSCode Extension Spec v0.0.4 - 2026-02-03*
+## 관련 문서
+
+| 문서 | 내용 |
+|------|------|
+| [DB/01-Overview.md](../DB/01-Overview.md) | 데이터베이스 스키마 |
+| [CLI/01-Overview.md](../CLI/01-Overview.md) | CLI 명령어 레퍼런스 |
+| [DB/02-C-Content.md](../DB/02-C-Content.md) | Experts 테이블 스키마 |
+
+---
+
+*Claritask VSCode Extension Spec v0.0.4*

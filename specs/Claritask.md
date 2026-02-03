@@ -1,12 +1,6 @@
 # Claritask - Task And LLM Operating System
 
-> **버전**: v0.0.1
-
-## 변경이력
-
-| 버전 | 날짜 | 내용 |
-|------|------|------|
-| v0.0.1 | 2026-02-03 | 최초 작성 |
+> **현재 버전**: v0.0.4 ([변경이력](HISTORY.md))
 
 ---
 
@@ -20,7 +14,7 @@ LLM 기반 프로젝트 자동 실행 시스템
 - 컨텍스트 한계 완전 극복 (매 Task마다 초기화)
 
 **철학**:
-- **Claritask가 오케스트레이터**, Claude는 실행기
+- **Claritask가 오케스트레이터**, Claude Code는 실행기
 - Task 단위 독립 실행으로 컨텍스트 격리
 - **FDL(Feature Definition Language)로 계약 정의**, 스켈레톤 자동 생성
 - **LLM은 TODO만 채움** - 함수명/타입/API 경로는 확정적
@@ -28,58 +22,48 @@ LLM 기반 프로젝트 자동 실행 시스템
 
 ---
 
-## 아키텍처: 제어 역전
+## 아키텍처: 2-Phase + TTY Handover
 
-### 기존 구조의 한계
-
-기존에는 Claude Code가 Claritask를 도구로 사용했다. 이 구조는 단일 작업에는 적합하지만, 대규모 자동화에는 치명적인 한계가 있다.
-
-- **컨텍스트 누적**: Task를 처리할수록 대화 컨텍스트가 쌓인다
-- **세션 의존성**: Claude Code 세션이 끊기면 작업도 중단된다
-- **확장 불가**: Task가 100개, 1000개로 늘어나면 단일 세션으로 처리 불가능
-
-### 새로운 구조: Claritask가 오케스트레이터
-
-**제어권을 역전한다.** Claritask가 드라이버가 되고, Claude는 순수 실행기가 된다.
+### 전체 구조
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                        Claritask                            │
-│                     (Orchestrator)                          │
-│                                                             │
-│   ┌─────────┐    ┌─────────┐    ┌─────────┐                │
-│   │ Task 1  │───▶│ Task 2  │───▶│ Task N  │───▶ 완료       │
-│   └────┬────┘    └────┬────┘    └────┬────┘                │
-│        │              │              │                      │
-│        ▼              ▼              ▼                      │
-│   claude --print claude --print claude --print              │
-│   (독립 컨텍스트) (독립 컨텍스트) (독립 컨텍스트)              │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+clari init
+  └─▶ Claude Code [Phase 1: 요구사항 수립]
+        │
+        │  clari feature add '...'
+        │  사용자: "개발해"
+        │
+        └─▶ clari project start
+              │
+              ├─▶ Claude Code [Task 1] ─▶ 완료
+              ├─▶ Claude Code [Task 2] ─▶ 완료
+              ├─▶ Claude Code [Task N] ─▶ 완료
+              │
+              └─▶ 최종 보고
 ```
 
-| 측면 | 기존 (Claude 드라이버) | 신규 (Claritask 드라이버) |
-|------|------------------------|---------------------------|
-| 컨텍스트 | 누적되어 폭발 | 매 Task마다 초기화 |
-| 세션 | 끊기면 중단 | 프로세스 기반, 복구 가능 |
-| 확장성 | 수십 개 한계 | 수천 개도 가능 |
-| 상태 관리 | Claude 메모리 의존 | DB에 영속화 |
-| 재시작 | 처음부터 다시 | 마지막 Task부터 재개 |
+### TTY Handover
 
-### 두 가지 모드 공존
+Claritask가 Claude Code에게 **터미널 제어권을 완전히 넘기고**, 종료 시 복귀:
 
-**1. 자동화 모드 (Claritask 드라이버)**
-```bash
-clari project start
-# → Task 전체 순회, claude --print 반복 호출
+```
+Claritask ──TTY Handover──▶ Claude Code ──종료──▶ Claritask
 ```
 
-**2. 대화형 모드 (Claude/사용자 드라이버)**
-```bash
-clari task list
-clari task get 3
-clari memo add --scope task --id 3 "JWT 만료 시간 수정"
-```
+| 방식 | 가능한 작업 | 한계 |
+|------|------------|------|
+| `claude --print` | 코드 생성 | 테스트/디버깅 불가 |
+| TTY Handover | 코딩 + 테스트 + 디버깅 | 없음 |
+
+### 설계 원칙
+
+| 원칙 | 설명 |
+|------|------|
+| 순차 실행 | 프로세스 중첩 아님, 하나 끝나면 다음 |
+| Stateless | 각 clari 프로세스는 stateless, 상태는 DB에 |
+| 복구 용이 | 실패 시 마지막 Task부터 재개 |
+
+> 상세: [TTY/01-Overview.md](TTY/01-Overview.md)
 
 ---
 
@@ -89,6 +73,8 @@ clari memo add --scope task --id 3 "JWT 만료 시간 수정"
 - **Python**: FDL 파서 및 스켈레톤 생성기
 - **파일**: `.claritask/db.clt` 하나로 모든 것 관리
 - **동시성**: WAL 모드로 CLI/GUI 동시 접근 지원
+
+> 상세: [DB/01-Overview.md](DB/01-Overview.md)
 
 ---
 
@@ -144,43 +130,42 @@ FDL (YAML)  →  Python Parser  →  Skeleton Code  →  Task (TODO 채우기)
 
 **"LLM의 창의성은 로직 구현에만, 구조는 확정적으로"**
 
-> FDL 상세 스펙: [specs/FDL/](FDL/01-Overview.md)
+> FDL 상세 스펙: [FDL/01-Overview.md](FDL/01-Overview.md)
 
 ---
 
 ## 워크플로우 요약
 
 ```
-1. clari init <project>           # 프로젝트 초기화
-2. clari plan features            # Feature 목록 산출 (LLM)
-3. clari fdl create <feature>     # FDL 작성
-4. clari fdl skeleton <feature>   # 스켈레톤 생성 (Python)
-5. clari fdl tasks <feature>      # Task 자동 생성
-6. clari project start            # 자동 실행
-7. clari fdl verify <feature>     # 검증
+1. clari init <project>           # 프로젝트 초기화 + TTY Handover
+2. (대화) Feature 확정             # Claude Code가 feature add 실행
+3. clari project start            # 자동 실행 시작
+4. (자동) Task별 TTY Handover      # 코딩 + 테스트 + 디버깅
+5. 완료 또는 실패 보고
 ```
 
-> 명령어 상세: [specs/CLI/](CLI/01-Overview.md)
+> 명령어 상세: [CLI/01-Overview.md](CLI/01-Overview.md)
 
 ---
 
 ## 핵심 가치
 
-1. **제어 역전**: Claritask가 오케스트레이터, Claude는 실행기
-2. **FDL 기반 계약**: 함수명, 타입, API 경로를 먼저 확정
-3. **스켈레톤 자동 생성**: Python이 FDL → 코드 틀 생성 (오타 원천 차단)
-4. **TODO만 채우기**: LLM은 로직만 작성, 구조 변경 불가
-5. **그래프 기반**: Task 간 의존성을 Edge로 명시, 정밀한 컨텍스트 주입
-6. **검증 가능**: 구현이 FDL과 일치하는지 자동 검사
-7. **무제한 확장**: Task 수천 개도 자동 처리
-8. **복구 가능**: 실패 시 해당 Task부터 재개
+1. **제어 역전**: Claritask가 오케스트레이터, Claude Code는 실행기
+2. **TTY Handover**: 테스트/디버깅까지 완전한 Claude Code 세션
+3. **FDL 기반 계약**: 함수명, 타입, API 경로를 먼저 확정
+4. **스켈레톤 자동 생성**: Python이 FDL → 코드 틀 생성 (오타 원천 차단)
+5. **TODO만 채우기**: LLM은 로직만 작성, 구조 변경 불가
+6. **그래프 기반**: Task 간 의존성을 Edge로 명시, 정밀한 컨텍스트 주입
+7. **검증 가능**: 구현이 FDL과 일치하는지 자동 검사
+8. **무제한 확장**: Task 수천 개도 자동 처리
+9. **복구 가능**: 실패 시 해당 Task부터 재개
 
 ```
 사람: FDL로 "무엇을" 정의
       ↓
 Python: "어떤 구조로" 스켈레톤 생성
       ↓
-LLM: "어떻게" TODO 채우기
+Claude Code: "어떻게" TODO 채우기 (TTY Handover)
 ```
 
 ---
@@ -189,11 +174,13 @@ LLM: "어떻게" TODO 채우기
 
 | 문서 | 내용 |
 |------|------|
-| [TTY Handover](TTY/01-Overview.md) | 2-Phase 흐름 및 TTY Handover 명세 |
-| [FDL Spec](FDL/01-Overview.md) | Feature Definition Language 명세 |
-| [CLI Commands](CLI/01-Overview.md) | 명령어 레퍼런스 |
-| [VSCode Extension](VSCode/01-Overview.md) | VSCode 확장 명세 |
+| [TTY/](TTY/01-Overview.md) | 2-Phase 흐름 및 TTY Handover 명세 |
+| [DB/](DB/01-Overview.md) | 데이터베이스 스키마 |
+| [FDL/](FDL/01-Overview.md) | Feature Definition Language 명세 |
+| [CLI/](CLI/01-Overview.md) | 명령어 레퍼런스 |
+| [VSCode/](VSCode/01-Overview.md) | VSCode 확장 명세 |
+| [HISTORY.md](HISTORY.md) | 전체 변경이력 |
 
 ---
 
-*Claritask Specification v0.0.1 - 2026-02-03*
+*Claritask Specification v0.0.4*

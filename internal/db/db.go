@@ -34,6 +34,18 @@ func Open(path string) (*DB, error) {
 		return nil, err
 	}
 
+	// Enable WAL mode for concurrent read/write
+	if _, err := db.Exec("PRAGMA journal_mode=WAL"); err != nil {
+		db.Close()
+		return nil, err
+	}
+
+	// Set busy timeout for concurrent access
+	if _, err := db.Exec("PRAGMA busy_timeout=5000"); err != nil {
+		db.Close()
+		return nil, err
+	}
+
 	return &DB{DB: db, path: path}, nil
 }
 
@@ -64,6 +76,7 @@ CREATE TABLE IF NOT EXISTS features (
     skeleton_generated INTEGER DEFAULT 0,
     status TEXT DEFAULT 'pending'
         CHECK(status IN ('pending', 'active', 'done')),
+    version INTEGER DEFAULT 1,
     created_at TEXT NOT NULL,
     FOREIGN KEY (project_id) REFERENCES projects(id),
     UNIQUE(project_id, name)
@@ -102,6 +115,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     target_function TEXT DEFAULT '',
     result TEXT DEFAULT '',
     error TEXT DEFAULT '',
+    version INTEGER DEFAULT 1,
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
@@ -159,7 +173,20 @@ CREATE TABLE IF NOT EXISTS memos (
 );
 `
 	_, err := db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Migration: add version column to existing tables (ignore if already exists)
+	migrations := []string{
+		"ALTER TABLE features ADD COLUMN version INTEGER DEFAULT 1",
+		"ALTER TABLE tasks ADD COLUMN version INTEGER DEFAULT 1",
+	}
+	for _, m := range migrations {
+		db.Exec(m) // Ignore errors (column may already exist)
+	}
+
+	return nil
 }
 
 // TimeNow returns the current time in ISO 8601 format

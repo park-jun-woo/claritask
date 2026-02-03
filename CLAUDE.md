@@ -104,7 +104,7 @@ type Response struct {
 
 ## Database
 
-- 위치: `.claritask/db`
+- 위치: `.claritask/db.clt`
 - 자동 생성: 첫 실행 시 또는 'clari init <project>'로 생성시
 - 마이그레이션: 앱 시작 시 자동
 

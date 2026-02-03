@@ -88,7 +88,7 @@ func RunInit(config InitConfig) (*InitResult, error) {
 		config.Name = config.ProjectID
 	}
 
-	dbPath := filepath.Join(config.WorkDir, ".claritask", "db")
+	dbPath := filepath.Join(config.WorkDir, ".claritask", "db.clt")
 
 	// Phase 1: DB Init
 	PrintProgress(1, 5, "데이터베이스 초기화 중...")
@@ -204,17 +204,17 @@ func RunInit(config InitConfig) (*InitResult, error) {
 // InitPhase1_DBInit initializes the database
 func InitPhase1_DBInit(config InitConfig) (*db.DB, error) {
 	claritaskDir := filepath.Join(config.WorkDir, ".claritask")
-	dbPath := filepath.Join(claritaskDir, "db")
+	dbPath := filepath.Join(claritaskDir, "db.clt")
 
 	// Check if DB already exists
 	if _, err := os.Stat(dbPath); err == nil {
 		if !config.Force {
 			return nil, fmt.Errorf("database already exists at %s (use --force to overwrite)", dbPath)
 		}
-		// Remove existing DB
-		if err := os.Remove(dbPath); err != nil {
-			return nil, fmt.Errorf("failed to remove existing DB: %w", err)
-		}
+		// Remove existing DB and WAL files
+		os.Remove(dbPath)
+		os.Remove(dbPath + "-wal")
+		os.Remove(dbPath + "-shm")
 	}
 
 	// Create directory
@@ -489,7 +489,7 @@ func ResumeInit(workDir string) (*InitResult, error) {
 		}
 	}
 
-	dbPath := filepath.Join(workDir, ".claritask", "db")
+	dbPath := filepath.Join(workDir, ".claritask", "db.clt")
 
 	// Check if DB exists
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {

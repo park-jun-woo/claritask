@@ -47,7 +47,7 @@ func TestClariInit_SkipAll(t *testing.T) {
 	}
 
 	// Verify DB was created
-	dbPath := filepath.Join(tmpDir, ".claritask", "db")
+	dbPath := filepath.Join(tmpDir, ".claritask", "db.clt")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		t.Error("expected database to be created")
 	}
@@ -205,7 +205,7 @@ func TestClariInit_Resume(t *testing.T) {
 	}
 
 	// Open db and simulate partial state
-	dbPath := filepath.Join(tmpDir, ".claritask", "db")
+	dbPath := filepath.Join(tmpDir, ".claritask", "db.clt")
 	database, err := db.Open(dbPath)
 	if err != nil {
 		t.Fatalf("failed to open db: %v", err)

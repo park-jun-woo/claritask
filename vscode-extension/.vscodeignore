@@ -1,0 +1,14 @@
+.vscode/**
+node_modules/**
+webview-ui/node_modules/**
+webview-ui/src/**
+webview-ui/*.json
+webview-ui/*.js
+webview-ui/*.ts
+webview-ui/index.html
+src/**
+!webview-ui/dist/**
+*.map
+.gitignore
+tsconfig.json
+**/*.md

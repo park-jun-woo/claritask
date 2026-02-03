@@ -26,7 +26,7 @@ func getDB() (*db.DB, error) {
 	if err != nil {
 		return nil, err
 	}
-	dbPath := filepath.Join(cwd, ".claritask", "db")
+	dbPath := filepath.Join(cwd, ".claritask", "db.clt")
 	return db.Open(dbPath)
 }
 

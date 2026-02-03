@@ -31,10 +31,10 @@ func TestInitPhase1_DBInit(t *testing.T) {
 	}
 	defer database.Close()
 
-	// Verify .claritask/db was created
-	dbPath := filepath.Join(tmpDir, ".claritask", "db")
+	// Verify .claritask/db.clt was created
+	dbPath := filepath.Join(tmpDir, ".claritask", "db.clt")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
-		t.Error("expected .claritask/db to be created")
+		t.Error("expected .claritask/db.clt to be created")
 	}
 
 	// Verify project was created
@@ -62,7 +62,7 @@ func TestInitPhase1_DBInit_AlreadyExists(t *testing.T) {
 	if err := os.MkdirAll(claritaskDir, 0755); err != nil {
 		t.Fatalf("failed to create .claritask dir: %v", err)
 	}
-	dbPath := filepath.Join(claritaskDir, "db")
+	dbPath := filepath.Join(claritaskDir, "db.clt")
 	if _, err := os.Create(dbPath); err != nil {
 		t.Fatalf("failed to create db file: %v", err)
 	}
@@ -274,7 +274,7 @@ func TestRunInit_SkipAll(t *testing.T) {
 	}
 
 	// Verify DB was created
-	dbPath := filepath.Join(tmpDir, ".claritask", "db")
+	dbPath := filepath.Join(tmpDir, ".claritask", "db.clt")
 	if _, err := os.Stat(dbPath); os.IsNotExist(err) {
 		t.Error("expected database to be created")
 	}
@@ -297,7 +297,7 @@ func TestRunInit_InvalidProjectID(t *testing.T) {
 
 // Helper function for creating a test database
 func createTestDB(t *testing.T, dir string) *db.DB {
-	dbPath := filepath.Join(dir, ".claritask", "db")
+	dbPath := filepath.Join(dir, ".claritask", "db.clt")
 	if err := os.MkdirAll(filepath.Dir(dbPath), 0755); err != nil {
 		t.Fatalf("failed to create db dir: %v", err)
 	}

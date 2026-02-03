@@ -95,8 +95,10 @@ clari memo add --scope task --id 3 "JWT 만료 시간 수정"
 
 - **Go + SQLite**: 단일 바이너리, 고성능
 - **Python**: FDL 파서 및 스켈레톤 생성기
-- **파일**: `.claritask/db` 하나로 모든 것 관리
+- **파일**: `.claritask/db.clt` 하나로 모든 것 관리
 - **성능**: 1000개 Task도 1ms
+- **동시성**: WAL 모드로 CLI/GUI 동시 접근 지원
+- **충돌 방지**: tasks, features 테이블에 version 컬럼 (낙관적 잠금)
 
 ---
 
@@ -1148,7 +1150,7 @@ clari init <project-id> ["<project-description>"]
 **동작**:
 1. 현재 위치에 `<project-id>` 폴더 생성
 2. 폴더 내 `CLAUDE.md` 파일 생성 (기본 템플릿)
-3. 폴더 내 `.claritask/db` SQLite 파일 생성
+3. 폴더 내 `.claritask/db.clt` SQLite 파일 생성
 4. projects 테이블에 project id와 description 자동 입력
 
 **예시**:

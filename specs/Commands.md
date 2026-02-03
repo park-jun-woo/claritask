@@ -85,7 +85,7 @@ clari init <project-id> [options]
 | --resume | | 중단된 초기화 재개 |
 
 **프로세스**:
-1. **Phase 1**: DB 초기화 (.claritask/db 생성)
+1. **Phase 1**: DB 초기화 (.claritask/db.clt 생성)
 2. **Phase 2**: 프로젝트 파일 분석 (claude --print)
 3. **Phase 3**: tech/design 승인 (대화형)
 4. **Phase 4**: Specs 초안 생성 (claude --print)
@@ -105,7 +105,7 @@ clari init <project-id> [options]
 {
   "success": true,
   "project_id": "my-api",
-  "db_path": ".claritask/db",
+  "db_path": ".claritask/db.clt",
   "specs_path": "specs/my-api.md"
 }
 ```
@@ -114,7 +114,7 @@ clari init <project-id> [options]
 ```json
 {
   "success": false,
-  "error": "database already exists at .claritask/db (use --force to overwrite)"
+  "error": "database already exists at .claritask/db.clt (use --force to overwrite)"
 }
 ```
 
@@ -143,7 +143,7 @@ clari init my-api --non-interactive
 
 | Phase | 설명 | 건너뛰기 |
 |-------|------|----------|
-| 1 | .claritask/db 생성, 프로젝트 레코드 | 불가 |
+| 1 | .claritask/db.clt 생성, 프로젝트 레코드 | 불가 |
 | 2 | 파일 스캔, LLM으로 tech/design 분석 | --skip-analysis |
 | 3 | 분석 결과 사용자 승인 | --non-interactive (자동 승인) |
 | 4 | LLM으로 specs 문서 생성 | --skip-specs |

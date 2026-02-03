@@ -22,7 +22,7 @@
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │ Phase 1: DB 초기화                                               │
-│   - .claritask/db 생성                                          │
+│   - .claritask/db.clt 생성                                          │
 │   - 스키마 마이그레이션                                           │
 │   - project 레코드 생성                                          │
 └─────────────────────────────────────────────────────────────────┘
@@ -77,14 +77,14 @@ clari init <project-id> [--name "프로젝트 이름"] [--description "설명"]
 ### 동작
 
 1. **디렉토리 생성**: `.claritask/` 폴더 생성
-2. **DB 생성**: `.claritask/db` SQLite 파일 생성
+2. **DB 생성**: `.claritask/db.clt` SQLite 파일 생성
 3. **마이그레이션**: 스키마 테이블 생성
 4. **프로젝트 등록**: projects 테이블에 레코드 삽입
 
 ### 검증
 
 - `project-id`: 영문 소문자, 숫자, 하이픈, 언더스코어만 허용
-- 이미 `.claritask/db`가 존재하면 에러 (덮어쓰기 방지)
+- 이미 `.claritask/db.clt`가 존재하면 에러 (덮어쓰기 방지)
 
 ### 출력
 
@@ -93,7 +93,7 @@ clari init <project-id> [--name "프로젝트 이름"] [--description "설명"]
   "success": true,
   "phase": "db_init",
   "project_id": "my-project",
-  "db_path": ".claritask/db",
+  "db_path": ".claritask/db.clt",
   "message": "Database initialized"
 }
 ```
@@ -379,7 +379,7 @@ EOF
 │ ✅ 프로젝트 초기화 완료                                          │
 ├─────────────────────────────────────────────────────────────────┤
 │ Project ID:   my-project                                        │
-│ Database:     .claritask/db                                     │
+│ Database:     .claritask/db.clt                                     │
 │ Specs:        specs/my-project.md                               │
 ├─────────────────────────────────────────────────────────────────┤
 │ 다음 단계:                                                       │

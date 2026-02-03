@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Project, Feature, Task, Edge, Expert, ProjectData } from './types';
+import type { Project, Feature, Task, Edge, Expert, Message, ProjectData } from './types';
 
 interface AppState {
   // Data
@@ -10,6 +10,7 @@ interface AppState {
   featureEdges: Edge[];
   experts: Expert[];
   projectExperts: string[];
+  messages: Message[];
   context: Record<string, any> | null;
   tech: Record<string, any> | null;
   design: Record<string, any> | null;
@@ -19,6 +20,7 @@ interface AppState {
   selectedFeatureId: number | null;
   selectedTaskId: number | null;
   selectedExpertId: string | null;
+  selectedMessageId: number | null;
   editingFeatureId: number | null;
   editingTaskId: number | null;
 
@@ -32,6 +34,7 @@ interface AppState {
   setSelectedFeature: (id: number | null) => void;
   setSelectedTask: (id: number | null) => void;
   setSelectedExpert: (id: string | null) => void;
+  setSelectedMessage: (id: number | null) => void;
   setEditingFeature: (id: number | null) => void;
   setEditingTask: (id: number | null) => void;
   addPendingSave: (key: string, data: any) => void;
@@ -43,7 +46,9 @@ interface AppState {
   getFeature: (id: number) => Feature | undefined;
   getTask: (id: number) => Task | undefined;
   getExpert: (id: string) => Expert | undefined;
+  getMessage: (id: number) => Message | undefined;
   getTasksForFeature: (featureId: number) => Task[];
+  getMessagesForFeature: (featureId: number) => Message[];
   getTaskDependencies: (taskId: number) => number[];
   getTaskDependents: (taskId: number) => number[];
   getAssignedExperts: () => Expert[];
@@ -58,6 +63,7 @@ export const useStore = create<AppState>((set, get) => ({
   featureEdges: [],
   experts: [],
   projectExperts: [],
+  messages: [],
   context: null,
   tech: null,
   design: null,
@@ -67,6 +73,7 @@ export const useStore = create<AppState>((set, get) => ({
   selectedFeatureId: null,
   selectedTaskId: null,
   selectedExpertId: null,
+  selectedMessageId: null,
   editingFeatureId: null,
   editingTaskId: null,
 
@@ -85,6 +92,7 @@ export const useStore = create<AppState>((set, get) => ({
       featureEdges: data.featureEdges,
       experts: data.experts || [],
       projectExperts: data.projectExperts || [],
+      messages: data.messages || [],
       context: data.context,
       tech: data.tech,
       design: data.design,
@@ -95,6 +103,7 @@ export const useStore = create<AppState>((set, get) => ({
   setSelectedFeature: (id) => set({ selectedFeatureId: id }),
   setSelectedTask: (id) => set({ selectedTaskId: id }),
   setSelectedExpert: (id) => set({ selectedExpertId: id }),
+  setSelectedMessage: (id) => set({ selectedMessageId: id }),
   setEditingFeature: (id) => set({ editingFeatureId: id }),
   setEditingTask: (id) => set({ editingTaskId: id }),
 
@@ -130,7 +139,9 @@ export const useStore = create<AppState>((set, get) => ({
   getFeature: (id) => get().features.find((f) => f.id === id),
   getTask: (id) => get().tasks.find((t) => t.id === id),
   getExpert: (id) => get().experts.find((e) => e.id === id),
+  getMessage: (id) => get().messages.find((m) => m.id === id),
   getTasksForFeature: (featureId) => get().tasks.filter((t) => t.feature_id === featureId),
+  getMessagesForFeature: (featureId) => get().messages.filter((m) => m.feature_id === featureId),
   getTaskDependencies: (taskId) =>
     get()
       .taskEdges.filter((e) => e.to_id === taskId)

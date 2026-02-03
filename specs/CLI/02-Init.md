@@ -1,6 +1,6 @@
 # clari init - 프로젝트 초기화
 
-> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.5 ([변경이력](../HISTORY.md))
 
 ---
 
@@ -121,6 +121,7 @@ clari init <project-id>
 2. **DB 생성**: `.claritask/db.clt` SQLite 파일 생성
 3. **마이그레이션**: 스키마 테이블 생성
 4. **프로젝트 등록**: projects 테이블에 레코드 삽입
+5. **Config 생성**: `.claritask/config.yaml` 기본 설정 파일 생성
 
 ### 검증
 
@@ -418,9 +419,32 @@ EOF
 ```
 ./
 ├── .claritask/
-│   └── db.clt
+│   ├── db.clt
+│   └── config.yaml
 └── specs/
     └── <project-id>.md
+```
+
+### config.yaml 기본 내용
+
+```yaml
+# Claritask Configuration
+# 상세: specs/CLI/16-Config.md
+
+tty:
+  # 동시 실행 가능한 Claude Code 세션 최대 개수 (1-10)
+  max_parallel_sessions: 3
+
+  # 세션 완료 후 터미널 자동 종료 대기 시간 (초)
+  # 0: 즉시 종료, -1: 자동 종료 안함
+  terminal_close_delay: 1
+
+vscode:
+  # DB 변경 감지 폴링 간격 (ms)
+  sync_interval: 1000
+
+  # Feature 파일 자동 감시
+  watch_feature_files: true
 ```
 
 ---

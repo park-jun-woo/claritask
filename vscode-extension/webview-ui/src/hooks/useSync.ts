@@ -87,6 +87,15 @@ export function useSync(): SyncState {
             }));
           }
           break;
+
+        case 'messageResult':
+          if (!message.success && message.error) {
+            setState((prev) => ({
+              ...prev,
+              error: `Message error: ${message.error}`,
+            }));
+          }
+          break;
       }
     };
 
@@ -161,5 +170,28 @@ export function deleteFeature(featureId: number): void {
   postMessage({
     type: 'deleteFeature',
     featureId,
+  });
+}
+
+export function sendMessage(content: string, featureId?: number): void {
+  postMessage({
+    type: 'sendMessage',
+    content,
+    featureId,
+  });
+}
+
+export function sendMessageCLI(content: string, featureId?: number): void {
+  postMessage({
+    type: 'sendMessageCLI',
+    content,
+    featureId,
+  });
+}
+
+export function deleteMessage(messageId: number): void {
+  postMessage({
+    type: 'deleteMessage',
+    messageId,
   });
 }

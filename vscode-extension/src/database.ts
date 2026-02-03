@@ -69,6 +69,18 @@ export interface Expert {
   updated_at: string;
 }
 
+export interface Message {
+  id: number;
+  project_id: string;
+  feature_id: number | null;
+  content: string;
+  response: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export interface ProjectData {
   project: Project | null;
   features: Feature[];
@@ -77,6 +89,7 @@ export interface ProjectData {
   featureEdges: Edge[];
   experts: Expert[];
   projectExperts: string[];
+  messages: Message[];
   context: Record<string, any> | null;
   tech: Record<string, any> | null;
   design: Record<string, any> | null;
@@ -191,6 +204,15 @@ export class Database {
       experts = [];
     }
 
+    // Handle missing messages table gracefully
+    let messages: Message[] = [];
+    try {
+      messages = this.getMessages();
+    } catch {
+      // Table may not exist in older DBs
+      messages = [];
+    }
+
     return {
       project,
       features: this.getFeatures(),
@@ -199,6 +221,7 @@ export class Database {
       featureEdges: this.getFeatureEdges(),
       experts,
       projectExperts,
+      messages,
       context: this.getContext(),
       tech: this.getTech(),
       design: this.getDesign(),
@@ -529,6 +552,40 @@ export class Database {
     this.run('DELETE FROM tasks WHERE feature_id = ?', [featureId]);
     // Delete feature
     this.run('DELETE FROM features WHERE id = ?', [featureId]);
+    this.save();
+  }
+
+  // Message methods
+  getMessages(): Message[] {
+    return this.queryAll<Message>(
+      'SELECT * FROM messages ORDER BY created_at DESC'
+    );
+  }
+
+  getMessage(id: number): Message | null {
+    return this.queryOne<Message>(
+      'SELECT * FROM messages WHERE id = ?',
+      [id]
+    );
+  }
+
+  createMessage(projectId: string, content: string, featureId?: number): number {
+    const now = new Date().toISOString();
+    this.run(
+      `INSERT INTO messages (project_id, feature_id, content, status, created_at)
+       VALUES (?, ?, ?, 'pending', ?)`,
+      [projectId, featureId ?? null, content, now]
+    );
+    this.save();
+    const row = this.queryOne<{ id: number }>('SELECT last_insert_rowid() as id');
+    return row?.id ?? 0;
+  }
+
+  deleteMessage(id: number): void {
+    // Delete message_tasks first
+    this.run('DELETE FROM message_tasks WHERE message_id = ?', [id]);
+    // Delete message
+    this.run('DELETE FROM messages WHERE id = ?', [id]);
     this.save();
   }
 }

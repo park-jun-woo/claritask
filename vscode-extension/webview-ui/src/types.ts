@@ -62,6 +62,18 @@ export interface Expert {
   updated_at: string;
 }
 
+export interface Message {
+  id: number;
+  project_id: string;
+  feature_id: number | null;
+  content: string;
+  response: string;
+  status: 'pending' | 'processing' | 'completed' | 'failed';
+  error: string;
+  created_at: string;
+  completed_at: string | null;
+}
+
 export interface ProjectData {
   project: Project | null;
   features: Feature[];
@@ -70,6 +82,7 @@ export interface ProjectData {
   featureEdges: Edge[];
   experts: Expert[];
   projectExperts: string[];
+  messages: Message[];
   context: Record<string, any> | null;
   tech: Record<string, any> | null;
   design: Record<string, any> | null;
@@ -85,7 +98,8 @@ export type MessageToWebview =
   | { type: 'createResult'; success: boolean; table?: string; id?: number; error?: string }
   | { type: 'deleteResult'; success: boolean; table?: string; id?: number; error?: string }
   | { type: 'settingSaveResult'; section: 'context' | 'tech' | 'design'; success: boolean; error?: string }
-  | { type: 'expertResult'; success: boolean; action?: 'assign' | 'unassign' | 'create'; expertId?: string; error?: string };
+  | { type: 'expertResult'; success: boolean; action?: 'assign' | 'unassign' | 'create'; expertId?: string; error?: string }
+  | { type: 'messageResult'; success: boolean; action?: 'send' | 'delete'; messageId?: number; error?: string };
 
 export type MessageFromWebview =
   | { type: 'save'; table: string; id: number; data: any; version: number }
@@ -101,4 +115,7 @@ export type MessageFromWebview =
   | { type: 'assignExpert'; expertId: string }
   | { type: 'unassignExpert'; expertId: string }
   | { type: 'createExpert'; expertId: string }
-  | { type: 'openExpertFile'; expertId: string };
+  | { type: 'openExpertFile'; expertId: string }
+  | { type: 'sendMessage'; content: string; featureId?: number }
+  | { type: 'deleteMessage'; messageId: number }
+  | { type: 'sendMessageCLI'; content: string; featureId?: number };

@@ -4,13 +4,14 @@ import { ProjectPanel } from './components/ProjectPanel';
 import { FeatureList } from './components/FeatureList';
 import { TaskPanel } from './components/TaskPanel';
 import ExpertsPanel from './components/ExpertsPanel';
+import { MessagesPanel } from './components/MessagesPanel';
 import { StatusBar } from './components/StatusBar';
 import { useSync } from './hooks/useSync';
 
 function App() {
   const { project, selectedFeatureId } = useStore();
   const { isConnected, lastSync, error } = useSync();
-  const [view, setView] = useState<'project' | 'features' | 'tasks' | 'experts'>('project');
+  const [view, setView] = useState<'project' | 'features' | 'tasks' | 'experts' | 'messages'>('project');
 
   return (
     <div className="flex flex-col h-screen">
@@ -34,6 +35,16 @@ function App() {
             }`}
           >
             Project
+          </button>
+          <button
+            onClick={() => setView('messages')}
+            className={`px-3 py-1 rounded ${
+              view === 'messages'
+                ? 'bg-vscode-button-bg text-vscode-button-fg'
+                : 'hover:bg-vscode-list-hover'
+            }`}
+          >
+            Messages
           </button>
           <button
             onClick={() => setView('features')}
@@ -81,6 +92,7 @@ function App() {
         {view === 'features' && <FeatureList />}
         {view === 'tasks' && <TaskPanel featureId={selectedFeatureId} />}
         {view === 'experts' && <ExpertsPanel />}
+        {view === 'messages' && <MessagesPanel />}
       </main>
 
       {/* Status Bar */}

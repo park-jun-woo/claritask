@@ -188,6 +188,18 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
       case 'openFeatureFile':
         this.handleOpenFeatureFile(message, database);
         break;
+
+      case 'sendMessage':
+        this.handleSendMessage(message, database, webview, sync);
+        break;
+
+      case 'deleteMessage':
+        this.handleDeleteMessage(message, database, webview, sync);
+        break;
+
+      case 'sendMessageCLI':
+        this.handleSendMessageCLI(message, webview);
+        break;
     }
   }
 
@@ -842,6 +854,126 @@ TODO: Define best practices
       await vscode.window.showTextDocument(uri);
     } catch (err) {
       vscode.window.showErrorMessage(`Failed to open feature file: ${err}`);
+    }
+  }
+
+  // Message handlers
+  private handleSendMessage(
+    message: { content: string; featureId?: number },
+    database: Database,
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): void {
+    try {
+      const project = database.getProject();
+      if (!project) {
+        webview.postMessage({
+          type: 'messageResult',
+          success: false,
+          action: 'send',
+          error: 'No project found',
+        });
+        return;
+      }
+
+      const messageId = database.createMessage(
+        project.id,
+        message.content,
+        message.featureId
+      );
+
+      webview.postMessage({
+        type: 'messageResult',
+        success: true,
+        action: 'send',
+        messageId,
+      });
+      sync.refresh();
+    } catch (err) {
+      webview.postMessage({
+        type: 'messageResult',
+        success: false,
+        action: 'send',
+        error: String(err),
+      });
+    }
+  }
+
+  private handleDeleteMessage(
+    message: { messageId: number },
+    database: Database,
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): void {
+    try {
+      database.deleteMessage(message.messageId);
+      webview.postMessage({
+        type: 'messageResult',
+        success: true,
+        action: 'delete',
+        messageId: message.messageId,
+      });
+      sync.refresh();
+    } catch (err) {
+      webview.postMessage({
+        type: 'messageResult',
+        success: false,
+        action: 'delete',
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleSendMessageCLI(
+    message: { content: string; featureId?: number },
+    webview: vscode.Webview
+  ): Promise<void> {
+    try {
+      // Escape content for shell (single quotes)
+      const escapedContent = message.content.replace(/'/g, "'\\''");
+
+      // Build command
+      let command = `~/bin/clari message send '${escapedContent}'`;
+      if (message.featureId) {
+        command += ` --feature ${message.featureId}`;
+      }
+
+      // Build full command with cd for WSL
+      const isWindows = process.platform === 'win32';
+      const workspacePath = vscode.workspace.workspaceFolders?.[0].uri.fsPath;
+      let fullCommand = command;
+
+      if (isWindows && workspacePath) {
+        const wslPath = windowsToWslPath(workspacePath);
+        fullCommand = `cd '${wslPath}' && ${command}`;
+      }
+
+      // Use TTY Session Manager if available
+      if (ttySessionManager) {
+        const sessionId = `message-send-${Date.now()}`;
+        await ttySessionManager.startSession(sessionId, fullCommand);
+      } else {
+        // Fallback: Create terminal directly
+        const terminal = vscode.window.createTerminal({
+          name: 'Claritask - Send Message',
+          shellPath: isWindows ? 'wsl.exe' : undefined,
+        });
+        terminal.show();
+        terminal.sendText(fullCommand);
+      }
+
+      webview.postMessage({
+        type: 'cliStarted',
+        command: 'message.send',
+        message: 'Claude Code will analyze your request...',
+      });
+    } catch (err) {
+      webview.postMessage({
+        type: 'messageResult',
+        success: false,
+        action: 'send',
+        error: String(err),
+      });
     }
   }
 }

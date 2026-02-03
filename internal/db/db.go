@@ -171,6 +171,26 @@ CREATE TABLE IF NOT EXISTS memos (
     updated_at TEXT NOT NULL,
     PRIMARY KEY (scope, scope_id, key)
 );
+
+CREATE TABLE IF NOT EXISTS experts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT DEFAULT '1.0.0',
+    domain TEXT DEFAULT '',
+    language TEXT DEFAULT '',
+    framework TEXT DEFAULT '',
+    path TEXT NOT NULL,
+    created_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_experts (
+    project_id TEXT NOT NULL,
+    expert_id TEXT NOT NULL,
+    assigned_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, expert_id),
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (expert_id) REFERENCES experts(id)
+);
 `
 	_, err := db.Exec(schema)
 	if err != nil {

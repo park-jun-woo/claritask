@@ -63,4 +63,5 @@ func init() {
 	rootCmd.AddCommand(edgeCmd)
 	rootCmd.AddCommand(fdlCmd)
 	rootCmd.AddCommand(planCmd)
+	rootCmd.AddCommand(expertCmd)
 }

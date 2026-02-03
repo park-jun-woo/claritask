@@ -431,6 +431,7 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 		Tech:    make(map[string]interface{}),
 		Design:  make(map[string]interface{}),
 		Feature: make(map[string]interface{}),
+		Experts: []model.ExpertInfo{},
 		State:   make(map[string]string),
 		Memos:   []model.MemoData{},
 	}
@@ -457,6 +458,15 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 		}
 	}
 
+	// Add assigned experts to manifest
+	project, _ := GetProject(database)
+	if project != nil {
+		experts, err := GetAssignedExperts(database, project.ID)
+		if err == nil {
+			manifest.Experts = experts
+		}
+	}
+
 	if state, err := GetAllStates(database); err == nil {
 		manifest.State = state
 	}
@@ -477,7 +487,6 @@ func PopTaskFull(database *db.DB) (*model.TaskPopResponse, error) {
 	response.Manifest = manifest
 
 	// Update current state
-	project, _ := GetProject(database)
 	projectID := ""
 	if project != nil {
 		projectID = project.ID

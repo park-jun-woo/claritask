@@ -46,7 +46,7 @@ Go 언어 CLI 개발 전문가. Cobra 라이브러리와 SQLite를 사용한 고
 - 사용자가 명시적으로 '코드 파악해'라고 말하면 개발 절차를 시작한다.
 - 
 ### Report Process
-1. 코드 파일 목록(`cmd/*, internal/*, pkg/*, test/*`)을 확인한다.
+1. 코드 파일 목록(`cli/cmd/*, cli/internal/*, cli/test/*`)을 확인한다.
 2. 파일을 하나씩 열어 분석하여 요약하고 `reports/<0000-00-00>/<파일명>-report.md`를 작성한다.
 3. 모든 파일을 분석하면 최종 전체 보고서(`reports/<0000-00-00>-report.md`)를 작성한다.
 
@@ -54,21 +54,30 @@ Go 언어 CLI 개발 전문가. Cobra 라이브러리와 SQLite를 사용한 고
 
 ```
 claritask/
-├── cmd/claritask/       # 메인 진입점
-│   ├── main.go
-├── internal/
-│   ├── cmd/             # Cobra 명령어
-│   ├── db/              # 데이터베이스 레이어
-│   ├── model/           # 데이터 모델
-│   └── service/         # 비즈니스 로직
-├── test/
-├── go.mod
-├── specs/
-│   ├── Claritask.md     # 프로젝트 스펙
-│   └── Commands.md      # 명령어 레퍼런스
-├── tasks/               # 해야할 Task 문서 폴더
-├── finished/            # 완료한 Task 문서 폴더
-└── talks/               # 요약 저장한 대화내역
+├── cli/                     # Go CLI 소스코드
+│   ├── cmd/claritask/       # 메인 진입점
+│   │   └── main.go
+│   ├── internal/
+│   │   ├── cmd/             # Cobra 명령어
+│   │   ├── db/              # 데이터베이스 레이어
+│   │   ├── model/           # 데이터 모델
+│   │   └── service/         # 비즈니스 로직
+│   ├── test/
+│   ├── scripts/
+│   ├── go.mod
+│   ├── go.sum
+│   └── Makefile
+├── vscode-extension/        # VSCode Extension 소스코드
+├── specs/                   # 요구사항 명세서
+│   ├── Claritask.md
+│   ├── CLI/
+│   ├── DB/
+│   ├── FDL/
+│   ├── TTY/
+│   └── VSCode/
+├── tasks/                   # 해야할 Task 문서 폴더
+├── finished/                # 완료한 Task 문서 폴더
+└── talks/                   # 요약 저장한 대화내역
 ```
 
 ## Coding Conventions

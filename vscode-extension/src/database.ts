@@ -49,12 +49,31 @@ export interface Edge {
   created_at: string;
 }
 
+export interface Expert {
+  id: string;
+  name: string;
+  version: string;
+  domain: string;
+  language: string;
+  framework: string;
+  path: string;
+  description: string;
+  content: string;
+  content_hash: string;
+  status: 'active' | 'archived';
+  assigned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 export interface ProjectData {
   project: Project | null;
   features: Feature[];
   tasks: Task[];
   taskEdges: Edge[];
   featureEdges: Edge[];
+  experts: Expert[];
+  projectExperts: string[];
   context: Record<string, any> | null;
   tech: Record<string, any> | null;
   design: Record<string, any> | null;
@@ -155,12 +174,18 @@ export class Database {
   }
 
   readAll(): ProjectData {
+    const project = this.getProject();
+    const projectExperts = project ? this.getProjectExperts(project.id) : [];
+    const experts = this.getExperts(projectExperts);
+
     return {
-      project: this.getProject(),
+      project,
       features: this.getFeatures(),
       tasks: this.getTasks(),
       taskEdges: this.getTaskEdges(),
       featureEdges: this.getFeatureEdges(),
+      experts,
+      projectExperts,
       context: this.getContext(),
       tech: this.getTech(),
       design: this.getDesign(),
@@ -322,6 +347,102 @@ export class Database {
     } else {
       this.run('INSERT INTO design (id, data) VALUES (1, ?)', [jsonData]);
     }
+    this.save();
+  }
+
+  getExperts(projectExperts: string[]): Expert[] {
+    const rows = this.queryAll<Omit<Expert, 'assigned'>>(`
+      SELECT id, name, version, domain, language, framework,
+             path, description, content, content_hash, status,
+             created_at, updated_at
+      FROM experts
+      WHERE status = 'active'
+      ORDER BY name
+    `);
+    return rows.map((row) => ({
+      ...row,
+      assigned: projectExperts.includes(row.id),
+    }));
+  }
+
+  getProjectExperts(projectId: string): string[] {
+    const rows = this.queryAll<{ expert_id: string }>(
+      'SELECT expert_id FROM project_experts WHERE project_id = ?',
+      [projectId]
+    );
+    return rows.map((row) => row.expert_id);
+  }
+
+  assignExpert(projectId: string, expertId: string): void {
+    const now = new Date().toISOString();
+    this.run(
+      'INSERT OR IGNORE INTO project_experts (project_id, expert_id, assigned_at) VALUES (?, ?, ?)',
+      [projectId, expertId, now]
+    );
+    this.save();
+  }
+
+  unassignExpert(projectId: string, expertId: string): void {
+    this.run('DELETE FROM project_experts WHERE project_id = ? AND expert_id = ?', [
+      projectId,
+      expertId,
+    ]);
+    this.save();
+  }
+
+  updateExpertContent(expertId: string, content: string, contentHash: string): void {
+    const now = new Date().toISOString();
+    this.run('UPDATE experts SET content = ?, content_hash = ?, updated_at = ? WHERE id = ?', [
+      content,
+      contentHash,
+      now,
+      expertId,
+    ]);
+    this.save();
+  }
+
+  createExpert(
+    expertId: string,
+    name: string,
+    path: string,
+    content: string,
+    contentHash: string
+  ): void {
+    const now = new Date().toISOString();
+    this.run(
+      `INSERT INTO experts (id, name, version, domain, language, framework, path, description, content, content_hash, status, created_at, updated_at)
+       VALUES (?, ?, '1.0.0', '', '', '', ?, '', ?, ?, 'active', ?, ?)`,
+      [expertId, name, path, content, contentHash, now, now]
+    );
+    this.save();
+  }
+
+  getExpertContentHash(expertId: string): string | null {
+    const row = this.queryOne<{ content_hash: string }>(
+      'SELECT content_hash FROM experts WHERE id = ?',
+      [expertId]
+    );
+    return row?.content_hash ?? null;
+  }
+
+  getExpertContent(expertId: string): string | null {
+    const row = this.queryOne<{ content: string }>('SELECT content FROM experts WHERE id = ?', [
+      expertId,
+    ]);
+    return row?.content ?? null;
+  }
+
+  updateExpertMetadata(
+    expertId: string,
+    name: string,
+    domain: string,
+    language: string,
+    framework: string
+  ): void {
+    this.run(
+      'UPDATE experts SET name = ?, domain = ?, language = ?, framework = ? WHERE id = ?',
+      [name, domain, language, framework, expertId]
+    );
     this.save();
   }
 }

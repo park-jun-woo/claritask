@@ -67,6 +67,20 @@ var taskListCmd = &cobra.Command{
 	RunE:  runTaskList,
 }
 
+var taskRunCmd = &cobra.Command{
+	Use:   "run <task_id>",
+	Short: "Run a task with TTY handover (interactive mode)",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskRunTTY,
+}
+
+var taskRetryCmd = &cobra.Command{
+	Use:   "retry <task_id>",
+	Short: "Retry a failed task with TTY handover",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runTaskRetry,
+}
+
 func init() {
 	taskCmd.AddCommand(taskPushCmd)
 	taskCmd.AddCommand(taskPopCmd)
@@ -76,6 +90,8 @@ func init() {
 	taskCmd.AddCommand(taskStatusCmd)
 	taskCmd.AddCommand(taskGetCmd)
 	taskCmd.AddCommand(taskListCmd)
+	taskCmd.AddCommand(taskRunCmd)
+	taskCmd.AddCommand(taskRetryCmd)
 }
 
 type taskPushInput struct {
@@ -407,4 +423,104 @@ func runTaskList(cmd *cobra.Command, args []string) error {
 	})
 
 	return nil
+}
+
+func runTaskRunTTY(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	taskID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		outputError(fmt.Errorf("invalid task ID: %s", args[0]))
+		return nil
+	}
+
+	task, err := service.GetTask(database, taskID)
+	if err != nil {
+		outputError(fmt.Errorf("get task: %w", err))
+		return nil
+	}
+
+	// Start task if pending
+	if task.Status == "pending" {
+		if err := service.StartTask(database, taskID); err != nil {
+			outputError(fmt.Errorf("start task: %w", err))
+			return nil
+		}
+	} else if task.Status == "done" {
+		outputError(fmt.Errorf("task %d is already completed", taskID))
+		return nil
+	}
+
+	// Run with TTY handover
+	if err := service.RunTaskWithTTY(database, task); err != nil {
+		service.FailTask(database, taskID, err.Error())
+		outputError(fmt.Errorf("task execution failed: %w", err))
+		return nil
+	}
+
+	// Verify and complete
+	passed, verifyErr := service.VerifyTask(task)
+	if passed {
+		service.CompleteTask(database, taskID, "Completed via TTY session")
+		outputJSON(map[string]interface{}{
+			"success": true,
+			"task_id": taskID,
+			"status":  "done",
+			"message": "Task completed successfully",
+		})
+	} else {
+		errMsg := "verification failed"
+		if verifyErr != nil {
+			errMsg = verifyErr.Error()
+		}
+		service.FailTask(database, taskID, errMsg)
+		outputJSON(map[string]interface{}{
+			"success": false,
+			"task_id": taskID,
+			"status":  "failed",
+			"error":   errMsg,
+		})
+	}
+
+	return nil
+}
+
+func runTaskRetry(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	taskID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		outputError(fmt.Errorf("invalid task ID: %s", args[0]))
+		return nil
+	}
+
+	task, err := service.GetTask(database, taskID)
+	if err != nil {
+		outputError(fmt.Errorf("get task: %w", err))
+		return nil
+	}
+
+	if task.Status != "failed" {
+		outputError(fmt.Errorf("task %d is not failed (status: %s)", taskID, task.Status))
+		return nil
+	}
+
+	// Reset to pending
+	if err := service.ResetTaskToPending(database, taskID); err != nil {
+		outputError(fmt.Errorf("reset task: %w", err))
+		return nil
+	}
+
+	// Run with TTY
+	return runTaskRunTTY(cmd, args)
 }

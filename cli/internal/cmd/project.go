@@ -263,16 +263,29 @@ func runProjectStart(cmd *cobra.Command, args []string) error {
 		options.FeatureID = &featureID
 	}
 
-	// Start execution in background
-	go service.ExecuteAllTasks(database, options)
+	fmt.Println("[Claritask] Starting Phase 2: Task Execution")
+
+	// Execute (foreground, blocking)
+	err = service.ExecuteAllTasks(database, options)
+
+	// Get final progress
+	progress, _ := service.GetExecutionProgress(database)
+
+	if err != nil {
+		outputJSON(map[string]interface{}{
+			"success":  false,
+			"mode":     "execution",
+			"progress": progress,
+			"error":    err.Error(),
+		})
+		return nil
+	}
 
 	outputJSON(map[string]interface{}{
 		"success":  true,
-		"ready":    true,
-		"mode":     "execution",
-		"status":   taskStatus,
-		"message":  "Execution started. Use 'clari project status' to monitor.",
-		"progress": taskStatus.Progress,
+		"mode":     "completed",
+		"progress": progress,
+		"message":  "Execution completed",
 	})
 
 	return nil

@@ -1,4 +1,7 @@
 import * as vscode from 'vscode';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as crypto from 'crypto';
 import { Database, setExtensionPath } from './database';
 import { SyncManager } from './sync';
 
@@ -40,8 +43,10 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
     const dbPath = document.uri.fsPath;
+    const dbDir = path.dirname(dbPath);
     let database: Database | null = null;
     let sync: SyncManager | null = null;
+    let expertWatcher: vscode.FileSystemWatcher | null = null;
 
     try {
       setExtensionPath(this.context.extensionUri.fsPath);
@@ -49,6 +54,9 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
       await database.init();
       sync = new SyncManager(database, webviewPanel.webview, dbPath);
       sync.start();
+
+      // Setup Expert file watcher
+      expertWatcher = this.setupExpertWatcher(dbDir, database, sync);
 
       webviewPanel.webview.onDidReceiveMessage(
         (message) => this.handleMessage(message, database!, webviewPanel.webview, sync!),
@@ -63,6 +71,7 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
     }
 
     webviewPanel.onDidDispose(() => {
+      expertWatcher?.dispose();
       sync?.stop();
       database?.close();
     });
@@ -135,6 +144,22 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       case 'saveDesign':
         this.handleSaveDesign(message, database, webview, sync);
+        break;
+
+      case 'assignExpert':
+        this.handleAssignExpert(message, database, webview, sync);
+        break;
+
+      case 'unassignExpert':
+        this.handleUnassignExpert(message, database, webview, sync);
+        break;
+
+      case 'createExpert':
+        this.handleCreateExpert(message, database, webview, sync);
+        break;
+
+      case 'openExpertFile':
+        this.handleOpenExpertFile(message, database);
         break;
     }
   }
@@ -342,6 +367,254 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
         error: String(err),
       });
     }
+  }
+
+  private handleAssignExpert(
+    message: { expertId: string },
+    database: Database,
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): void {
+    try {
+      const project = database.getProject();
+      if (!project) {
+        webview.postMessage({
+          type: 'expertResult',
+          success: false,
+          action: 'assign',
+          error: 'No project found',
+        });
+        return;
+      }
+
+      database.assignExpert(project.id, message.expertId);
+      webview.postMessage({
+        type: 'expertResult',
+        success: true,
+        action: 'assign',
+        expertId: message.expertId,
+      });
+      sync.refresh();
+    } catch (err) {
+      webview.postMessage({
+        type: 'expertResult',
+        success: false,
+        action: 'assign',
+        error: String(err),
+      });
+    }
+  }
+
+  private handleUnassignExpert(
+    message: { expertId: string },
+    database: Database,
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): void {
+    try {
+      const project = database.getProject();
+      if (!project) {
+        webview.postMessage({
+          type: 'expertResult',
+          success: false,
+          action: 'unassign',
+          error: 'No project found',
+        });
+        return;
+      }
+
+      database.unassignExpert(project.id, message.expertId);
+      webview.postMessage({
+        type: 'expertResult',
+        success: true,
+        action: 'unassign',
+        expertId: message.expertId,
+      });
+      sync.refresh();
+    } catch (err) {
+      webview.postMessage({
+        type: 'expertResult',
+        success: false,
+        action: 'unassign',
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleCreateExpert(
+    message: { expertId: string },
+    database: Database,
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): Promise<void> {
+    try {
+      const dbDir = path.dirname(database['dbPath']);
+      const expertsDir = path.join(dbDir, 'experts', message.expertId);
+      const expertFile = path.join(expertsDir, 'EXPERT.md');
+
+      await fs.promises.mkdir(expertsDir, { recursive: true });
+
+      const template = `# ${message.expertId}
+
+## Role
+TODO: Define the expert's role
+
+## Tech Stack
+- Language:
+- Framework:
+
+## Coding Rules
+TODO: Define coding conventions
+
+## Best Practices
+TODO: Define best practices
+`;
+
+      await fs.promises.writeFile(expertFile, template);
+
+      const contentHash = crypto.createHash('sha256').update(template).digest('hex');
+      database.createExpert(message.expertId, message.expertId, expertFile, template, contentHash);
+
+      webview.postMessage({
+        type: 'expertResult',
+        success: true,
+        action: 'create',
+        expertId: message.expertId,
+      });
+      sync.refresh();
+
+      const uri = vscode.Uri.file(expertFile);
+      await vscode.window.showTextDocument(uri);
+    } catch (err) {
+      webview.postMessage({
+        type: 'expertResult',
+        success: false,
+        action: 'create',
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleOpenExpertFile(
+    message: { expertId: string },
+    database: Database
+  ): Promise<void> {
+    const dbDir = path.dirname(database['dbPath']);
+    const expertFile = path.join(dbDir, 'experts', message.expertId, 'EXPERT.md');
+
+    try {
+      const uri = vscode.Uri.file(expertFile);
+      await vscode.window.showTextDocument(uri);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to open expert file: ${err}`);
+    }
+  }
+
+  private setupExpertWatcher(
+    dbDir: string,
+    database: Database,
+    sync: SyncManager
+  ): vscode.FileSystemWatcher {
+    const expertsPattern = new vscode.RelativePattern(dbDir, 'experts/*/EXPERT.md');
+    const watcher = vscode.workspace.createFileSystemWatcher(expertsPattern);
+
+    watcher.onDidChange(async (uri) => {
+      await this.syncExpertFromFile(uri, database, sync);
+    });
+
+    watcher.onDidCreate(async (uri) => {
+      await this.syncExpertFromFile(uri, database, sync);
+    });
+
+    watcher.onDidDelete(async (uri) => {
+      await this.handleExpertFileDeleted(uri, database);
+    });
+
+    return watcher;
+  }
+
+  private async syncExpertFromFile(
+    uri: vscode.Uri,
+    database: Database,
+    sync: SyncManager
+  ): Promise<void> {
+    const filePath = uri.fsPath;
+    const expertId = this.extractExpertId(filePath);
+
+    if (!expertId) return;
+
+    try {
+      const content = await fs.promises.readFile(filePath, 'utf-8');
+      const contentHash = crypto.createHash('sha256').update(content).digest('hex');
+
+      const existingHash = database.getExpertContentHash(expertId);
+
+      if (existingHash !== contentHash) {
+        database.updateExpertContent(expertId, content, contentHash);
+
+        const metadata = this.parseExpertMetadata(content);
+        if (metadata) {
+          database.updateExpertMetadata(
+            expertId,
+            metadata.name,
+            metadata.domain,
+            metadata.language,
+            metadata.framework
+          );
+        }
+
+        sync.refresh();
+      }
+    } catch (err) {
+      console.error('Error syncing expert file:', err);
+    }
+  }
+
+  private async handleExpertFileDeleted(uri: vscode.Uri, database: Database): Promise<void> {
+    const filePath = uri.fsPath;
+    const expertId = this.extractExpertId(filePath);
+
+    if (!expertId) return;
+
+    const content = database.getExpertContent(expertId);
+
+    if (content) {
+      const expertsDir = path.dirname(filePath);
+      try {
+        await fs.promises.mkdir(expertsDir, { recursive: true });
+        await fs.promises.writeFile(filePath, content);
+        vscode.window.showInformationMessage(`Expert file '${expertId}' was restored from backup.`);
+      } catch (err) {
+        console.error('Error restoring expert file:', err);
+      }
+    }
+  }
+
+  private extractExpertId(filePath: string): string {
+    const parts = filePath.split(path.sep);
+    const expertIndex = parts.indexOf('experts');
+    if (expertIndex >= 0 && parts.length > expertIndex + 1) {
+      return parts[expertIndex + 1];
+    }
+    return '';
+  }
+
+  private parseExpertMetadata(
+    content: string
+  ): { name: string; domain: string; language: string; framework: string } | null {
+    const nameMatch = content.match(/^#\s+(.+)$/m);
+    const name = nameMatch ? nameMatch[1].trim() : '';
+
+    const roleMatch = content.match(/##\s+Role\s*\n([^\n#]+)/i);
+    const domain = roleMatch ? roleMatch[1].trim() : '';
+
+    const langMatch = content.match(/Language:\s*(.+)/i);
+    const language = langMatch ? langMatch[1].trim() : '';
+
+    const fwMatch = content.match(/Framework:\s*(.+)/i);
+    const framework = fwMatch ? fwMatch[1].trim() : '';
+
+    return { name, domain, language, framework };
   }
 }
 

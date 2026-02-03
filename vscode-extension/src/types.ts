@@ -6,6 +6,8 @@ export interface ProjectData {
   tasks: Task[];
   taskEdges: Edge[];
   featureEdges: Edge[];
+  experts: Expert[];
+  projectExperts: string[];
   context: Record<string, any> | null;
   tech: Record<string, any> | null;
   design: Record<string, any> | null;
@@ -59,6 +61,23 @@ export interface Edge {
   created_at: string;
 }
 
+export interface Expert {
+  id: string;
+  name: string;
+  version: string;
+  domain: string;
+  language: string;
+  framework: string;
+  path: string;
+  description: string;
+  content: string;
+  content_hash: string;
+  status: 'active' | 'archived';
+  assigned: boolean;
+  created_at: string;
+  updated_at: string;
+}
+
 // Webview Messages: Extension → Webview
 export interface SyncMessage {
   type: 'sync';
@@ -100,13 +119,22 @@ export interface CreateResultMessage {
   error?: string;
 }
 
+export interface ExpertResultMessage {
+  type: 'expertResult';
+  success: boolean;
+  action?: 'assign' | 'unassign' | 'create';
+  expertId?: string;
+  error?: string;
+}
+
 export type ExtensionMessage =
   | SyncMessage
   | ConflictMessage
   | ErrorMessage
   | SaveResultMessage
   | EdgeResultMessage
-  | CreateResultMessage;
+  | CreateResultMessage
+  | ExpertResultMessage;
 
 // Webview Messages: Webview → Extension
 export interface SaveMessage {
@@ -146,10 +174,34 @@ export interface CreateFeatureMessage {
   description: string;
 }
 
+export interface AssignExpertMessage {
+  type: 'assignExpert';
+  expertId: string;
+}
+
+export interface UnassignExpertMessage {
+  type: 'unassignExpert';
+  expertId: string;
+}
+
+export interface CreateExpertMessage {
+  type: 'createExpert';
+  expertId: string;
+}
+
+export interface OpenExpertFileMessage {
+  type: 'openExpertFile';
+  expertId: string;
+}
+
 export type WebviewMessage =
   | SaveMessage
   | RefreshMessage
   | AddEdgeMessage
   | RemoveEdgeMessage
   | CreateTaskMessage
-  | CreateFeatureMessage;
+  | CreateFeatureMessage
+  | AssignExpertMessage
+  | UnassignExpertMessage
+  | CreateExpertMessage
+  | OpenExpertFileMessage;

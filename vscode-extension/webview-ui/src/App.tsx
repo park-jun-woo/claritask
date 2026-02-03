@@ -3,13 +3,14 @@ import { useStore } from './store';
 import { ProjectPanel } from './components/ProjectPanel';
 import { FeatureList } from './components/FeatureList';
 import { TaskPanel } from './components/TaskPanel';
+import ExpertsPanel from './components/ExpertsPanel';
 import { StatusBar } from './components/StatusBar';
 import { useSync } from './hooks/useSync';
 
 function App() {
   const { project, selectedFeatureId } = useStore();
   const { isConnected, lastSync, error } = useSync();
-  const [view, setView] = useState<'project' | 'features' | 'tasks'>('project');
+  const [view, setView] = useState<'project' | 'features' | 'tasks' | 'experts'>('project');
 
   return (
     <div className="flex flex-col h-screen">
@@ -54,6 +55,16 @@ function App() {
           >
             Tasks
           </button>
+          <button
+            onClick={() => setView('experts')}
+            className={`px-3 py-1 rounded ${
+              view === 'experts'
+                ? 'bg-vscode-button-bg text-vscode-button-fg'
+                : 'hover:bg-vscode-list-hover'
+            }`}
+          >
+            Experts
+          </button>
         </div>
       </header>
 
@@ -69,6 +80,7 @@ function App() {
         {view === 'project' && <ProjectPanel />}
         {view === 'features' && <FeatureList />}
         {view === 'tasks' && <TaskPanel featureId={selectedFeatureId} />}
+        {view === 'experts' && <ExpertsPanel />}
       </main>
 
       {/* Status Bar */}

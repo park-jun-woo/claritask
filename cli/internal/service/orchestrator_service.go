@@ -249,6 +249,7 @@ func ExecuteAllTasks(database *db.DB, options ExecutionOptions) error {
 	for {
 		// Check for stop request
 		if IsStopRequested(database) {
+			fmt.Println("[Claritask] Stop requested. Stopping after current task.")
 			return nil
 		}
 
@@ -259,6 +260,7 @@ func ExecuteAllTasks(database *db.DB, options ExecutionOptions) error {
 		}
 		if response.Task == nil {
 			// All tasks completed
+			fmt.Println("[Claritask] All tasks completed!")
 			return nil
 		}
 
@@ -274,29 +276,60 @@ func ExecuteAllTasks(database *db.DB, options ExecutionOptions) error {
 		// Update current task
 		UpdateExecutionCurrentTask(database, task.ID)
 
-		// Execute with Claude
+		// Get task status for progress display
+		taskStatus, _ := GetTaskStatus(database)
+		completedTasks := taskStatus.Done + taskStatus.Failed
+		totalTasks := taskStatus.Total
+
+		fmt.Printf("\n[Claritask] Executing Task %d/%d: %s\n",
+			completedTasks+1,
+			totalTasks,
+			task.Title)
+
+		// Execute with Claude (headless mode first)
 		result, err := ExecuteTaskWithClaude(task, &response.Manifest)
-		if err != nil {
-			FailTask(database, task.ID, err.Error())
-			if options.FallbackInteractive {
-				// TODO: Call interactive debugging
-				continue
-			}
-			return fmt.Errorf("execute task %d: %w", task.ID, err)
+
+		if err == nil && result.Success {
+			CompleteTask(database, task.ID, result.Output)
+			fmt.Printf("[Claritask] Task %d completed.\n", task.ID)
+			continue
 		}
 
-		// Process result
-		if result.Success {
-			CompleteTask(database, task.ID, result.Output)
-		} else {
-			if options.FallbackInteractive {
-				// Mark as failed, will need interactive debugging
-				FailTask(database, task.ID, result.Error)
-				// Continue to next task instead of blocking
-			} else {
-				FailTask(database, task.ID, result.Error)
-				return fmt.Errorf("task %d failed: %s", task.ID, result.Error)
+		// Headless failed
+		errMsg := ""
+		if result != nil {
+			errMsg = result.Error
+		} else if err != nil {
+			errMsg = err.Error()
+		}
+		fmt.Printf("[Claritask] Headless execution failed: %s\n", errMsg)
+
+		if options.FallbackInteractive {
+			fmt.Println("[Claritask] Switching to interactive mode...")
+
+			// Run with TTY Handover
+			if ttyErr := RunTaskWithTTY(database, task); ttyErr != nil {
+				FailTask(database, task.ID, ttyErr.Error())
+				fmt.Printf("[Claritask] Task %d failed: %s\n", task.ID, ttyErr.Error())
+				continue
 			}
+
+			// Verify after TTY session
+			passed, verifyErr := VerifyTask(task)
+			if passed {
+				CompleteTask(database, task.ID, "Completed via interactive session")
+				fmt.Printf("[Claritask] Task %d completed (interactive).\n", task.ID)
+			} else {
+				verifyErrMsg := "verification failed"
+				if verifyErr != nil {
+					verifyErrMsg = verifyErr.Error()
+				}
+				FailTask(database, task.ID, verifyErrMsg)
+				fmt.Printf("[Claritask] Task %d failed after interactive session.\n", task.ID)
+			}
+		} else {
+			FailTask(database, task.ID, errMsg)
+			return fmt.Errorf("task %d failed: %s", task.ID, errMsg)
 		}
 	}
 }

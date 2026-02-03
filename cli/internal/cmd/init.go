@@ -28,6 +28,7 @@ func init() {
 	initCmd.Flags().Bool("skip-analysis", false, "Skip context analysis")
 	initCmd.Flags().Bool("skip-specs", false, "Skip specs generation")
 	initCmd.Flags().Bool("non-interactive", false, "Non-interactive mode (auto approve)")
+	initCmd.Flags().BoolP("interactive", "i", false, "Start interactive requirements gathering with Claude (TTY Handover)")
 	initCmd.Flags().Bool("force", false, "Overwrite existing database")
 	initCmd.Flags().Bool("resume", false, "Resume interrupted initialization")
 }
@@ -39,6 +40,7 @@ func runInit(cmd *cobra.Command, args []string) error {
 	skipAnalysis, _ := cmd.Flags().GetBool("skip-analysis")
 	skipSpecs, _ := cmd.Flags().GetBool("skip-specs")
 	nonInteractive, _ := cmd.Flags().GetBool("non-interactive")
+	interactive, _ := cmd.Flags().GetBool("interactive")
 	force, _ := cmd.Flags().GetBool("force")
 	resume, _ := cmd.Flags().GetBool("resume")
 
@@ -95,6 +97,22 @@ func runInit(cmd *cobra.Command, args []string) error {
 	// Output JSON result for scripting
 	if !result.Success {
 		outputError(fmt.Errorf(result.Error))
+		return nil
+	}
+
+	// If interactive mode, start TTY handover for requirements gathering
+	if interactive {
+		database, err := getDB()
+		if err != nil {
+			outputError(fmt.Errorf("open database: %w", err))
+			return nil
+		}
+		defer database.Close()
+
+		if err := service.RunInteractiveInit(database, config.ProjectID, config.Name, config.Description); err != nil {
+			outputError(fmt.Errorf("interactive init: %w", err))
+			return nil
+		}
 		return nil
 	}
 

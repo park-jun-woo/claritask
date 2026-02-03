@@ -15,7 +15,9 @@
   "categories": [
     "Other"
   ],
-  "activationEvents": [],
+  "activationEvents": [
+    "workspaceContains:.claritask/db.clt"
+  ],
   "main": "./dist/extension.js",
   "contributes": {
     "customEditors": [

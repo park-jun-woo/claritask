@@ -1,5 +1,12 @@
 # ClariSpec: Feature Definition DSL
 
+> **버전**: v0.0.1
+
+## 변경이력
+| 버전 | 날짜 | 내용 |
+|------|------|------|
+| v0.0.1 | 2026-02-03 | 최초 작성 |
+
 ## 개요
 ClariSpec은 Claritask 시스템에서 하나의 기능(Feature)을 "Vertical Slice(수직적 격리)" 형태로 정의하기 위한 YAML 기반의 DSL(Domain Specific Language)입니다. 이 명세는 SQL, 백엔드 로직, API 인터페이스, 프론트엔드 UI를 통합적으로 기술합니다.
 

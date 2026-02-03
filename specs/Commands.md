@@ -1,10 +1,11 @@
 # Claritask Commands Reference
 
-> **버전**: v0.0.2
+> **버전**: v0.0.3
 
 ## 변경이력
 | 버전 | 날짜 | 내용 |
 |------|------|------|
+| v0.0.3 | 2026-02-03 | Expert DB 스키마 백업 필드 추가, 동기화 정책 |
 | v0.0.2 | 2026-02-03 | Expert 명령어 추가 |
 | v0.0.1 | 2026-02-03 | 최초 작성 |
 
@@ -1362,14 +1363,46 @@ Expert는 프로젝트에서 사용하는 전문가 역할 정의입니다. 기�
 **저장 구조**:
 ```
 .claritask/
+├── db.clt              # 메타데이터 + 백업
 └── experts/
     ├── backend-go-gin/
-    │   └── EXPERT.md
+    │   └── EXPERT.md   # 실제 내용 (파일 시스템)
     ├── frontend-react/
     │   └── EXPERT.md
     └── devops-k8s/
         └── EXPERT.md
 ```
+
+**DB 스키마**:
+```sql
+CREATE TABLE IF NOT EXISTS experts (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    version TEXT DEFAULT '1.0.0',
+    domain TEXT DEFAULT '',
+    language TEXT DEFAULT '',
+    framework TEXT DEFAULT '',
+    path TEXT NOT NULL,
+    content TEXT DEFAULT '',       -- EXPERT.md 백업
+    content_hash TEXT DEFAULT '',  -- 변경 감지용
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS project_experts (
+    project_id TEXT NOT NULL,
+    expert_id TEXT NOT NULL,
+    assigned_at TEXT NOT NULL,
+    PRIMARY KEY (project_id, expert_id),
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    FOREIGN KEY (expert_id) REFERENCES experts(id)
+);
+```
+
+**동기화 정책**:
+- **파일 수정** → DB content 컬럼에 자동 백업
+- **파일 삭제** → DB 백업에서 자동 복구
+- **UI에서 삭제** → DB + 파일 모두 삭제
 
 ---
 
@@ -1767,4 +1800,4 @@ clari edge infer --feature <id> --auto-add
 
 ---
 
-*Claritask Commands Reference v3.2 - 2026-02-03*
+*Claritask Commands Reference v3.3 - 2026-02-03*

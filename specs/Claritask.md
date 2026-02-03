@@ -189,10 +189,10 @@ LLM: "어떻게" TODO 채우기
 
 | 문서 | 내용 |
 |------|------|
+| [TTY Handover](TTY/01-Overview.md) | 2-Phase 흐름 및 TTY Handover 명세 |
 | [FDL Spec](FDL/01-Overview.md) | Feature Definition Language 명세 |
 | [CLI Commands](CLI/01-Overview.md) | 명령어 레퍼런스 |
 | [VSCode Extension](VSCode/01-Overview.md) | VSCode 확장 명세 |
-| [TTY Handover](TTY-Handover.md) | TTY 핸드오버 명세 |
 
 ---
 

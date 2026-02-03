@@ -19,6 +19,9 @@ export interface Feature {
   fdl: string;
   fdl_hash: string;
   skeleton_generated: number;
+  file_path: string;
+  content: string;
+  content_hash: string;
   status: string;
   version: number;
   created_at: string;
@@ -454,5 +457,38 @@ export class Database {
       [name, domain, language, framework, expertId]
     );
     this.save();
+  }
+
+  // Feature file sync methods
+  getFeatureByName(name: string): Feature | null {
+    return this.queryOne<Feature>('SELECT * FROM features WHERE name = ?', [name]);
+  }
+
+  getFeatureContentHash(featureId: number): string | null {
+    const row = this.queryOne<{ content_hash: string }>(
+      'SELECT content_hash FROM features WHERE id = ?',
+      [featureId]
+    );
+    return row?.content_hash ?? null;
+  }
+
+  updateFeatureContent(featureId: number, content: string, contentHash: string, filePath: string): void {
+    this.run(
+      'UPDATE features SET content = ?, content_hash = ?, file_path = ? WHERE id = ?',
+      [content, contentHash, filePath, featureId]
+    );
+    this.save();
+  }
+
+  clearFeatureFilePath(featureId: number): void {
+    this.run('UPDATE features SET file_path = ? WHERE id = ?', ['', featureId]);
+    this.save();
+  }
+
+  getFeatureContent(featureId: number): string | null {
+    const row = this.queryOne<{ content: string }>('SELECT content FROM features WHERE id = ?', [
+      featureId,
+    ]);
+    return row?.content ?? null;
   }
 }

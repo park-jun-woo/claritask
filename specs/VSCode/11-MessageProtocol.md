@@ -1,6 +1,6 @@
 # VSCode Extension 메시지 프로토콜
 
-> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.6 ([변경이력](../HISTORY.md))
 
 ---
 
@@ -18,6 +18,12 @@
 
 // Context/Tech/Design 저장 결과
 { type: 'settingSaveResult', section: 'context' | 'tech' | 'design', success: boolean, error?: string }
+
+// CLI 실행 결과
+{ type: 'cliResult', command: string, success: boolean, data?: any, error?: string }
+
+// CLI 진행 상태
+{ type: 'cliProgress', command: string, step: string, message: string }
 ```
 
 ---
@@ -42,8 +48,34 @@
 
 // Design 저장
 { type: 'saveDesign', data: DesignData }
+
+// Feature 통합 생성 (CLI 호출)
+{ type: 'createFeature', data: CreateFeatureData }
+
+// FDL 검증 (CLI 호출)
+{ type: 'validateFDL', featureId: number }
+
+// Task 생성 (CLI 호출)
+{ type: 'generateTasks', featureId: number }
+
+// 스켈레톤 생성 (CLI 호출)
+{ type: 'generateSkeleton', featureId: number, dryRun?: boolean }
 ```
 
 ---
 
-*Claritask VSCode Extension Spec v0.0.4*
+## CreateFeatureData 타입
+
+```typescript
+interface CreateFeatureData {
+  name: string;           // Feature 이름 (snake_case)
+  description: string;    // 설명
+  fdl?: string;           // FDL YAML (선택)
+  generateTasks?: boolean;    // Task 자동 생성
+  generateSkeleton?: boolean; // 스켈레톤 생성
+}
+```
+
+---
+
+*Claritask VSCode Extension Spec v0.0.6*

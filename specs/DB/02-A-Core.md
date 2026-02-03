@@ -1,6 +1,6 @@
 # Database: Core Tables
 
-> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.5 ([변경이력](../HISTORY.md))
 
 ---
 
@@ -40,6 +40,9 @@ CREATE TABLE features (
     fdl TEXT DEFAULT '',                  -- FDL YAML 원문
     fdl_hash TEXT DEFAULT '',             -- FDL 변경 감지용 SHA256
     skeleton_generated INTEGER DEFAULT 0, -- 스켈레톤 생성 완료 여부
+    file_path TEXT DEFAULT '',            -- Feature md 파일 경로 (features/<name>.md)
+    content TEXT DEFAULT '',              -- md 파일 전체 내용 (동기화용)
+    content_hash TEXT DEFAULT '',         -- 내용 해시 (변경 감지용)
     status TEXT DEFAULT 'pending'
         CHECK(status IN ('pending', 'active', 'done')),
     version INTEGER DEFAULT 1,            -- 낙관적 잠금용
@@ -47,6 +50,11 @@ CREATE TABLE features (
     FOREIGN KEY (project_id) REFERENCES projects(id)
 );
 ```
+
+**파일 동기화 필드**:
+- `file_path`: `features/<name>.md` 파일 경로
+- `content`: md 파일 전체 내용 (양방향 동기화용)
+- `content_hash`: 변경 감지용 SHA256 해시
 
 **Status 전이**:
 ```
@@ -177,4 +185,4 @@ CREATE INDEX idx_feature_edges_to ON feature_edges(to_feature_id);
 
 ---
 
-*Database Specification v0.0.4*
+*Database Specification v0.0.5*

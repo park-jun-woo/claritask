@@ -54,6 +54,13 @@ var featureTasksCmd = &cobra.Command{
 	RunE:  runFeatureTasks,
 }
 
+var featureCreateCmd = &cobra.Command{
+	Use:   "create '<json>'",
+	Short: "Create feature with FDL and tasks in one step",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runFeatureCreate,
+}
+
 func init() {
 	featureCmd.AddCommand(featureListCmd)
 	featureCmd.AddCommand(featureAddCmd)
@@ -61,6 +68,7 @@ func init() {
 	featureCmd.AddCommand(featureSpecCmd)
 	featureCmd.AddCommand(featureStartCmd)
 	featureCmd.AddCommand(featureTasksCmd)
+	featureCmd.AddCommand(featureCreateCmd)
 
 	// feature tasks flags
 	featureTasksCmd.Flags().Bool("generate", false, "Generate tasks using LLM (when no FDL)")
@@ -69,6 +77,14 @@ func init() {
 type featureAddInput struct {
 	Name        string `json:"name"`
 	Description string `json:"description"`
+}
+
+type featureCreateInput struct {
+	Name             string `json:"name"`
+	Description      string `json:"description"`
+	FDL              string `json:"fdl,omitempty"`
+	GenerateTasks    bool   `json:"generate_tasks"`
+	GenerateSkeleton bool   `json:"generate_skeleton"`
 }
 
 func runFeatureList(cmd *cobra.Command, args []string) error {
@@ -130,7 +146,7 @@ func runFeatureAdd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	featureID, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
+	result, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
 	if err != nil {
 		outputError(fmt.Errorf("create feature: %w", err))
 		return nil
@@ -138,8 +154,9 @@ func runFeatureAdd(cmd *cobra.Command, args []string) error {
 
 	outputJSON(map[string]interface{}{
 		"success":    true,
-		"feature_id": featureID,
+		"feature_id": result.ID,
 		"name":       input.Name,
+		"file_path":  result.FilePath,
 		"message":    "Feature created successfully",
 	})
 
@@ -177,6 +194,9 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"fdl":                feature.FDL,
 			"fdl_hash":           feature.FDLHash,
 			"skeleton_generated": feature.SkeletonGenerated,
+			"file_path":          feature.FilePath,
+			"content":            feature.Content,
+			"content_hash":       feature.ContentHash,
 			"created_at":         feature.CreatedAt,
 		},
 	})
@@ -347,5 +367,109 @@ Return JSON array:
 		"instructions": "Use the prompt to generate tasks, then run 'clari task push' for each task",
 	})
 
+	return nil
+}
+
+func runFeatureCreate(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	var input featureCreateInput
+	if err := parseJSON(args[0], &input); err != nil {
+		outputError(fmt.Errorf("parse JSON: %w", err))
+		return nil
+	}
+
+	if input.Name == "" {
+		outputError(fmt.Errorf("missing required field: name"))
+		return nil
+	}
+
+	if input.Description == "" {
+		outputError(fmt.Errorf("missing required field: description"))
+		return nil
+	}
+
+	project, err := service.GetProject(database)
+	if err != nil {
+		outputError(fmt.Errorf("get project: %w", err))
+		return nil
+	}
+
+	// Step 1: Create feature with md file
+	result, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
+	if err != nil {
+		outputError(fmt.Errorf("create feature: %w", err))
+		return nil
+	}
+
+	response := map[string]interface{}{
+		"success":    true,
+		"feature_id": result.ID,
+		"name":       input.Name,
+		"file_path":  result.FilePath,
+	}
+
+	// Step 2: If FDL provided, register and validate it
+	if input.FDL != "" {
+		if err := service.SetFeatureFDL(database, result.ID, input.FDL); err != nil {
+			response["fdl_valid"] = false
+			response["fdl_errors"] = []string{err.Error()}
+			response["message"] = "Feature created but FDL registration failed"
+			outputJSON(response)
+			return nil
+		}
+
+		// Validate FDL
+		fdlValid, fdlErrors := service.ValidateFDLContent(input.FDL)
+		response["fdl_hash"] = service.CalculateFDLHash(input.FDL)
+		response["fdl_valid"] = fdlValid
+		if !fdlValid {
+			response["fdl_errors"] = fdlErrors
+			response["message"] = "Feature created but FDL validation failed"
+			outputJSON(response)
+			return nil
+		}
+
+		// Step 3: Generate tasks if requested and FDL is valid
+		if input.GenerateTasks && fdlValid {
+			tasksCreated, edgesCreated, err := service.GenerateTasksFromFDL(database, result.ID)
+			if err != nil {
+				response["tasks_created"] = 0
+				response["edges_created"] = 0
+				response["message"] = fmt.Sprintf("Feature created with FDL but task generation failed: %v", err)
+			} else {
+				response["tasks_created"] = tasksCreated
+				response["edges_created"] = edgesCreated
+			}
+		}
+
+		// Step 4: Generate skeleton if requested
+		if input.GenerateSkeleton && fdlValid {
+			skeletonFiles, err := service.GenerateSkeletonFromFDL(database, result.ID)
+			if err != nil {
+				response["skeleton_files"] = []string{}
+			} else {
+				response["skeleton_files"] = skeletonFiles
+			}
+		}
+	}
+
+	if _, ok := response["message"]; !ok {
+		tasksCreated, _ := response["tasks_created"].(int)
+		if tasksCreated > 0 {
+			response["message"] = fmt.Sprintf("Feature created with FDL and %d tasks", tasksCreated)
+		} else if input.FDL != "" {
+			response["message"] = "Feature created with FDL"
+		} else {
+			response["message"] = "Feature created successfully"
+		}
+	}
+
+	outputJSON(response)
 	return nil
 }

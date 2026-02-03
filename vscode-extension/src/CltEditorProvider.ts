@@ -4,6 +4,7 @@ import * as path from 'path';
 import * as crypto from 'crypto';
 import { Database, setExtensionPath } from './database';
 import { SyncManager } from './sync';
+import { createFeature as createFeatureCLI, validateFDL, generateTasks, generateSkeleton, CreateFeatureInput } from './cliService';
 
 export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
   public static register(context: vscode.ExtensionContext): vscode.Disposable {
@@ -160,6 +161,27 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
 
       case 'openExpertFile':
         this.handleOpenExpertFile(message, database);
+        break;
+
+      // CLI integration for Feature creation
+      case 'createFeatureWithFDL':
+        this.handleCreateFeatureWithFDL(message, webview, sync);
+        break;
+
+      case 'validateFDL':
+        this.handleValidateFDL(message, webview);
+        break;
+
+      case 'generateTasks':
+        this.handleGenerateTasks(message, webview, sync);
+        break;
+
+      case 'generateSkeleton':
+        this.handleGenerateSkeleton(message, webview, sync);
+        break;
+
+      case 'openFeatureFile':
+        this.handleOpenFeatureFile(message, database);
         break;
     }
   }
@@ -615,6 +637,153 @@ TODO: Define best practices
     const framework = fwMatch ? fwMatch[1].trim() : '';
 
     return { name, domain, language, framework };
+  }
+
+  // CLI integration handlers
+
+  private async handleCreateFeatureWithFDL(
+    message: { data: CreateFeatureInput },
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): Promise<void> {
+    try {
+      // Send progress
+      webview.postMessage({
+        type: 'cliProgress',
+        command: 'feature.create',
+        step: 'creating',
+        message: 'Creating feature...',
+      });
+
+      const result = await createFeatureCLI(message.data);
+
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'feature.create',
+        ...result,
+      });
+
+      if (result.success) {
+        sync.refresh();
+      }
+    } catch (err) {
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'feature.create',
+        success: false,
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleValidateFDL(
+    message: { featureId: number },
+    webview: vscode.Webview
+  ): Promise<void> {
+    try {
+      const result = await validateFDL(message.featureId);
+
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'fdl.validate',
+        ...result,
+      });
+    } catch (err) {
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'fdl.validate',
+        success: false,
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleGenerateTasks(
+    message: { featureId: number },
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): Promise<void> {
+    try {
+      webview.postMessage({
+        type: 'cliProgress',
+        command: 'fdl.tasks',
+        step: 'generating',
+        message: 'Generating tasks from FDL...',
+      });
+
+      const result = await generateTasks(message.featureId);
+
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'fdl.tasks',
+        ...result,
+      });
+
+      if (result.success) {
+        sync.refresh();
+      }
+    } catch (err) {
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'fdl.tasks',
+        success: false,
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleGenerateSkeleton(
+    message: { featureId: number; dryRun?: boolean },
+    webview: vscode.Webview,
+    sync: SyncManager
+  ): Promise<void> {
+    try {
+      webview.postMessage({
+        type: 'cliProgress',
+        command: 'fdl.skeleton',
+        step: 'generating',
+        message: 'Generating skeleton files...',
+      });
+
+      const result = await generateSkeleton(message.featureId, message.dryRun);
+
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'fdl.skeleton',
+        ...result,
+      });
+
+      if (result.success && !message.dryRun) {
+        sync.refresh();
+      }
+    } catch (err) {
+      webview.postMessage({
+        type: 'cliResult',
+        command: 'fdl.skeleton',
+        success: false,
+        error: String(err),
+      });
+    }
+  }
+
+  private async handleOpenFeatureFile(
+    message: { featureId: number },
+    database: Database
+  ): Promise<void> {
+    try {
+      const features = database.getFeatures();
+      const feature = features.find(f => f.id === message.featureId);
+
+      if (!feature || !feature.file_path) {
+        vscode.window.showWarningMessage('Feature file not found');
+        return;
+      }
+
+      const uri = vscode.Uri.file(feature.file_path);
+      await vscode.window.showTextDocument(uri);
+    } catch (err) {
+      vscode.window.showErrorMessage(`Failed to open feature file: ${err}`);
+    }
   }
 }
 

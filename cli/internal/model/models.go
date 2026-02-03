@@ -85,6 +85,9 @@ type Feature struct {
 	FDL               string // FDL YAML 원문
 	FDLHash           string // FDL 변경 감지용 해시
 	SkeletonGenerated bool   // 스켈레톤 생성 완료 여부
+	FilePath          string // features/<name>.md 파일 경로
+	Content           string // md 파일 전체 내용
+	ContentHash       string // 변경 감지용 해시
 	Status            string // pending, active, done
 	Version           int    // Optimistic locking 버전
 	CreatedAt         time.Time

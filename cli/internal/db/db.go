@@ -12,7 +12,7 @@ import (
 )
 
 // LatestVersion is the current schema version
-const LatestVersion = 5
+const LatestVersion = 6
 
 // DB wraps sql.DB with additional functionality
 type DB struct {
@@ -79,6 +79,9 @@ CREATE TABLE IF NOT EXISTS features (
     fdl TEXT DEFAULT '',
     fdl_hash TEXT DEFAULT '',
     skeleton_generated INTEGER DEFAULT 0,
+    file_path TEXT DEFAULT '',
+    content TEXT DEFAULT '',
+    content_hash TEXT DEFAULT '',
     status TEXT DEFAULT 'pending'
         CHECK(status IN ('pending', 'active', 'done')),
     version INTEGER DEFAULT 1,
@@ -328,6 +331,22 @@ func (db *DB) runMigration(version int) error {
 	case 5:
 		// Add indexes
 		return db.migrateV5()
+	case 6:
+		// Add file sync fields to features
+		return db.migrateV6()
+	}
+	return nil
+}
+
+// migrateV6 adds file sync fields to features table
+func (db *DB) migrateV6() error {
+	migrations := []string{
+		"ALTER TABLE features ADD COLUMN file_path TEXT DEFAULT ''",
+		"ALTER TABLE features ADD COLUMN content TEXT DEFAULT ''",
+		"ALTER TABLE features ADD COLUMN content_hash TEXT DEFAULT ''",
+	}
+	for _, m := range migrations {
+		db.Exec(m) // Ignore errors (column may already exist)
 	}
 	return nil
 }

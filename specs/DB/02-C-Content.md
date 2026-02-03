@@ -1,6 +1,6 @@
 # Database: Content Tables
 
-> **현재 버전**: v0.0.4 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.5 ([변경이력](../HISTORY.md))
 
 ---
 
@@ -192,4 +192,4 @@ CREATE INDEX idx_expert_assignments_feature ON expert_assignments(feature_id);
 
 ---
 
-*Database Specification v0.0.4*
+*Database Specification v0.0.5*

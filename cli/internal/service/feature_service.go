@@ -3,38 +3,96 @@ package service
 import (
 	"crypto/sha256"
 	"fmt"
+	"os"
+	"path/filepath"
 
 	"parkjunwoo.com/claritask/internal/db"
 	"parkjunwoo.com/claritask/internal/model"
 )
 
-// CreateFeature creates a new feature
-func CreateFeature(database *db.DB, projectID, name, description string) (int64, error) {
+// Feature markdown template
+const featureMarkdownTemplate = `# %s
+
+## 개요
+%s
+
+## 요구사항
+-
+
+## 상세 스펙
+
+
+## FDL
+` + "```yaml" + `
+# FDL 코드 작성
+` + "```" + `
+
+---
+*Created by Claritask*
+`
+
+// CreateFeatureResult contains the result of CreateFeature
+type CreateFeatureResult struct {
+	ID       int64
+	FilePath string
+}
+
+// CreateFeature creates a new feature and its markdown file
+func CreateFeature(database *db.DB, projectID, name, description string) (*CreateFeatureResult, error) {
 	now := db.TimeNow()
+
+	// Create features directory if not exists
+	featuresDir := "features"
+	if err := os.MkdirAll(featuresDir, 0755); err != nil {
+		return nil, fmt.Errorf("create features directory: %w", err)
+	}
+
+	// Generate markdown content
+	content := fmt.Sprintf(featureMarkdownTemplate, name, description)
+	contentHash := CalculateContentHash(content)
+	filePath := filepath.Join(featuresDir, name+".md")
+
+	// Write markdown file
+	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
+		return nil, fmt.Errorf("write feature file: %w", err)
+	}
+
+	// Insert into database with file info
 	result, err := database.Exec(
-		`INSERT INTO features (project_id, name, description, status, created_at) VALUES (?, ?, ?, 'pending', ?)`,
-		projectID, name, description, now,
+		`INSERT INTO features (project_id, name, description, file_path, content, content_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
+		projectID, name, description, filePath, content, contentHash, now,
 	)
 	if err != nil {
-		return 0, fmt.Errorf("create feature: %w", err)
+		// Clean up the created file on error
+		os.Remove(filePath)
+		return nil, fmt.Errorf("create feature: %w", err)
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		return 0, fmt.Errorf("get last insert id: %w", err)
+		return nil, fmt.Errorf("get last insert id: %w", err)
 	}
-	return id, nil
+	return &CreateFeatureResult{ID: id, FilePath: filePath}, nil
+}
+
+// CalculateContentHash calculates SHA256 hash of content
+func CalculateContentHash(content string) string {
+	hash := sha256.Sum256([]byte(content))
+	return fmt.Sprintf("%x", hash)
 }
 
 // GetFeature retrieves a feature by ID
 func GetFeature(database *db.DB, id int64) (*model.Feature, error) {
 	row := database.QueryRow(
-		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated, status, version, created_at
+		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated,
+		 COALESCE(file_path, '') as file_path, COALESCE(content, '') as content, COALESCE(content_hash, '') as content_hash,
+		 status, version, created_at
 		 FROM features WHERE id = ?`, id,
 	)
 	var f model.Feature
 	var createdAt string
 	var skeletonGenerated int
-	err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &f.Version, &createdAt)
+	err := row.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated,
+		&f.FilePath, &f.Content, &f.ContentHash, &f.Status, &f.Version, &createdAt)
 	if err != nil {
 		return nil, fmt.Errorf("get feature: %w", err)
 	}
@@ -46,7 +104,9 @@ func GetFeature(database *db.DB, id int64) (*model.Feature, error) {
 // ListFeatures retrieves all features for a project
 func ListFeatures(database *db.DB, projectID string) ([]model.Feature, error) {
 	rows, err := database.Query(
-		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated, status, version, created_at
+		`SELECT id, project_id, name, description, spec, fdl, fdl_hash, skeleton_generated,
+		 COALESCE(file_path, '') as file_path, COALESCE(content, '') as content, COALESCE(content_hash, '') as content_hash,
+		 status, version, created_at
 		 FROM features WHERE project_id = ? ORDER BY id`, projectID,
 	)
 	if err != nil {
@@ -59,7 +119,8 @@ func ListFeatures(database *db.DB, projectID string) ([]model.Feature, error) {
 		var f model.Feature
 		var createdAt string
 		var skeletonGenerated int
-		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated, &f.Status, &f.Version, &createdAt); err != nil {
+		if err := rows.Scan(&f.ID, &f.ProjectID, &f.Name, &f.Description, &f.Spec, &f.FDL, &f.FDLHash, &skeletonGenerated,
+			&f.FilePath, &f.Content, &f.ContentHash, &f.Status, &f.Version, &createdAt); err != nil {
 			return nil, fmt.Errorf("scan feature: %w", err)
 		}
 		f.SkeletonGenerated = skeletonGenerated == 1
@@ -377,4 +438,100 @@ func ListFeaturesWithStats(database *db.DB, projectID string) ([]FeatureListItem
 	}
 
 	return items, nil
+}
+
+// ValidateFDLContent validates FDL string and returns validation result
+func ValidateFDLContent(fdlContent string) (bool, []string) {
+	spec, err := ParseFDL(fdlContent)
+	if err != nil {
+		return false, []string{err.Error()}
+	}
+
+	if err := ValidateFDL(spec); err != nil {
+		return false, []string{err.Error()}
+	}
+
+	return true, nil
+}
+
+// GenerateTasksFromFDL generates tasks from FDL for a feature
+func GenerateTasksFromFDL(database *db.DB, featureID int64) (int, int, error) {
+	// Get feature
+	feature, err := GetFeature(database, featureID)
+	if err != nil {
+		return 0, 0, fmt.Errorf("get feature: %w", err)
+	}
+
+	if feature.FDL == "" {
+		return 0, 0, fmt.Errorf("feature has no FDL")
+	}
+
+	// Parse FDL
+	spec, err := ParseFDL(feature.FDL)
+	if err != nil {
+		return 0, 0, fmt.Errorf("parse FDL: %w", err)
+	}
+
+	// Get tech stack
+	tech, _ := GetTech(database)
+	if tech == nil {
+		tech = make(map[string]interface{})
+	}
+
+	// Extract task mappings
+	mappings, err := ExtractTaskMappings(spec, tech)
+	if err != nil {
+		return 0, 0, fmt.Errorf("extract task mappings: %w", err)
+	}
+
+	// Create tasks
+	taskIDMap := make(map[string]int64)
+	tasksCreated := 0
+
+	for _, m := range mappings {
+		taskInput := TaskCreateInput{
+			FeatureID:      featureID,
+			Title:          m.Title,
+			Content:        m.Content,
+			TargetFile:     m.TargetFile,
+			TargetFunction: m.TargetFunction,
+		}
+
+		taskID, err := CreateTask(database, taskInput)
+		if err != nil {
+			return tasksCreated, 0, fmt.Errorf("create task: %w", err)
+		}
+
+		taskIDMap[m.Title] = taskID
+		tasksCreated++
+	}
+
+	// Create edges based on dependencies
+	edgesCreated := 0
+	for _, m := range mappings {
+		fromID := taskIDMap[m.Title]
+		for _, depTitle := range m.Dependencies {
+			if toID, ok := taskIDMap[depTitle]; ok {
+				if err := AddTaskEdge(database, fromID, toID); err == nil {
+					edgesCreated++
+				}
+			}
+		}
+	}
+
+	return tasksCreated, edgesCreated, nil
+}
+
+// GenerateSkeletonFromFDL generates skeleton files from FDL
+func GenerateSkeletonFromFDL(database *db.DB, featureID int64) ([]string, error) {
+	result, err := GenerateSkeletons(database, featureID, false)
+	if err != nil {
+		return nil, err
+	}
+
+	var files []string
+	for _, f := range result.Files {
+		files = append(files, f.Path)
+	}
+	return files, nil
 }

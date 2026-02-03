@@ -159,22 +159,23 @@ func runFDLRegister(cmd *cobra.Command, args []string) error {
 	}
 
 	// Create feature
-	featureID, err := service.CreateFeature(database, project.ID, spec.Feature, spec.Description)
+	result, err := service.CreateFeature(database, project.ID, spec.Feature, spec.Description)
 	if err != nil {
 		outputError(fmt.Errorf("create feature: %w", err))
 		return nil
 	}
 
 	// Set FDL
-	if err := service.SetFeatureFDL(database, featureID, fdlContent); err != nil {
+	if err := service.SetFeatureFDL(database, result.ID, fdlContent); err != nil {
 		outputError(fmt.Errorf("set feature FDL: %w", err))
 		return nil
 	}
 
 	outputJSON(map[string]interface{}{
 		"success":      true,
-		"feature_id":   featureID,
+		"feature_id":   result.ID,
 		"feature_name": spec.Feature,
+		"file_path":    result.FilePath,
 		"fdl_hash":     fdlHash,
 		"message":      "FDL registered successfully",
 	})

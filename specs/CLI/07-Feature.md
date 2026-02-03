@@ -1,51 +1,22 @@
 # clari feature - Feature 관리
 
-> **현재 버전**: v0.0.6 ([변경이력](../HISTORY.md))
+> **현재 버전**: v0.0.7 ([변경이력](../HISTORY.md))
 
 ---
 
 ## Feature 파일 구조
 
-Feature 추가 시 `features/<feature-name>.md` 파일이 자동 생성됩니다.
+Feature 추가 시 `features/<feature-name>.fdl.yaml` 파일이 생성됩니다.
 
 ```
 project/
 ├── features/
-│   ├── user_auth.md
-│   ├── blog_post.md
-│   └── payment.md
+│   ├── user_auth.fdl.yaml
+│   ├── blog_post.fdl.yaml
+│   └── payment.fdl.yaml
 └── .claritask/
     └── db.clt
 ```
-
-### 파일 템플릿
-
-```markdown
-# <feature_name>
-
-## 개요
-<description>
-
-## 요구사항
--
-
-## 상세 스펙
-
-
-## FDL
-```yaml
-# FDL 코드 작성
-```
-
----
-*Created by Claritask*
-```
-
-### 양방향 동기화
-
-- **md 파일 → DB**: 파일 수정 시 DB의 `spec` 필드에 자동 반영
-- **DB → md 파일**: CLI/VSCode에서 spec 수정 시 파일에 자동 반영
-- **해시 기반 변경 감지**: 불필요한 동기화 방지
 
 ---
 
@@ -65,7 +36,7 @@ clari feature list
     {
       "id": 1,
       "name": "user_auth",
-      "spec": "사용자 인증 시스템",
+      "description": "사용자 인증 시스템",
       "status": "active",
       "fdl_hash": "abc123...",
       "skeleton_generated": true
@@ -79,7 +50,7 @@ clari feature list
 
 ## clari feature add
 
-새 Feature 추가
+새 Feature 추가 (Claude Code로 FDL 생성)
 
 ```bash
 clari feature add '<json>'
@@ -89,84 +60,62 @@ clari feature add '<json>'
 ```json
 {
   "name": "user_auth",
-  "description": "사용자 인증 시스템"
+  "description": "사용자 인증 시스템. JWT 기반 로그인/로그아웃, 회원가입 기능 포함."
 }
 ```
 
 **동작:**
 1. DB에 Feature 레코드 생성
-2. `features/<name>.md` 파일 자동 생성 (템플릿 기반)
-3. 파일 경로를 DB `file_path` 필드에 저장
+2. **Claude Code 호출하여 FDL 생성** (TTY Handover)
+3. 생성된 FDL을 `features/<name>.fdl.yaml`에 저장
+4. DB에 FDL 내용 및 해시 저장
 
-**응답:**
+**응답 (Phase 1 - Claude Code 호출 전):**
 ```json
 {
   "success": true,
   "feature_id": 1,
   "name": "user_auth",
-  "file_path": "features/user_auth.md",
-  "message": "Feature created successfully"
+  "mode": "tty_handover",
+  "prompt": "다음 Feature에 대한 FDL YAML을 생성해주세요:\n\nFeature: user_auth\nDescription: 사용자 인증 시스템...",
+  "message": "Feature created. Launching Claude Code for FDL generation..."
 }
 ```
 
----
+**Claude Code가 생성하는 FDL 예시:**
+```yaml
+feature: user_auth
+version: 1.0.0
+description: 사용자 인증 시스템
 
-## clari feature create
+layers:
+  data:
+    models:
+      - name: User
+        fields:
+          - name: id
+            type: int
+            pk: true
+          - name: email
+            type: string
+            unique: true
+          - name: password_hash
+            type: string
 
-Feature + FDL + Task 통합 생성 (VSCode에서 주로 사용)
-
-```bash
-clari feature create '<json>'
+  logic:
+    services:
+      - name: AuthService
+        methods:
+          - name: login
+            input:
+              email: string
+              password: string
+            output: token: string
+            steps:
+              - db.query: SELECT * FROM users WHERE email = {email}
+              - validate: password matches hash
+              - return: JWT token
 ```
-
-**JSON 포맷:**
-```json
-{
-  "name": "user_auth",
-  "description": "사용자 인증 시스템",
-  "fdl": "feature: user_auth\nversion: 1.0.0\n...",
-  "generate_tasks": true,
-  "generate_skeleton": false
-}
-```
-
-**동작:**
-1. Feature 레코드 생성 + `features/<name>.md` 파일 생성
-2. FDL 등록 및 검증
-3. `generate_tasks: true`이면 FDL 기반 Task 자동 생성
-4. `generate_skeleton: true`이면 스켈레톤 코드 생성
-
-**응답:**
-```json
-{
-  "success": true,
-  "feature_id": 1,
-  "name": "user_auth",
-  "file_path": "features/user_auth.md",
-  "fdl_hash": "abc123...",
-  "fdl_valid": true,
-  "tasks_created": 5,
-  "edges_created": 3,
-  "skeleton_files": [],
-  "message": "Feature created with FDL and 5 tasks"
-}
-```
-
-**에러 응답 (FDL 검증 실패 시):**
-```json
-{
-  "success": false,
-  "feature_id": 1,
-  "name": "user_auth",
-  "fdl_valid": false,
-  "fdl_errors": ["Invalid layer structure at line 15"],
-  "message": "Feature created but FDL validation failed"
-}
-```
-
-**옵션:**
-- `generate_tasks`: Task 자동 생성 여부 (기본: false)
-- `generate_skeleton`: 스켈레톤 코드 생성 여부 (기본: false)
 
 ---
 
@@ -185,22 +134,23 @@ clari feature get <id>
   "feature": {
     "id": 1,
     "name": "user_auth",
-    "spec": "사용자 인증 시스템",
+    "description": "사용자 인증 시스템",
     "fdl": "feature: user_auth\n...",
     "fdl_hash": "abc123...",
-    "skeleton_generated": true
+    "skeleton_generated": true,
+    "status": "pending"
   }
 }
 ```
 
 ---
 
-## clari feature spec
+## clari feature delete
 
-Feature 스펙 설정
+Feature 삭제
 
 ```bash
-clari feature spec <id> '<spec_text>'
+clari feature delete <id>
 ```
 
 **응답:**
@@ -208,7 +158,27 @@ clari feature spec <id> '<spec_text>'
 {
   "success": true,
   "feature_id": 1,
-  "message": "Spec updated successfully"
+  "name": "user_auth",
+  "message": "Feature deleted successfully"
+}
+```
+
+---
+
+## clari feature spec
+
+Feature 설명 수정
+
+```bash
+clari feature spec <id> '<description>'
+```
+
+**응답:**
+```json
+{
+  "success": true,
+  "feature_id": 1,
+  "message": "Description updated successfully"
 }
 ```
 
@@ -240,7 +210,6 @@ Feature의 Task 목록 조회
 
 ```bash
 clari feature tasks <id>
-clari feature tasks <id> --generate  # FDL 없이 LLM으로 생성
 ```
 
 **응답:**
@@ -259,13 +228,32 @@ clari feature tasks <id> --generate  # FDL 없이 LLM으로 생성
 }
 ```
 
-**옵션:**
-- `--generate`: FDL 없이 LLM으로 Task 생성 (실험적)
+---
 
-**관련 명령어:**
-- `clari fdl tasks <id>`: FDL 기반 Task 생성 (권장)
-- `clari task list <feature_id>`: Task 목록 조회 (동일 기능)
+## clari feature fdl
+
+Feature의 FDL 재생성 (Claude Code 호출)
+
+```bash
+clari feature fdl <id>
+```
+
+**동작:**
+1. Feature 정보 조회
+2. Claude Code 호출하여 FDL 재생성
+3. `features/<name>.fdl.yaml` 파일 업데이트
+4. DB 업데이트
+
+**응답:**
+```json
+{
+  "success": true,
+  "feature_id": 1,
+  "mode": "tty_handover",
+  "message": "Launching Claude Code for FDL regeneration..."
+}
+```
 
 ---
 
-*Claritask Commands Reference v0.0.6*
+*Claritask Commands Reference v0.0.7*

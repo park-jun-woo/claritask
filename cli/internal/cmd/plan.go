@@ -76,22 +76,21 @@ func runPlanFeatures(cmd *cobra.Command, args []string) error {
 
 				var created []map[string]interface{}
 				for _, f := range plan.Features {
-					result, err := service.CreateFeature(database, project.ID, f.Name, f.Description)
+					featureID, err := service.CreateFeature(database, project.ID, f.Name, f.Description)
 					if err != nil {
 						continue
 					}
 
 					// Set spec if description provided
 					if f.Description != "" {
-						service.SetFeatureSpec(database, result.ID, f.Description)
+						service.SetFeatureSpec(database, featureID, f.Description)
 					}
 
 					created = append(created, map[string]interface{}{
-						"id":          result.ID,
+						"id":          featureID,
 						"name":        f.Name,
 						"description": f.Description,
 						"priority":    f.Priority,
-						"file_path":   result.FilePath,
 					})
 				}
 

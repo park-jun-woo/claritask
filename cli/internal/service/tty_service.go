@@ -211,3 +211,89 @@ func RunInteractiveInit(database *db.DB, projectID, projectName, description str
 
 	return err
 }
+
+// FDLGenerationSystemPrompt returns system prompt for FDL generation
+func FDLGenerationSystemPrompt() string {
+	return `You are in Claritask FDL Generation Mode.
+
+ROLE: Generate a Feature Definition Language (FDL) YAML file based on the feature description.
+
+FDL STRUCTURE:
+- feature: Feature name (snake_case)
+- description: Feature description
+- models: Data layer (database tables/models)
+- service: Logic layer (business logic functions)
+- api: Interface layer (API endpoints)
+- ui: Presentation layer (UI components)
+
+IMPORTANT:
+1. Generate a complete FDL YAML file
+2. Save the FDL to: features/<feature-name>.fdl.yaml
+3. After saving, update the DB: clari fdl register features/<feature-name>.fdl.yaml
+4. Exit with /exit when done
+
+CONSTRAINTS:
+- Follow the 4-layer structure (models, service, api, ui)
+- Use snake_case for feature names and function names
+- Be specific in field definitions and API contracts`
+}
+
+// RunFDLGenerationWithTTY runs FDL generation with TTY handover
+func RunFDLGenerationWithTTY(database *db.DB, featureID int64, featureName, description string) error {
+	fmt.Println("[Claritask] Starting FDL Generation")
+	fmt.Printf("   Feature: %s (ID: %d)\n", featureName, featureID)
+	fmt.Println("   Claude Code will generate FDL specification.")
+	fmt.Println()
+
+	// Get project context
+	var projectContext, techContext, designContext string
+	if ctx, err := GetContext(database); err == nil && ctx != nil {
+		projectContext = fmt.Sprintf("%v", ctx)
+	}
+	if tech, err := GetTech(database); err == nil && tech != nil {
+		techContext = fmt.Sprintf("%v", tech)
+	}
+	if design, err := GetDesign(database); err == nil && design != nil {
+		designContext = fmt.Sprintf("%v", design)
+	}
+
+	systemPrompt := FDLGenerationSystemPrompt()
+	initialPrompt := BuildFDLPrompt(featureID, featureName, description, projectContext, techContext, designContext)
+
+	err := RunWithTTYHandover(systemPrompt, initialPrompt, "acceptEdits")
+
+	fmt.Println()
+	fmt.Println("[Claritask] FDL Generation Session Ended.")
+
+	return err
+}
+
+// BuildFDLPrompt builds the initial prompt for FDL generation
+func BuildFDLPrompt(featureID int64, name, description, projectContext, techContext, designContext string) string {
+	return fmt.Sprintf(`[CLARITASK FDL GENERATION]
+
+Feature ID: %d
+Feature Name: %s
+Description: %s
+
+=== Project Context ===
+%s
+
+=== Tech Stack ===
+%s
+
+=== Design Decisions ===
+%s
+
+---
+
+Please generate a complete FDL YAML file for this feature.
+
+Output file: features/%s.fdl.yaml
+
+After generating, save the file and run:
+clari fdl register features/%s.fdl.yaml
+
+Then exit with /exit.
+`, featureID, name, description, projectContext, techContext, designContext, name, name)
+}

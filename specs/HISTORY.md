@@ -4,6 +4,15 @@
 
 ---
 
+## v0.0.7 (2026-02-03)
+
+| 문서 | 변경 내용 |
+|------|----------|
+| CLI/07-Feature.md | Feature md 파일 제거, FDL yaml만 생성, Claude Code TTY Handover로 FDL 생성 |
+| VSCode/05-FeaturesTab.md | CLI 호출 방식 변경 (Terminal 사용), FDL 파일 관리로 변경 |
+
+---
+
 ## v0.0.6 (2026-02-03)
 
 | 문서 | 변경 내용 |
@@ -73,4 +82,4 @@
 
 ---
 
-*Claritask Specs History v0.0.6 - 2026-02-03*
+*Claritask Specs History v0.0.7 - 2026-02-03*

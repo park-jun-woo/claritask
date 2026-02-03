@@ -5,7 +5,7 @@ import * as crypto from 'crypto';
 import { CltEditorProvider } from './CltEditorProvider';
 import { Database, setExtensionPath } from './database';
 
-let featureWatcher: vscode.FileSystemWatcher | undefined;
+let fdlWatcher: vscode.FileSystemWatcher | undefined;
 let expertWatcher: vscode.FileSystemWatcher | undefined;
 let database: Database | undefined;
 
@@ -36,16 +36,16 @@ async function setupFileWatchers(context: vscode.ExtensionContext) {
     return;
   }
 
-  // Feature file watcher
-  featureWatcher = vscode.workspace.createFileSystemWatcher(
-    new vscode.RelativePattern(workspaceFolder, 'features/*.md')
+  // FDL file watcher (features/*.fdl.yaml)
+  fdlWatcher = vscode.workspace.createFileSystemWatcher(
+    new vscode.RelativePattern(workspaceFolder, 'features/*.fdl.yaml')
   );
 
-  featureWatcher.onDidChange(uri => syncFeatureFile(uri, database!));
-  featureWatcher.onDidCreate(uri => syncFeatureFile(uri, database!));
-  featureWatcher.onDidDelete(uri => clearFeatureFilePath(uri, database!));
+  fdlWatcher.onDidChange(uri => syncFDLFile(uri, database!));
+  fdlWatcher.onDidCreate(uri => syncFDLFile(uri, database!));
+  fdlWatcher.onDidDelete(uri => handleFDLFileDeleted(uri, database!));
 
-  context.subscriptions.push(featureWatcher);
+  context.subscriptions.push(fdlWatcher);
 
   // Expert file watcher
   expertWatcher = vscode.workspace.createFileSystemWatcher(
@@ -63,40 +63,42 @@ function calculateHash(content: string): string {
   return crypto.createHash('sha256').update(content).digest('hex');
 }
 
-async function syncFeatureFile(uri: vscode.Uri, db: Database) {
+async function syncFDLFile(uri: vscode.Uri, db: Database) {
   try {
     const filePath = uri.fsPath;
-    const fileName = path.basename(filePath, '.md');
+    // Extract feature name from <name>.fdl.yaml
+    const fileName = path.basename(filePath).replace('.fdl.yaml', '');
     const content = fs.readFileSync(filePath, 'utf-8');
-    const contentHash = calculateHash(content);
+    const fdlHash = calculateHash(content);
 
     // Find feature by name
     const feature = db.getFeatureByName(fileName);
     if (!feature) {
-      console.log(`Feature not found for file: ${fileName}`);
+      console.log(`Feature not found for FDL file: ${fileName}`);
       return;
     }
 
-    // Check if content has changed
-    if (feature.content_hash !== contentHash) {
-      db.updateFeatureContent(feature.id, content, contentHash, filePath);
-      console.log(`Synced feature file: ${fileName}`);
+    // Check if FDL content has changed
+    if (feature.fdl_hash !== fdlHash) {
+      db.updateFeatureFDL(feature.id, content, fdlHash);
+      console.log(`Synced FDL file: ${fileName}`);
     }
   } catch (err) {
-    console.error('Failed to sync feature file:', err);
+    console.error('Failed to sync FDL file:', err);
   }
 }
 
-function clearFeatureFilePath(uri: vscode.Uri, db: Database) {
+function handleFDLFileDeleted(uri: vscode.Uri, db: Database) {
   try {
-    const fileName = path.basename(uri.fsPath, '.md');
+    const fileName = path.basename(uri.fsPath).replace('.fdl.yaml', '');
     const feature = db.getFeatureByName(fileName);
     if (feature) {
-      db.clearFeatureFilePath(feature.id);
-      console.log(`Cleared file path for feature: ${fileName}`);
+      // Clear FDL content in DB
+      db.clearFeatureFDL(feature.id);
+      console.log(`Cleared FDL for feature: ${fileName}`);
     }
   } catch (err) {
-    console.error('Failed to clear feature file path:', err);
+    console.error('Failed to handle FDL file deletion:', err);
   }
 }
 
@@ -140,8 +142,8 @@ function restoreExpertFromDB(uri: vscode.Uri, db: Database) {
 }
 
 export function deactivate() {
-  if (featureWatcher) {
-    featureWatcher.dispose();
+  if (fdlWatcher) {
+    fdlWatcher.dispose();
   }
   if (expertWatcher) {
     expertWatcher.dispose();

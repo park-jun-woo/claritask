@@ -302,14 +302,30 @@ export class CltEditorProvider implements vscode.CustomReadonlyEditorProvider {
     sync: SyncManager
   ): void {
     try {
-      const id = database.createFeature(message.name, message.description);
-      webview.postMessage({
-        type: 'createResult',
-        success: true,
-        table: 'features',
-        id,
+      // Prepare JSON input for CLI (escape single quotes for shell)
+      const input = JSON.stringify({
+        name: message.name,
+        description: message.description
       });
-      sync.refresh();
+      const escapedInput = input.replace(/'/g, "'\\''");
+
+      // Create Terminal for CLI execution (TTY Handover support)
+      const terminal = vscode.window.createTerminal({
+        name: 'Claritask - Create Feature',
+        cwd: vscode.workspace.workspaceFolders?.[0].uri.fsPath
+      });
+      terminal.show();
+      terminal.sendText(`clari feature add '${escapedInput}'`);
+
+      // Send notification to webview
+      webview.postMessage({
+        type: 'cliStarted',
+        command: 'feature.add',
+        message: 'Claude Code will generate FDL for the feature...',
+      });
+
+      // Note: Actual feature creation and DB sync happens via CLI
+      // The FDL file watcher will sync changes when FDL is generated
     } catch (err) {
       webview.postMessage({
         type: 'createResult',

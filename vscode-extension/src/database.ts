@@ -491,4 +491,18 @@ export class Database {
     ]);
     return row?.content ?? null;
   }
+
+  // FDL sync methods
+  updateFeatureFDL(featureId: number, fdl: string, fdlHash: string): void {
+    this.run(
+      'UPDATE features SET fdl = ?, fdl_hash = ? WHERE id = ?',
+      [fdl, fdlHash, featureId]
+    );
+    this.save();
+  }
+
+  clearFeatureFDL(featureId: number): void {
+    this.run('UPDATE features SET fdl = ?, fdl_hash = ? WHERE id = ?', ['', '', featureId]);
+    this.save();
+  }
 }

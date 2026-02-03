@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 	"strconv"
 
 	"github.com/spf13/cobra"
@@ -21,7 +22,7 @@ var featureListCmd = &cobra.Command{
 
 var featureAddCmd = &cobra.Command{
 	Use:   "add '<json>'",
-	Short: "Add a new feature",
+	Short: "Add a new feature and generate FDL via Claude Code",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runFeatureAdd,
 }
@@ -61,6 +62,20 @@ var featureCreateCmd = &cobra.Command{
 	RunE:  runFeatureCreate,
 }
 
+var featureDeleteCmd = &cobra.Command{
+	Use:   "delete <id>",
+	Short: "Delete a feature",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runFeatureDelete,
+}
+
+var featureFdlCmd = &cobra.Command{
+	Use:   "fdl <id>",
+	Short: "Regenerate FDL for a feature using Claude Code",
+	Args:  cobra.ExactArgs(1),
+	RunE:  runFeatureFdl,
+}
+
 func init() {
 	featureCmd.AddCommand(featureListCmd)
 	featureCmd.AddCommand(featureAddCmd)
@@ -69,6 +84,11 @@ func init() {
 	featureCmd.AddCommand(featureStartCmd)
 	featureCmd.AddCommand(featureTasksCmd)
 	featureCmd.AddCommand(featureCreateCmd)
+	featureCmd.AddCommand(featureDeleteCmd)
+	featureCmd.AddCommand(featureFdlCmd)
+
+	// feature add flags
+	featureAddCmd.Flags().Bool("no-tty", false, "Skip TTY handover (just create DB record)")
 
 	// feature tasks flags
 	featureTasksCmd.Flags().Bool("generate", false, "Generate tasks using LLM (when no FDL)")
@@ -146,19 +166,37 @@ func runFeatureAdd(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	result, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
+	featureID, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
 	if err != nil {
 		outputError(fmt.Errorf("create feature: %w", err))
 		return nil
 	}
 
+	noTTY, _ := cmd.Flags().GetBool("no-tty")
+
+	if noTTY {
+		// Just create DB record without TTY handover
+		outputJSON(map[string]interface{}{
+			"success":    true,
+			"feature_id": featureID,
+			"name":       input.Name,
+			"message":    "Feature created (no FDL generation)",
+		})
+		return nil
+	}
+
+	// Output JSON first for VSCode integration
 	outputJSON(map[string]interface{}{
 		"success":    true,
-		"feature_id": result.ID,
+		"feature_id": featureID,
 		"name":       input.Name,
-		"file_path":  result.FilePath,
-		"message":    "Feature created successfully",
+		"message":    "Feature created. Starting FDL generation...",
 	})
+
+	// Run FDL generation with TTY handover
+	if err := service.RunFDLGenerationWithTTY(database, featureID, input.Name, input.Description); err != nil {
+		fmt.Fprintf(os.Stderr, "FDL generation error: %v\n", err)
+	}
 
 	return nil
 }
@@ -194,9 +232,6 @@ func runFeatureGet(cmd *cobra.Command, args []string) error {
 			"fdl":                feature.FDL,
 			"fdl_hash":           feature.FDLHash,
 			"skeleton_generated": feature.SkeletonGenerated,
-			"file_path":          feature.FilePath,
-			"content":            feature.Content,
-			"content_hash":       feature.ContentHash,
 			"created_at":         feature.CreatedAt,
 		},
 	})
@@ -400,8 +435,8 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Step 1: Create feature with md file
-	result, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
+	// Step 1: Create feature (DB record only)
+	featureID, err := service.CreateFeature(database, project.ID, input.Name, input.Description)
 	if err != nil {
 		outputError(fmt.Errorf("create feature: %w", err))
 		return nil
@@ -409,14 +444,13 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 	response := map[string]interface{}{
 		"success":    true,
-		"feature_id": result.ID,
+		"feature_id": featureID,
 		"name":       input.Name,
-		"file_path":  result.FilePath,
 	}
 
 	// Step 2: If FDL provided, register and validate it
 	if input.FDL != "" {
-		if err := service.SetFeatureFDL(database, result.ID, input.FDL); err != nil {
+		if err := service.SetFeatureFDL(database, featureID, input.FDL); err != nil {
 			response["fdl_valid"] = false
 			response["fdl_errors"] = []string{err.Error()}
 			response["message"] = "Feature created but FDL registration failed"
@@ -437,7 +471,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 		// Step 3: Generate tasks if requested and FDL is valid
 		if input.GenerateTasks && fdlValid {
-			tasksCreated, edgesCreated, err := service.GenerateTasksFromFDL(database, result.ID)
+			tasksCreated, edgesCreated, err := service.GenerateTasksFromFDL(database, featureID)
 			if err != nil {
 				response["tasks_created"] = 0
 				response["edges_created"] = 0
@@ -450,7 +484,7 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 
 		// Step 4: Generate skeleton if requested
 		if input.GenerateSkeleton && fdlValid {
-			skeletonFiles, err := service.GenerateSkeletonFromFDL(database, result.ID)
+			skeletonFiles, err := service.GenerateSkeletonFromFDL(database, featureID)
 			if err != nil {
 				response["skeleton_files"] = []string{}
 			} else {
@@ -471,5 +505,80 @@ func runFeatureCreate(cmd *cobra.Command, args []string) error {
 	}
 
 	outputJSON(response)
+	return nil
+}
+
+func runFeatureDelete(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	featureID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		outputError(fmt.Errorf("invalid feature ID: %s", args[0]))
+		return nil
+	}
+
+	// Get feature first to get the name
+	feature, err := service.GetFeature(database, featureID)
+	if err != nil {
+		outputError(fmt.Errorf("get feature: %w", err))
+		return nil
+	}
+
+	// Delete feature
+	if err := service.DeleteFeature(database, featureID); err != nil {
+		outputError(fmt.Errorf("delete feature: %w", err))
+		return nil
+	}
+
+	outputJSON(map[string]interface{}{
+		"success":    true,
+		"feature_id": featureID,
+		"name":       feature.Name,
+		"message":    "Feature deleted successfully",
+	})
+
+	return nil
+}
+
+func runFeatureFdl(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	featureID, err := strconv.ParseInt(args[0], 10, 64)
+	if err != nil {
+		outputError(fmt.Errorf("invalid feature ID: %s", args[0]))
+		return nil
+	}
+
+	// Get feature
+	feature, err := service.GetFeature(database, featureID)
+	if err != nil {
+		outputError(fmt.Errorf("get feature: %w", err))
+		return nil
+	}
+
+	// Output JSON first for VSCode integration
+	outputJSON(map[string]interface{}{
+		"success":    true,
+		"feature_id": featureID,
+		"name":       feature.Name,
+		"has_fdl":    feature.FDL != "",
+		"message":    "Starting FDL regeneration...",
+	})
+
+	// Run FDL generation with TTY handover
+	if err := service.RunFDLGenerationWithTTY(database, featureID, feature.Name, feature.Description); err != nil {
+		fmt.Fprintf(os.Stderr, "FDL generation error: %v\n", err)
+	}
+
 	return nil
 }

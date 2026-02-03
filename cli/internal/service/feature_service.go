@@ -3,81 +3,28 @@ package service
 import (
 	"crypto/sha256"
 	"fmt"
-	"os"
-	"path/filepath"
 
 	"parkjunwoo.com/claritask/internal/db"
 	"parkjunwoo.com/claritask/internal/model"
 )
 
-// Feature markdown template
-const featureMarkdownTemplate = `# %s
-
-## 개요
-%s
-
-## 요구사항
--
-
-## 상세 스펙
-
-
-## FDL
-` + "```yaml" + `
-# FDL 코드 작성
-` + "```" + `
-
----
-*Created by Claritask*
-`
-
-// CreateFeatureResult contains the result of CreateFeature
-type CreateFeatureResult struct {
-	ID       int64
-	FilePath string
-}
-
-// CreateFeature creates a new feature and its markdown file
-func CreateFeature(database *db.DB, projectID, name, description string) (*CreateFeatureResult, error) {
+// CreateFeature creates a new feature (DB record only, no file generation)
+func CreateFeature(database *db.DB, projectID, name, description string) (int64, error) {
 	now := db.TimeNow()
 
-	// Create features directory if not exists
-	featuresDir := "features"
-	if err := os.MkdirAll(featuresDir, 0755); err != nil {
-		return nil, fmt.Errorf("create features directory: %w", err)
-	}
-
-	// Generate markdown content
-	content := fmt.Sprintf(featureMarkdownTemplate, name, description)
-	contentHash := CalculateContentHash(content)
-	filePath := filepath.Join(featuresDir, name+".md")
-
-	// Write markdown file
-	if err := os.WriteFile(filePath, []byte(content), 0644); err != nil {
-		return nil, fmt.Errorf("write feature file: %w", err)
-	}
-
-	// Insert into database with file info
+	// Insert into database
 	result, err := database.Exec(
-		`INSERT INTO features (project_id, name, description, file_path, content, content_hash, status, created_at) VALUES (?, ?, ?, ?, ?, ?, 'pending', ?)`,
-		projectID, name, description, filePath, content, contentHash, now,
+		`INSERT INTO features (project_id, name, description, status, created_at) VALUES (?, ?, ?, 'pending', ?)`,
+		projectID, name, description, now,
 	)
 	if err != nil {
-		// Clean up the created file on error
-		os.Remove(filePath)
-		return nil, fmt.Errorf("create feature: %w", err)
+		return 0, fmt.Errorf("create feature: %w", err)
 	}
 	id, err := result.LastInsertId()
 	if err != nil {
-		return nil, fmt.Errorf("get last insert id: %w", err)
+		return 0, fmt.Errorf("get last insert id: %w", err)
 	}
-	return &CreateFeatureResult{ID: id, FilePath: filePath}, nil
-}
-
-// CalculateContentHash calculates SHA256 hash of content
-func CalculateContentHash(content string) string {
-	hash := sha256.Sum256([]byte(content))
-	return fmt.Sprintf("%x", hash)
+	return id, nil
 }
 
 // GetFeature retrieves a feature by ID

@@ -65,6 +65,42 @@ CREATE TABLE IF NOT EXISTS phases (
     FOREIGN KEY (project_id) REFERENCES projects(id)
 );
 
+CREATE TABLE IF NOT EXISTS features (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT NOT NULL,
+    name TEXT NOT NULL,
+    description TEXT,
+    spec TEXT DEFAULT '',
+    fdl TEXT DEFAULT '',
+    fdl_hash TEXT DEFAULT '',
+    skeleton_generated INTEGER DEFAULT 0,
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'active', 'done')),
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (project_id) REFERENCES projects(id),
+    UNIQUE(project_id, name)
+);
+
+CREATE TABLE IF NOT EXISTS feature_edges (
+    from_feature_id INTEGER NOT NULL,
+    to_feature_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (from_feature_id, to_feature_id),
+    FOREIGN KEY (from_feature_id) REFERENCES features(id),
+    FOREIGN KEY (to_feature_id) REFERENCES features(id)
+);
+
+CREATE TABLE IF NOT EXISTS skeletons (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    feature_id INTEGER NOT NULL,
+    file_path TEXT NOT NULL,
+    layer TEXT NOT NULL
+        CHECK(layer IN ('model', 'service', 'api', 'ui')),
+    checksum TEXT NOT NULL,
+    created_at TEXT NOT NULL,
+    FOREIGN KEY (feature_id) REFERENCES features(id)
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     phase_id INTEGER NOT NULL,
@@ -79,12 +115,28 @@ CREATE TABLE IF NOT EXISTS tasks (
     content TEXT DEFAULT '',
     result TEXT DEFAULT '',
     error TEXT DEFAULT '',
+    feature_id INTEGER DEFAULT NULL,
+    skeleton_id INTEGER DEFAULT NULL,
+    target_file TEXT DEFAULT '',
+    target_line INTEGER,
+    target_function TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     started_at TEXT,
     completed_at TEXT,
     failed_at TEXT,
     FOREIGN KEY (phase_id) REFERENCES phases(id),
-    FOREIGN KEY (parent_id) REFERENCES tasks(id)
+    FOREIGN KEY (parent_id) REFERENCES tasks(id),
+    FOREIGN KEY (feature_id) REFERENCES features(id),
+    FOREIGN KEY (skeleton_id) REFERENCES skeletons(id)
+);
+
+CREATE TABLE IF NOT EXISTS task_edges (
+    from_task_id INTEGER NOT NULL,
+    to_task_id INTEGER NOT NULL,
+    created_at TEXT NOT NULL,
+    PRIMARY KEY (from_task_id, to_task_id),
+    FOREIGN KEY (from_task_id) REFERENCES tasks(id),
+    FOREIGN KEY (to_task_id) REFERENCES tasks(id)
 );
 
 CREATE TABLE IF NOT EXISTS context (

@@ -60,4 +60,8 @@ func init() {
 	rootCmd.AddCommand(phaseCmd)
 	rootCmd.AddCommand(taskCmd)
 	rootCmd.AddCommand(memoCmd)
+	rootCmd.AddCommand(featureCmd)
+	rootCmd.AddCommand(edgeCmd)
+	rootCmd.AddCommand(fdlCmd)
+	rootCmd.AddCommand(planCmd)
 }

@@ -37,11 +37,30 @@ var projectStartCmd = &cobra.Command{
 	RunE:  runProjectStart,
 }
 
+var projectStopCmd = &cobra.Command{
+	Use:   "stop",
+	Short: "Stop project execution",
+	RunE:  runProjectStop,
+}
+
+var projectStatusCmd = &cobra.Command{
+	Use:   "status",
+	Short: "Show project execution status",
+	RunE:  runProjectStatus,
+}
+
 func init() {
 	projectCmd.AddCommand(projectSetCmd)
 	projectCmd.AddCommand(projectGetCmd)
 	projectCmd.AddCommand(projectPlanCmd)
 	projectCmd.AddCommand(projectStartCmd)
+	projectCmd.AddCommand(projectStopCmd)
+	projectCmd.AddCommand(projectStatusCmd)
+
+	// project start flags
+	projectStartCmd.Flags().Int64("feature", 0, "Execute specific feature only")
+	projectStartCmd.Flags().Bool("dry-run", false, "Show execution plan without running")
+	projectStartCmd.Flags().Bool("fallback-interactive", false, "Switch to interactive mode on failure")
 }
 
 func runProjectSet(cmd *cobra.Command, args []string) error {
@@ -166,6 +185,10 @@ func runProjectStart(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
+	featureID, _ := cmd.Flags().GetInt64("feature")
+	dryRun, _ := cmd.Flags().GetBool("dry-run")
+	fallbackInteractive, _ := cmd.Flags().GetBool("fallback-interactive")
+
 	// Check required fields
 	required, err := service.CheckRequired(database)
 	if err != nil {
@@ -179,6 +202,26 @@ func runProjectStart(cmd *cobra.Command, args []string) error {
 			"ready":            false,
 			"missing_required": required.MissingRequired,
 			"message":          "Please configure required settings before starting",
+		})
+		return nil
+	}
+
+	// Dry-run mode
+	if dryRun {
+		var fid *int64
+		if featureID > 0 {
+			fid = &featureID
+		}
+		plan, err := service.GenerateExecutionPlan(database, fid)
+		if err != nil {
+			outputError(err)
+			return nil
+		}
+		outputJSON(map[string]interface{}{
+			"success":         true,
+			"mode":            "dry-run",
+			"execution_order": plan.Tasks,
+			"total_tasks":     plan.Total,
 		})
 		return nil
 	}
@@ -211,13 +254,90 @@ func runProjectStart(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
+	// Build execution options
+	options := service.ExecutionOptions{
+		DryRun:              false,
+		FallbackInteractive: fallbackInteractive,
+	}
+	if featureID > 0 {
+		options.FeatureID = &featureID
+	}
+
+	// Start execution in background
+	go service.ExecuteAllTasks(database, options)
+
 	outputJSON(map[string]interface{}{
 		"success":  true,
 		"ready":    true,
 		"mode":     "execution",
 		"status":   taskStatus,
-		"message":  "Project is ready for execution. Use 'clari task pop' to get the next task.",
+		"message":  "Execution started. Use 'clari project status' to monitor.",
 		"progress": taskStatus.Progress,
+	})
+
+	return nil
+}
+
+func runProjectStop(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	state, err := service.GetExecutionState(database)
+	if err != nil {
+		outputError(err)
+		return nil
+	}
+
+	if !state.Running {
+		outputJSON(map[string]interface{}{
+			"success": false,
+			"error":   "No execution in progress",
+		})
+		return nil
+	}
+
+	if err := service.RequestStop(database); err != nil {
+		outputError(err)
+		return nil
+	}
+
+	outputJSON(map[string]interface{}{
+		"success":      true,
+		"message":      "Execution will stop after current task completes",
+		"current_task": state.CurrentTask,
+	})
+
+	return nil
+}
+
+func runProjectStatus(cmd *cobra.Command, args []string) error {
+	database, err := getDB()
+	if err != nil {
+		outputError(fmt.Errorf("open database: %w", err))
+		return nil
+	}
+	defer database.Close()
+
+	state, err := service.GetExecutionState(database)
+	if err != nil {
+		outputError(err)
+		return nil
+	}
+
+	progress, err := service.GetExecutionProgress(database)
+	if err != nil {
+		outputError(err)
+		return nil
+	}
+
+	outputJSON(map[string]interface{}{
+		"success":   true,
+		"execution": state,
+		"progress":  progress,
 	})
 
 	return nil

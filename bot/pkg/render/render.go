@@ -25,10 +25,23 @@ func ShouldRenderAsFile(markdown string) bool {
 }
 
 // ToTelegramHTML converts markdown to Telegram-compatible HTML (limited tags)
-// Supports: <b>, <i>, <code>, <pre>
+// Supports: <b>, <i>, <u>, <code>, <pre>, <a>
 func ToTelegramHTML(markdown string) string {
 	// Escape HTML entities first
 	text := htmlpkg.EscapeString(markdown)
+
+	// Links: [text](url) - must process before other formatting
+	// URL is already escaped, so &amp; may appear - we need to handle that
+	text = regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`).ReplaceAllStringFunc(text, func(match string) string {
+		re := regexp.MustCompile(`\[([^\]]+)\]\(([^)]+)\)`)
+		parts := re.FindStringSubmatch(match)
+		if len(parts) == 3 {
+			// Unescape the URL (it was escaped earlier)
+			url := strings.ReplaceAll(parts[2], "&amp;", "&")
+			return fmt.Sprintf(`<a href="%s">%s</a>`, url, parts[1])
+		}
+		return match
+	})
 
 	// Bold: **text** or __text__
 	text = regexp.MustCompile(`\*\*(.+?)\*\*`).ReplaceAllString(text, "<b>$1</b>")
@@ -43,6 +56,10 @@ func ToTelegramHTML(markdown string) string {
 
 	// Inline code: `code`
 	text = regexp.MustCompile("`([^`]+?)`").ReplaceAllString(text, "<code>$1</code>")
+
+	// Clean up any remaining markdown link brackets that weren't matched
+	// (e.g., malformed links)
+	text = regexp.MustCompile(`\[([^\]]*)\]`).ReplaceAllString(text, "$1")
 
 	return text
 }

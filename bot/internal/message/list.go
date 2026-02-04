@@ -6,10 +6,11 @@ import (
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
+	"parkjunwoo.com/claribot/pkg/pagination"
 )
 
-// List lists recent messages
-func List(projectPath string) types.Result {
+// List lists messages with pagination
+func List(projectPath string, req pagination.PageRequest) types.Result {
 	localDB, err := db.OpenLocal(projectPath)
 	if err != nil {
 		return types.Result{
@@ -19,12 +20,28 @@ func List(projectPath string) types.Result {
 	}
 	defer localDB.Close()
 
+	// Count total
+	var total int
+	if err := localDB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&total); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("카운트 실패: %v", err),
+		}
+	}
+
+	if total == 0 {
+		return types.Result{
+			Success: true,
+			Message: "메시지가 없습니다.",
+		}
+	}
+
 	rows, err := localDB.Query(`
 		SELECT id, content, source, status, created_at
 		FROM messages
 		ORDER BY id DESC
-		LIMIT 20
-	`)
+		LIMIT ? OFFSET ?
+	`, req.Limit(), req.Offset())
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -45,15 +62,10 @@ func List(projectPath string) types.Result {
 		messages = append(messages, m)
 	}
 
-	if len(messages) == 0 {
-		return types.Result{
-			Success: true,
-			Message: "메시지가 없습니다.",
-		}
-	}
+	pageResp := pagination.NewPageResponse(messages, req.Page, req.PageSize, total)
 
 	var sb strings.Builder
-	sb.WriteString(fmt.Sprintf("메시지 (%d):\n", len(messages)))
+	sb.WriteString(fmt.Sprintf("📋 메시지 (%d/%d 페이지, 총 %d개)\n", pageResp.Page, pageResp.TotalPages, total))
 	for _, m := range messages {
 		statusIcon := statusToIcon(m.Status)
 		// Truncate content for display
@@ -64,10 +76,21 @@ func List(projectPath string) types.Result {
 		sb.WriteString(fmt.Sprintf("  %s [#%d:message get %d] %s\n", statusIcon, m.ID, m.ID, content))
 	}
 
+	// Add pagination buttons
+	if pageResp.HasPrev || pageResp.HasNext {
+		sb.WriteString("\n")
+		if pageResp.HasPrev {
+			sb.WriteString(fmt.Sprintf("[◀ 이전:message list -p %d]", pageResp.Page-1))
+		}
+		if pageResp.HasNext {
+			sb.WriteString(fmt.Sprintf("[다음 ▶:message list -p %d]", pageResp.Page+1))
+		}
+	}
+
 	return types.Result{
 		Success: true,
 		Message: sb.String(),
-		Data:    messages,
+		Data:    pageResp,
 	}
 }
 

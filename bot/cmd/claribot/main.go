@@ -21,7 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "0.2.13"
+const Version = "0.2.14"
 
 // Router for command handling
 var router *handler.Router
@@ -43,6 +43,9 @@ type Config struct {
 	Project struct {
 		Path string `yaml:"path"` // 프로젝트 생성 기본 경로
 	} `yaml:"project"`
+	Pagination struct {
+		PageSize int `yaml:"page_size"` // 페이지당 항목 수 (기본값: 10)
+	} `yaml:"pagination"`
 }
 
 var bot *telegram.Bot
@@ -69,6 +72,12 @@ func main() {
 
 	// Initialize router
 	router = handler.NewRouter()
+
+	// Set pagination page size
+	if cfg.Pagination.PageSize > 0 {
+		router.SetPageSize(cfg.Pagination.PageSize)
+		log.Printf("Page size: %d", cfg.Pagination.PageSize)
+	}
 
 	// Set project default path
 	if cfg.Project.Path != "" {

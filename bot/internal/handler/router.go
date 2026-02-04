@@ -2,6 +2,7 @@ package handler
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"parkjunwoo.com/claribot/internal/edge"
@@ -10,6 +11,7 @@ import (
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
+	"parkjunwoo.com/claribot/pkg/pagination"
 )
 
 // Context holds the current state for command execution
@@ -21,13 +23,22 @@ type Context struct {
 
 // Router handles command routing
 type Router struct {
-	ctx *Context
+	ctx      *Context
+	pageSize int // 페이지당 항목 수
 }
 
 // NewRouter creates a new router
 func NewRouter() *Router {
 	return &Router{
-		ctx: &Context{},
+		ctx:      &Context{},
+		pageSize: pagination.DefaultPageSize,
+	}
+}
+
+// SetPageSize sets the default page size for list operations
+func (r *Router) SetPageSize(size int) {
+	if size > 0 {
+		r.pageSize = size
 	}
 }
 
@@ -155,7 +166,8 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 		}
 		return result
 	case "list":
-		return project.List()
+		page, pageSize := r.parsePagination(args)
+		return project.List(pagination.NewPageRequest(page, pageSize))
 	case "get":
 		id := r.ctx.ProjectID
 		if len(args) > 0 {
@@ -181,7 +193,7 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 		return result
 	case "switch":
 		if len(args) < 1 {
-			return project.List() // show list with switch buttons
+			return project.List(pagination.NewPageRequest(1, r.pageSize)) // show list with switch buttons
 		}
 		// Handle deselect
 		if args[0] == "none" {
@@ -227,13 +239,50 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 				Context:    "task add",
 			}
 		}
-		title := strings.Join(args, " ")
-		return task.Add(r.ctx.ProjectPath, title)
+		// Parse --parent option
+		var parentID *int
+		var titleParts []string
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--parent" && i+1 < len(args) {
+				pid, err := strconv.Atoi(args[i+1])
+				if err != nil {
+					return types.Result{Success: false, Message: "잘못된 parent ID: " + args[i+1]}
+				}
+				parentID = &pid
+				i++ // skip next arg
+			} else {
+				titleParts = append(titleParts, args[i])
+			}
+		}
+		title := strings.Join(titleParts, " ")
+		if title == "" {
+			return types.Result{
+				Success:    true,
+				Message:    "작업 제목을 입력하세요:",
+				NeedsInput: true,
+				Prompt:     "Title: ",
+				Context:    "task add",
+			}
+		}
+		return task.Add(r.ctx.ProjectPath, title, parentID)
 	case "list":
-		return task.List(r.ctx.ProjectPath)
+		// task list [parent_id] [-p page] [-n pageSize]
+		var parentID *int
+		page, pageSize := r.parsePagination(args)
+		// Check first positional arg for parent_id
+		for _, arg := range args {
+			if arg != "-p" && arg != "-n" && !strings.HasPrefix(arg, "-") {
+				pid, err := strconv.Atoi(arg)
+				if err == nil {
+					parentID = &pid
+					break
+				}
+			}
+		}
+		return task.List(r.ctx.ProjectPath, parentID, pagination.NewPageRequest(page, pageSize))
 	case "get":
 		if len(args) < 1 {
-			return task.List(r.ctx.ProjectPath) // show list if no id
+			return task.List(r.ctx.ProjectPath, nil, pagination.NewPageRequest(1, r.pageSize)) // show list if no id
 		}
 		return task.Get(r.ctx.ProjectPath, args[0])
 	case "set":
@@ -267,7 +316,7 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 	if cmd == "" {
 		return types.Result{
 			Success: true,
-			Message: "edge 명령어:\n  [목록:edge list]\n  [추가:edge add]",
+			Message: "edge 명령어:\n  [목록:edge list]\n  [추가:edge add]\n  [조회:edge get]",
 		}
 	}
 
@@ -283,15 +332,28 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 		return edge.Add(r.ctx.ProjectPath, args[0], args[1])
 	case "list":
 		var taskID string
-		if len(args) > 0 {
-			taskID = args[0]
+		page, pageSize := r.parsePagination(args)
+		for _, arg := range args {
+			if arg != "-p" && arg != "-n" && !strings.HasPrefix(arg, "-") {
+				taskID = arg
+				break
+			}
 		}
-		return edge.List(r.ctx.ProjectPath, taskID)
+		return edge.List(r.ctx.ProjectPath, taskID, pagination.NewPageRequest(page, pageSize))
+	case "get":
+		if len(args) < 2 {
+			return types.Result{Success: false, Message: "usage: edge get <from_id> <to_id>"}
+		}
+		return edge.Get(r.ctx.ProjectPath, args[0], args[1])
 	case "delete":
 		if len(args) < 2 {
 			return types.Result{Success: false, Message: "usage: edge delete <from_id> <to_id>"}
 		}
-		return edge.Delete(r.ctx.ProjectPath, args[0], args[1])
+		confirmed := len(args) > 2 && args[2] == "yes"
+		if len(args) > 2 && args[2] == "no" {
+			return types.Result{Success: true, Message: "삭제 취소됨"}
+		}
+		return edge.Delete(r.ctx.ProjectPath, args[0], args[1], confirmed)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown edge command: %s", cmd)}
 	}
@@ -330,10 +392,11 @@ func (r *Router) handleMessage(cmd string, args []string) types.Result {
 		}
 		return message.Send(r.ctx.ProjectPath, content, source)
 	case "list":
-		return message.List(r.ctx.ProjectPath)
+		page, pageSize := r.parsePagination(args)
+		return message.List(r.ctx.ProjectPath, pagination.NewPageRequest(page, pageSize))
 	case "get":
 		if len(args) < 1 {
-			return message.List(r.ctx.ProjectPath)
+			return message.List(r.ctx.ProjectPath, pagination.NewPageRequest(1, r.pageSize))
 		}
 		return message.Get(r.ctx.ProjectPath, args[0])
 	default:
@@ -352,4 +415,25 @@ func (r *Router) handleStatus() types.Result {
 		Success: true,
 		Message: fmt.Sprintf("프로젝트: %s\n설명: %s", r.ctx.ProjectID, r.ctx.ProjectDescription),
 	}
+}
+
+// parsePagination extracts -p (page) and -n (pageSize) from args
+func (r *Router) parsePagination(args []string) (page, pageSize int) {
+	page = 1
+	pageSize = r.pageSize
+
+	for i := 0; i < len(args); i++ {
+		if args[i] == "-p" && i+1 < len(args) {
+			if p, err := strconv.Atoi(args[i+1]); err == nil && p > 0 {
+				page = p
+			}
+			i++
+		} else if args[i] == "-n" && i+1 < len(args) {
+			if n, err := strconv.Atoi(args[i+1]); err == nil && n > 0 {
+				pageSize = n
+			}
+			i++
+		}
+	}
+	return
 }

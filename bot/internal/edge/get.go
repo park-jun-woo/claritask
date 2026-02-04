@@ -9,8 +9,8 @@ import (
 	"parkjunwoo.com/claribot/internal/types"
 )
 
-// Delete deletes a dependency edge
-func Delete(projectPath, fromID, toID string, confirmed bool) types.Result {
+// Get gets edge details
+func Get(projectPath, fromID, toID string) types.Result {
 	fromTaskID, err := strconv.Atoi(fromID)
 	if err != nil {
 		return types.Result{
@@ -36,15 +36,16 @@ func Delete(projectPath, fromID, toID string, confirmed bool) types.Result {
 	}
 	defer localDB.Close()
 
-	// Get edge info with task titles
-	var fromTitle, toTitle, createdAt string
+	var e Edge
+	var fromTitle, toTitle, fromStatus, toStatus string
 	err = localDB.QueryRow(`
-		SELECT t1.title, t2.title, e.created_at
+		SELECT e.from_task_id, e.to_task_id, e.created_at,
+		       t1.title, t1.status, t2.title, t2.status
 		FROM task_edges e
 		JOIN tasks t1 ON e.from_task_id = t1.id
 		JOIN tasks t2 ON e.to_task_id = t2.id
 		WHERE e.from_task_id = ? AND e.to_task_id = ?
-	`, fromTaskID, toTaskID).Scan(&fromTitle, &toTitle, &createdAt)
+	`, fromTaskID, toTaskID).Scan(&e.FromTaskID, &e.ToTaskID, &e.CreatedAt, &fromTitle, &fromStatus, &toTitle, &toStatus)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -59,26 +60,15 @@ func Delete(projectPath, fromID, toID string, confirmed bool) types.Result {
 		}
 	}
 
-	// Ask for confirmation
-	if !confirmed {
-		return types.Result{
-			Success: true,
-			Message: fmt.Sprintf("의존성 '#%d(%s) → #%d(%s)'을(를) 삭제하시겠습니까?\n[예:edge delete %s %s yes][아니오:edge delete %s %s no]",
-				fromTaskID, fromTitle, toTaskID, toTitle, fromID, toID, fromID, toID),
-		}
-	}
-
-	// Delete
-	_, err = localDB.Exec("DELETE FROM task_edges WHERE from_task_id = ? AND to_task_id = ?", fromTaskID, toTaskID)
-	if err != nil {
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("삭제 실패: %v", err),
-		}
-	}
+	msg := fmt.Sprintf("의존성: #%d → #%d\n", e.FromTaskID, e.ToTaskID)
+	msg += fmt.Sprintf("From: [#%d:task get %d] %s (%s)\n", e.FromTaskID, e.FromTaskID, fromTitle, fromStatus)
+	msg += fmt.Sprintf("To: [#%d:task get %d] %s (%s)\n", e.ToTaskID, e.ToTaskID, toTitle, toStatus)
+	msg += fmt.Sprintf("Created: %s\n", e.CreatedAt)
+	msg += fmt.Sprintf("[삭제:edge delete %d %d]", e.FromTaskID, e.ToTaskID)
 
 	return types.Result{
 		Success: true,
-		Message: fmt.Sprintf("의존성 삭제됨: #%d(%s) → #%d(%s)\n[목록:edge list]", fromTaskID, fromTitle, toTaskID, toTitle),
+		Message: msg,
+		Data:    &e,
 	}
 }

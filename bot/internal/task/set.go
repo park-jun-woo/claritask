@@ -49,17 +49,50 @@ func Set(projectPath, id, field, value string) types.Result {
 	}
 	defer localDB.Close()
 
-	query := fmt.Sprintf("UPDATE tasks SET %s = ? WHERE id = ?", field)
-	result, err := localDB.Exec(query, value, id)
-	if err != nil {
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("업데이트 실패: %v", err),
+	now := db.TimeNow()
+
+	// Handle status field with automatic timestamp management
+	if field == "status" {
+		var query string
+		var execErr error
+
+		switch value {
+		case "running":
+			// Set started_at when status changes to running
+			query = "UPDATE tasks SET status = ?, started_at = ? WHERE id = ?"
+			_, execErr = localDB.Exec(query, value, now, id)
+		case "done", "failed":
+			// Set completed_at when status changes to done or failed
+			query = "UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?"
+			_, execErr = localDB.Exec(query, value, now, id)
+		case "pending":
+			// Clear timestamps when reverting to pending
+			query = "UPDATE tasks SET status = ?, started_at = NULL, completed_at = NULL WHERE id = ?"
+			_, execErr = localDB.Exec(query, value, id)
+		}
+
+		if execErr != nil {
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("업데이트 실패: %v", execErr),
+			}
+		}
+	} else {
+		// Regular field update
+		query := fmt.Sprintf("UPDATE tasks SET %s = ? WHERE id = ?", field)
+		_, err = localDB.Exec(query, value, id)
+		if err != nil {
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("업데이트 실패: %v", err),
+			}
 		}
 	}
 
-	rows, _ := result.RowsAffected()
-	if rows == 0 {
+	// Check if task exists
+	var exists int
+	localDB.QueryRow("SELECT COUNT(*) FROM tasks WHERE id = ?", id).Scan(&exists)
+	if exists == 0 {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("작업을 찾을 수 없습니다: #%s", id),

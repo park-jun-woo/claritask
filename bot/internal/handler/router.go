@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"parkjunwoo.com/claribot/internal/edge"
+	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
@@ -67,6 +68,12 @@ func (r *Router) Execute(input string) types.Result {
 		return r.handleTask(cmd, args)
 	case "edge":
 		return r.handleEdge(cmd, args)
+	case "message":
+		return r.handleMessage(cmd, args)
+	case "send":
+		// "send <content>" → message send <content>
+		content := strings.TrimSpace(strings.TrimPrefix(input, "send"))
+		return r.handleMessage("send", []string{content})
 	case "status":
 		return r.handleStatus()
 	default:
@@ -101,8 +108,27 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 	case "":
 		return types.Result{
 			Success: true,
-			Message: "project 명령어:\n  [목록:project list]\n  [생성:project create]",
+			Message: "project 명령어:\n  [목록:project list]\n  [생성:project create]\n  [추가:project add]",
 		}
+	case "add":
+		var path, projType, desc string
+		if len(args) > 0 {
+			path = args[0]
+		}
+		if len(args) > 1 {
+			projType = args[1]
+		}
+		if len(args) > 2 {
+			desc = strings.Join(args[2:], " ")
+		}
+		result := project.Add(path, projType, desc)
+		// Auto-switch to added project
+		if result.Success && !result.NeedsInput {
+			if p, ok := result.Data.(*project.Project); ok {
+				r.SetProject(p.ID, p.Path, p.Description)
+			}
+		}
+		return result
 	case "create":
 		if len(args) < 1 {
 			return types.Result{
@@ -268,6 +294,50 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 		return edge.Delete(r.ctx.ProjectPath, args[0], args[1])
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown edge command: %s", cmd)}
+	}
+}
+
+func (r *Router) handleMessage(cmd string, args []string) types.Result {
+	// Show help even without project selected
+	if cmd == "" {
+		return types.Result{
+			Success: true,
+			Message: "message 명령어:\n  [목록:message list]\n  [전송:message send]",
+		}
+	}
+
+	if r.ctx.ProjectPath == "" {
+		return types.Result{Success: false, Message: "프로젝트를 먼저 선택하세요: /project switch <id>"}
+	}
+
+	switch cmd {
+	case "send":
+		if len(args) < 1 || args[0] == "" {
+			return types.Result{
+				Success:    true,
+				Message:    "메시지를 입력하세요:",
+				NeedsInput: true,
+				Prompt:     "Message: ",
+				Context:    "send",
+			}
+		}
+		// Check if first arg is source (telegram/cli)
+		source := "cli"
+		content := strings.Join(args, " ")
+		if len(args) > 1 && (args[0] == "telegram" || args[0] == "cli") {
+			source = args[0]
+			content = strings.Join(args[1:], " ")
+		}
+		return message.Send(r.ctx.ProjectPath, content, source)
+	case "list":
+		return message.List(r.ctx.ProjectPath)
+	case "get":
+		if len(args) < 1 {
+			return message.List(r.ctx.ProjectPath)
+		}
+		return message.Get(r.ctx.ProjectPath, args[0])
+	default:
+		return types.Result{Success: false, Message: fmt.Sprintf("unknown message command: %s", cmd)}
 	}
 }
 

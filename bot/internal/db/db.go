@@ -132,6 +132,21 @@ CREATE TABLE IF NOT EXISTS task_edges (
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_task_edges_to ON task_edges(to_task_id);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    content TEXT NOT NULL,
+    source TEXT DEFAULT ''
+        CHECK(source IN ('', 'telegram', 'cli')),
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'processing', 'done', 'failed')),
+    result TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 `
 	_, err := db.Exec(schema)
 	return err

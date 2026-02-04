@@ -2,7 +2,6 @@ package project
 
 import (
 	"fmt"
-	"os"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -48,14 +47,6 @@ func Delete(id string, confirmed bool) types.Result {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("failed to delete from db: %v", err),
-		}
-	}
-
-	// Delete project directory
-	if err := os.RemoveAll(p.Path); err != nil {
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("DB에서 삭제됨, 폴더 삭제 실패: %v", err),
 		}
 	}
 

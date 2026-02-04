@@ -14,6 +14,11 @@ import (
 // buttonPattern matches [name:value] format
 var buttonPattern = regexp.MustCompile(`\[([^:\]]+):([^\]]+)\]`)
 
+// cliOnlyCommands are commands that cannot be used via Telegram
+var cliOnlyCommands = []string{
+	"project add",
+}
+
 // Handler handles Telegram messages
 type Handler struct {
 	bot            *telegram.Bot
@@ -36,6 +41,7 @@ func New(bot *telegram.Bot, router *handler.Router) *Handler {
 		{Command: "project", Description: "프로젝트 관리"},
 		{Command: "task", Description: "작업 관리"},
 		{Command: "edge", Description: "의존성 관리"},
+		{Command: "message", Description: "메시지 관리"},
 	})
 
 	return h
@@ -112,6 +118,13 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		cmd := strings.TrimPrefix(msg.Text, "/")
 		// Replace _ with space for menu commands (e.g., /project_list → project list)
 		cmd = strings.ReplaceAll(cmd, "_", " ")
+
+		// Check for CLI-only commands
+		if isCLIOnly(cmd) {
+			h.bot.Send(msg.ChatID, "이 명령어는 CLI에서만 사용 가능합니다.")
+			return
+		}
+
 		result := h.router.Execute(cmd)
 		h.sendResult(msg.ChatID, result)
 		return
@@ -132,7 +145,21 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		h.bot.Send(msg.ChatID, "프로젝트를 먼저 선택하세요.\n/project_switch <id>")
 		return
 	}
-	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] %s", projectID, msg.Text))
+
+	// Route plain text to "message send" command with telegram source
+	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", projectID))
+	result := h.router.Execute("message send telegram " + msg.Text)
+	h.sendResult(msg.ChatID, result)
+}
+
+// isCLIOnly checks if a command is CLI-only
+func isCLIOnly(cmd string) bool {
+	for _, cliCmd := range cliOnlyCommands {
+		if strings.HasPrefix(cmd, cliCmd) {
+			return true
+		}
+	}
+	return false
 }
 
 // HandleCallback handles Telegram callback queries (button clicks)
@@ -148,9 +175,22 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 		if ctx, ok := h.pendingContext[cb.ChatID]; ok {
 			delete(h.pendingContext, cb.ChatID)
 			cmd := ctx + " " + value
+
+			// Check for CLI-only commands
+			if isCLIOnly(cmd) {
+				h.bot.Send(cb.ChatID, "이 명령어는 CLI에서만 사용 가능합니다.")
+				return
+			}
+
 			result := h.router.Execute(cmd)
 			h.sendResult(cb.ChatID, result)
 		} else {
+			// Check for CLI-only commands
+			if isCLIOnly(value) {
+				h.bot.Send(cb.ChatID, "이 명령어는 CLI에서만 사용 가능합니다.")
+				return
+			}
+
 			// No context - execute value directly as command
 			result := h.router.Execute(value)
 			h.sendResult(cb.ChatID, result)

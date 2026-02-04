@@ -29,8 +29,14 @@ claribot/
 ├── bot/          # Claribot Go 소스코드
 ├── cli/          # Go CLI 소스코드
 ├── vsx/          # Claribot VSCode Extension 소스코드
-└── Claribot.md   # Claribot 개요
+├── docs/         # 설계 문서
+└── deploy/       # 배포 설정 파일
 ```
+
+## 참고 문서
+
+- [docs/Claribot.md](docs/Claribot.md) - 아키텍처, DB 스키마, 구현 현황
+- [docs/Task.md](docs/Task.md) - Task 시스템 설계 (분할 정복, 순회 로직)
 
 ## Coding Conventions
 

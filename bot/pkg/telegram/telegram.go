@@ -5,10 +5,25 @@ import (
 	"fmt"
 	"log"
 	"sync"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	"parkjunwoo.com/claribot/pkg/render"
 )
+
+// RetryConfig defines retry settings for telegram operations
+type RetryConfig struct {
+	MaxAttempts int
+	BaseDelay   time.Duration
+	MaxDelay    time.Duration
+}
+
+// DefaultRetryConfig provides sensible defaults for retries
+var DefaultRetryConfig = RetryConfig{
+	MaxAttempts: 3,
+	BaseDelay:   1 * time.Second,
+	MaxDelay:    10 * time.Second,
+}
 
 // Message represents an incoming telegram message
 type Message struct {
@@ -57,6 +72,7 @@ type Bot struct {
 	wg              sync.WaitGroup
 	adminChatID     int64 // 스케줄 알림을 보낼 chat ID
 	mu              sync.RWMutex
+	retry           RetryConfig
 }
 
 // New creates a new telegram bot
@@ -72,7 +88,42 @@ func New(token string) (*Bot, error) {
 		api:    api,
 		ctx:    ctx,
 		cancel: cancel,
+		retry:  DefaultRetryConfig,
 	}, nil
+}
+
+// sendWithRetry executes a send operation with exponential backoff retry
+func (b *Bot) sendWithRetry(fn func() error) error {
+	var lastErr error
+	delay := b.retry.BaseDelay
+
+	for attempt := 1; attempt <= b.retry.MaxAttempts; attempt++ {
+		lastErr = fn()
+		if lastErr == nil {
+			return nil
+		}
+
+		// Don't retry on last attempt
+		if attempt == b.retry.MaxAttempts {
+			break
+		}
+
+		log.Printf("[Telegram] 전송 실패 (시도 %d/%d): %v, %v 후 재시도", attempt, b.retry.MaxAttempts, lastErr, delay)
+
+		select {
+		case <-b.ctx.Done():
+			return b.ctx.Err()
+		case <-time.After(delay):
+		}
+
+		// Exponential backoff
+		delay *= 2
+		if delay > b.retry.MaxDelay {
+			delay = b.retry.MaxDelay
+		}
+	}
+
+	return lastErr
 }
 
 // SetHandler sets the message handler
@@ -226,12 +277,14 @@ func (b *Bot) Broadcast(text string) error {
 
 // Send sends a text message to a chat
 func (b *Bot) Send(chatID int64, text string) error {
-	msg := tgbotapi.NewMessage(chatID, text)
-	_, err := b.api.Send(msg)
-	if err != nil {
-		return fmt.Errorf("send message: %w", err)
-	}
-	return nil
+	return b.sendWithRetry(func() error {
+		msg := tgbotapi.NewMessage(chatID, text)
+		_, err := b.api.Send(msg)
+		if err != nil {
+			return fmt.Errorf("send message: %w", err)
+		}
+		return nil
+	})
 }
 
 // SendWithButtons sends a message with inline buttons
@@ -244,13 +297,15 @@ func (b *Bot) SendWithButtons(chatID int64, text string, buttons [][]Button) err
 		}
 	}
 
-	msg := tgbotapi.NewMessage(chatID, text)
-	msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
-	_, err := b.api.Send(msg)
-	if err != nil {
-		return fmt.Errorf("send with buttons: %w", err)
-	}
-	return nil
+	return b.sendWithRetry(func() error {
+		msg := tgbotapi.NewMessage(chatID, text)
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+		_, err := b.api.Send(msg)
+		if err != nil {
+			return fmt.Errorf("send with buttons: %w", err)
+		}
+		return nil
+	})
 }
 
 // EditButtons edits the inline buttons of an existing message
@@ -310,9 +365,12 @@ func (b *Bot) SendReport(chatID int64, markdown string) error {
 	if !render.ShouldRenderAsFile(markdown) {
 		// Short message: send as inline HTML
 		htmlText := render.ToTelegramHTML(markdown)
-		msg := tgbotapi.NewMessage(chatID, htmlText)
-		msg.ParseMode = tgbotapi.ModeHTML
-		_, err := b.api.Send(msg)
+		err := b.sendWithRetry(func() error {
+			msg := tgbotapi.NewMessage(chatID, htmlText)
+			msg.ParseMode = tgbotapi.ModeHTML
+			_, err := b.api.Send(msg)
+			return err
+		})
 		if err != nil {
 			// Fallback to plain text if HTML parsing fails
 			return b.Send(chatID, markdown)
@@ -328,18 +386,20 @@ func (b *Bot) SendReport(chatID int64, markdown string) error {
 		return b.Send(chatID, markdown)
 	}
 
-	// Send as document from memory
-	fileBytes := tgbotapi.FileBytes{
-		Name:  "report.html",
-		Bytes: []byte(htmlContent),
-	}
-	doc := tgbotapi.NewDocument(chatID, fileBytes)
-	doc.Caption = title
-	_, err = b.api.Send(doc)
-	if err != nil {
-		return fmt.Errorf("send report file: %w", err)
-	}
-	return nil
+	// Send as document from memory with retry
+	return b.sendWithRetry(func() error {
+		fileBytes := tgbotapi.FileBytes{
+			Name:  "report.html",
+			Bytes: []byte(htmlContent),
+		}
+		doc := tgbotapi.NewDocument(chatID, fileBytes)
+		doc.Caption = title
+		_, err := b.api.Send(doc)
+		if err != nil {
+			return fmt.Errorf("send report file: %w", err)
+		}
+		return nil
+	})
 }
 
 // SendReportWithButtons sends report with inline buttons

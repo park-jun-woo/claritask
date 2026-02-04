@@ -5,6 +5,7 @@ import (
 	"log"
 	"regexp"
 	"strings"
+	"sync"
 
 	"parkjunwoo.com/claribot/internal/handler"
 	"parkjunwoo.com/claribot/internal/types"
@@ -24,6 +25,7 @@ type Handler struct {
 	bot            *telegram.Bot
 	router         *handler.Router
 	pendingContext map[int64]string
+	mu             sync.RWMutex // protects pendingContext
 }
 
 // New creates a new Telegram handler
@@ -100,7 +102,9 @@ func (h *Handler) sendResult(chatID int64, result types.Result) {
 
 	// Store context if needs input
 	if result.NeedsInput && result.Context != "" {
+		h.mu.Lock()
 		h.pendingContext[chatID] = result.Context
+		h.mu.Unlock()
 	}
 }
 
@@ -120,8 +124,39 @@ func (h *Handler) sendReport(chatID int64, result types.Result) {
 
 	// Store context if needs input
 	if result.NeedsInput && result.Context != "" {
+		h.mu.Lock()
 		h.pendingContext[chatID] = result.Context
+		h.mu.Unlock()
 	}
+}
+
+// quickCommands are commands that don't require Claude execution (fast response)
+var quickCommands = []string{
+	"project", "task list", "task get", "edge list", "edge get",
+	"message list", "message get", "message status",
+	"schedule list", "schedule get", "schedule runs", "schedule run",
+	"status",
+}
+
+// needsClaudeExecution checks if a command requires Claude execution
+func needsClaudeExecution(cmd string) bool {
+	for _, quick := range quickCommands {
+		if strings.HasPrefix(cmd, quick) {
+			return false
+		}
+	}
+	// Commands that run Claude
+	claudeCommands := []string{
+		"task plan", "task run", "task cycle",
+		"message send", "send",
+	}
+	for _, cc := range claudeCommands {
+		if strings.HasPrefix(cmd, cc) {
+			return true
+		}
+	}
+	// Default: if not a known command, it goes to handleClaude
+	return true
 }
 
 // HandleMessage handles incoming Telegram messages
@@ -149,17 +184,46 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 			return
 		}
 
-		result := h.router.Execute(cmd)
-		h.sendResult(msg.ChatID, result)
+		// Quick commands: synchronous processing
+		if !needsClaudeExecution(cmd) {
+			result := h.router.Execute(cmd)
+			h.sendResult(msg.ChatID, result)
+			return
+		}
+
+		// Claude commands: async processing
+		h.bot.Send(msg.ChatID, "처리 중...")
+		go func() {
+			result := h.router.Execute(cmd)
+			h.sendReport(msg.ChatID, result)
+		}()
 		return
 	}
 
 	// Check for pending context (tikitaka continuation)
-	if ctx, ok := h.pendingContext[msg.ChatID]; ok {
+	h.mu.Lock()
+	ctx, ok := h.pendingContext[msg.ChatID]
+	if ok {
 		delete(h.pendingContext, msg.ChatID)
+	}
+	h.mu.Unlock()
+
+	if ok {
 		cmd := ctx + " " + msg.Text
-		result := h.router.Execute(cmd)
-		h.sendResult(msg.ChatID, result)
+
+		// Quick commands: synchronous
+		if !needsClaudeExecution(cmd) {
+			result := h.router.Execute(cmd)
+			h.sendResult(msg.ChatID, result)
+			return
+		}
+
+		// Claude commands: async
+		h.bot.Send(msg.ChatID, "처리 중...")
+		go func() {
+			result := h.router.Execute(cmd)
+			h.sendReport(msg.ChatID, result)
+		}()
 		return
 	}
 
@@ -170,10 +234,12 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		label = "global"
 	}
 
-	// Route plain text to "message send" command with telegram source
+	// Route plain text to "message send" command with telegram source (async)
 	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", label))
-	result := h.router.Execute("message send telegram " + msg.Text)
-	h.sendReport(msg.ChatID, result)
+	go func() {
+		result := h.router.Execute("message send telegram " + msg.Text)
+		h.sendReport(msg.ChatID, result)
+	}()
 }
 
 // isCLIOnly checks if a command is CLI-only
@@ -196,33 +262,43 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 		h.bot.AnswerCallback(cb.ID, value)
 
 		// Check for pending context
-		if ctx, ok := h.pendingContext[cb.ChatID]; ok {
+		h.mu.Lock()
+		ctx, ok := h.pendingContext[cb.ChatID]
+		if ok {
 			delete(h.pendingContext, cb.ChatID)
-			cmd := ctx + " " + value
+		}
+		h.mu.Unlock()
 
-			// Check for CLI-only commands
-			if isCLIOnly(cmd) {
-				h.bot.Send(cb.ChatID, "이 명령어는 CLI에서만 사용 가능합니다.")
-				return
-			}
+		var cmd string
+		if ok {
+			cmd = ctx + " " + value
+		} else {
+			cmd = value
+		}
 
+		// Check for CLI-only commands
+		if isCLIOnly(cmd) {
+			h.bot.Send(cb.ChatID, "이 명령어는 CLI에서만 사용 가능합니다.")
+			return
+		}
+
+		// Quick commands: synchronous
+		if !needsClaudeExecution(cmd) {
 			result := h.router.Execute(cmd)
 			h.sendResult(cb.ChatID, result)
-		} else {
-			// Check for CLI-only commands
-			if isCLIOnly(value) {
-				h.bot.Send(cb.ChatID, "이 명령어는 CLI에서만 사용 가능합니다.")
-				return
-			}
-
-			// No context - execute value directly as command
-			result := h.router.Execute(value)
-			h.sendResult(cb.ChatID, result)
+			return
 		}
+
+		// Claude commands: async
+		h.bot.Send(cb.ChatID, "처리 중...")
+		go func() {
+			result := h.router.Execute(cmd)
+			h.sendReport(cb.ChatID, result)
+		}()
 		return
 	}
 
-	// Handle project switch
+	// Handle project switch (quick command, synchronous)
 	if strings.HasPrefix(cb.Data, "switch:") {
 		projectID := strings.TrimPrefix(cb.Data, "switch:")
 		result := h.router.Execute("project switch " + projectID)

@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"regexp"
@@ -137,10 +138,14 @@ func (m *Manager) Run(ctx context.Context, opts Options) (*Result, error) {
 	select {
 	case m.sem <- struct{}{}:
 		// acquired
+		log.Printf("[Claude] Semaphore acquired (used: %d/%d)", len(m.sem), m.config.Max)
 	case <-ctx.Done():
 		return nil, fmt.Errorf("cancelled while waiting in queue: %w", ctx.Err())
 	}
-	defer func() { <-m.sem }() // release
+	defer func() {
+		<-m.sem // release
+		log.Printf("[Claude] Semaphore released (used: %d/%d)", len(m.sem), m.config.Max)
+	}()
 
 	return m.execute(ctx, opts)
 }
@@ -170,11 +175,28 @@ func (m *Manager) execute(ctx context.Context, opts Options) (*Result, error) {
 	// Read output with idle timeout
 	output, err := m.readWithIdleTimeout(ctx, ptmx, cmd, idleTimeout)
 	if err != nil {
+		// Kill process on read error to prevent zombie
+		cmd.Process.Kill()
+		cmd.Wait()
 		return nil, err
 	}
 
-	// Wait for completion
-	waitErr := cmd.Wait()
+	// Wait for completion with timeout (prevent infinite block)
+	waitDone := make(chan error, 1)
+	go func() {
+		waitDone <- cmd.Wait()
+	}()
+
+	var waitErr error
+	select {
+	case waitErr = <-waitDone:
+		// Process exited normally
+	case <-time.After(10 * time.Second):
+		// Wait timeout - force kill
+		cmd.Process.Kill()
+		<-waitDone // drain
+		waitErr = fmt.Errorf("wait timeout, process killed")
+	}
 
 	// Get exit code
 	exitCode := 0
@@ -244,6 +266,30 @@ func (m *Manager) QueueLength() int {
 // Available returns number of available slots
 func (m *Manager) Available() int {
 	return m.config.Max - len(m.sem)
+}
+
+// Max returns max concurrent instances
+func (m *Manager) Max() int {
+	return m.config.Max
+}
+
+// Status returns a status summary
+type Status struct {
+	Max       int `json:"max"`
+	Used      int `json:"used"`
+	Available int `json:"available"`
+	Sessions  int `json:"sessions"`
+}
+
+// GetStatus returns global manager status
+func GetStatus() Status {
+	mgr := GetManager()
+	return Status{
+		Max:       mgr.config.Max,
+		Used:      len(mgr.sem),
+		Available: mgr.config.Max - len(mgr.sem),
+		Sessions:  mgr.ActiveSessions(),
+	}
 }
 
 // Session represents an interactive Claude Code session

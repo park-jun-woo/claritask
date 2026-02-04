@@ -12,6 +12,7 @@ import (
 	"parkjunwoo.com/claribot/internal/config"
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/handler"
+	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/tghandler"
@@ -21,7 +22,7 @@ import (
 	"parkjunwoo.com/claribot/pkg/telegram"
 )
 
-const Version = "0.2.19"
+const Version = "0.2.20"
 
 // Router for command handling
 var router *handler.Router
@@ -63,6 +64,13 @@ func main() {
 	}
 	globalDB.Close()
 	logger.Info("Global DB initialized")
+
+	// Recover stuck messages from previous run
+	if recovered, err := message.RecoverStuckMessages(1 * time.Hour); err != nil {
+		logger.Error("Message recovery failed: %v", err)
+	} else if recovered > 0 {
+		logger.Info("Recovered %d stuck messages", recovered)
+	}
 
 	// Initialize Claude manager
 	claude.Init(claude.Config{
@@ -132,11 +140,17 @@ func main() {
 	// Setup HTTP handler
 	http.HandleFunc("/", handleRequest)
 
-	// Start HTTP server in goroutine
+	// Start HTTP server in goroutine with timeout settings
 	addr := fmt.Sprintf("%s:%d", cfg.Service.Host, cfg.Service.Port)
+	server := &http.Server{
+		Addr:         addr,
+		ReadTimeout:  10 * time.Second,
+		WriteTimeout: 30 * time.Minute, // Long timeout for Claude operations
+		IdleTimeout:  60 * time.Second,
+	}
 	go func() {
 		logger.Info("HTTP server starting on %s", addr)
-		if err := http.ListenAndServe(addr, nil); err != nil {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("HTTP server error: %v", err)
 			os.Exit(1)
 		}

@@ -1,6 +1,7 @@
 package schedule
 
 import (
+	"fmt"
 	"log"
 	"sync"
 	"time"
@@ -15,20 +16,35 @@ import (
 // globalScheduler is the singleton scheduler instance
 var globalScheduler *Scheduler
 
+// MaxConsecutiveFailures is the number of failures before auto-disabling a schedule
+const MaxConsecutiveFailures = 3
+
+// StuckScheduleTimeout is the duration after which a running schedule is considered stuck
+const StuckScheduleTimeout = 1 * time.Hour
+
 // Scheduler manages cron jobs for schedules
 type Scheduler struct {
-	cron     *cron.Cron
-	jobs     map[int]cron.EntryID // schedule ID -> cron entry ID
-	mu       sync.RWMutex
-	notifier func(projectID *string, msg string) // 텔레그램 알림 콜백
+	cron          *cron.Cron
+	jobs          map[int]cron.EntryID // schedule ID -> cron entry ID
+	failureCounts map[int]int          // schedule ID -> consecutive failure count
+	mu            sync.RWMutex
+	notifier      func(projectID *string, msg string) // 텔레그램 알림 콜백
 }
 
 // Init initializes the global scheduler
 func Init(notifier func(projectID *string, msg string)) error {
 	globalScheduler = &Scheduler{
-		cron:     cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
-		jobs:     make(map[int]cron.EntryID),
-		notifier: notifier,
+		cron:          cron.New(cron.WithParser(cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow))),
+		jobs:          make(map[int]cron.EntryID),
+		failureCounts: make(map[int]int),
+		notifier:      notifier,
+	}
+
+	// Recover stuck schedules from previous run
+	if recovered, err := globalScheduler.recoverStuckSchedules(); err != nil {
+		log.Printf("Scheduler: 고착 스케줄 복구 실패: %v", err)
+	} else if recovered > 0 {
+		log.Printf("Scheduler: %d개 고착 스케줄 복구됨", recovered)
 	}
 
 	// Load existing schedules from DB
@@ -47,6 +63,30 @@ func Shutdown() {
 		globalScheduler.cron.Stop()
 		log.Println("Scheduler stopped")
 	}
+}
+
+// recoverStuckSchedules marks schedule_runs stuck in 'running' status as failed
+func (s *Scheduler) recoverStuckSchedules() (int, error) {
+	globalDB, err := db.OpenGlobal()
+	if err != nil {
+		return 0, err
+	}
+	defer globalDB.Close()
+
+	cutoff := time.Now().Add(-StuckScheduleTimeout).Format(time.RFC3339)
+	now := db.TimeNow()
+
+	result, err := globalDB.Exec(`
+		UPDATE schedule_runs
+		SET status = 'failed', error = 'stuck: recovered on restart', completed_at = ?
+		WHERE status = 'running' AND started_at < ?
+	`, now, cutoff)
+	if err != nil {
+		return 0, err
+	}
+
+	affected, _ := result.RowsAffected()
+	return int(affected), nil
 }
 
 // loadFromDB loads all enabled schedules from database
@@ -215,6 +255,37 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 
 	// Update schedules last_run and next_run
 	s.updateRunTimes(scheduleID, globalDB)
+
+	// Handle failure counting
+	s.mu.Lock()
+	if status == "failed" {
+		s.failureCounts[scheduleID]++
+		failCount := s.failureCounts[scheduleID]
+		s.mu.Unlock()
+
+		// Auto-disable after consecutive failures
+		if failCount >= MaxConsecutiveFailures {
+			log.Printf("Scheduler: 스케줄 #%d %d회 연속 실패, 자동 비활성화", scheduleID, failCount)
+			_, err = globalDB.Exec(`UPDATE schedules SET enabled = 0, updated_at = ? WHERE id = ?`, db.TimeNow(), scheduleID)
+			if err != nil {
+				log.Printf("Scheduler: 스케줄 #%d 비활성화 실패: %v", scheduleID, err)
+			} else {
+				s.Unregister(scheduleID)
+			}
+
+			// Notify about auto-disable
+			if s.notifier != nil {
+				notification := fmt.Sprintf("⚠️ 스케줄 자동 비활성화됨\n\n%s\n\n사유: %d회 연속 실패\n마지막 오류: %s",
+					truncate(msg, 50), MaxConsecutiveFailures, errorText)
+				s.notifier(projectID, notification)
+				return
+			}
+		}
+	} else {
+		// Reset failure count on success
+		s.failureCounts[scheduleID] = 0
+		s.mu.Unlock()
+	}
 
 	// Send notification
 	if s.notifier != nil {

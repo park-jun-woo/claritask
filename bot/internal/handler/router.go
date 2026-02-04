@@ -463,15 +463,29 @@ func (r *Router) handleMessage(cmd string, args []string) types.Result {
 }
 
 func (r *Router) handleStatus() types.Result {
-	if r.ctx.ProjectID == "" {
-		return types.Result{
-			Success: true,
-			Message: "선택된 프로젝트 없음\n[선택:project switch]",
-		}
+	var sb strings.Builder
+
+	// Claude status
+	claudeStatus := claude.GetStatus()
+	sb.WriteString(fmt.Sprintf("🤖 Claude: %d/%d 사용중", claudeStatus.Used, claudeStatus.Max))
+	if claudeStatus.Available == 0 {
+		sb.WriteString(" (대기열 가득)")
 	}
+	sb.WriteString("\n")
+
+	// Project status
+	if r.ctx.ProjectID == "" {
+		sb.WriteString("\n📁 프로젝트: 선택 안됨 (글로벌 모드)\n")
+		sb.WriteString("[선택:project switch]")
+	} else {
+		sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", r.ctx.ProjectID))
+		sb.WriteString(fmt.Sprintf("   설명: %s", r.ctx.ProjectDescription))
+	}
+
 	return types.Result{
 		Success: true,
-		Message: fmt.Sprintf("프로젝트: %s\n설명: %s", r.ctx.ProjectID, r.ctx.ProjectDescription),
+		Message: sb.String(),
+		Data:    claudeStatus,
 	}
 }
 

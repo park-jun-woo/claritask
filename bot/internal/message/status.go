@@ -2,7 +2,9 @@ package message
 
 import (
 	"fmt"
+	"log"
 	"strings"
+	"time"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -76,6 +78,35 @@ func Status(projectPath string) types.Result {
 		Message: sb.String(),
 		Data:    &summary,
 	}
+}
+
+// RecoverStuckMessages marks messages stuck in 'processing' status as failed
+// Messages are considered stuck if they've been processing longer than maxAge
+func RecoverStuckMessages(maxAge time.Duration) (int, error) {
+	globalDB, err := db.OpenGlobal()
+	if err != nil {
+		return 0, fmt.Errorf("DB 열기 실패: %w", err)
+	}
+	defer globalDB.Close()
+
+	// Calculate cutoff time
+	cutoff := time.Now().Add(-maxAge).Format(time.RFC3339)
+	now := db.TimeNow()
+
+	result, err := globalDB.Exec(`
+		UPDATE messages
+		SET status = 'failed', error = 'stuck: recovered on restart', completed_at = ?
+		WHERE status = 'processing' AND created_at < ?
+	`, now, cutoff)
+	if err != nil {
+		return 0, fmt.Errorf("복구 실패: %w", err)
+	}
+
+	affected, _ := result.RowsAffected()
+	if affected > 0 {
+		log.Printf("Message Recovery: %d stuck messages recovered", affected)
+	}
+	return int(affected), nil
 }
 
 // Processing returns list of currently processing messages

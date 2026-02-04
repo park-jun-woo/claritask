@@ -1,6 +1,6 @@
 # Claribot v0.2
 
-> **버전**: v0.2.1
+> **버전**: v0.2.3
 
 ---
 
@@ -144,6 +144,9 @@ telegram:
 claude:
   timeout: 1200              # idle timeout (초)
   max: 3                     # 동시 실행 최대 개수
+
+project:
+  path: "~/projects"         # 프로젝트 생성 기본 경로
 ```
 
 ---
@@ -165,18 +168,19 @@ make uninstall
 
 ---
 
-## 텔레그램 문법
+## 텔레그램 사용법
 
-| 기호 | 용도 | 예시 |
-|------|------|------|
-| `$` | 프로젝트 지정 | `$blog 태스크 뭐있어?` |
-| `!` | clari 명령어 | `$blog !task list` |
+### 프로젝트 스위칭
 
 ```
-$blog 버그 수정해줘          # 프로젝트 + 자연어
-$api !task list              # 프로젝트 + 명령어
-!project list                # 명령어만
+1. !project 클릭 → 프로젝트 목록 (Inline 버튼)
+2. [claribot] 버튼 클릭 → 프로젝트 선택됨
+3. 메시지 입력 → 선택된 프로젝트로 처리
+4. 다른 프로젝트로 바꾸려면 !project 다시 클릭
 ```
+
+- `/start` → Reply 키보드에 `!project` 버튼 노출
+- `project.path` → 프로젝트 생성 시 기본 경로 (예: `~/projects/blog`)
 
 ---
 
@@ -197,8 +201,9 @@ claribot
 
 - [x] Makefile, systemd 서비스 설정
 - [x] DB 스키마 (전역/로컬)
-- [x] Telegram 패키지
-- [x] claribot 메인 (Telegram Echo 연동)
+- [x] Telegram 패키지 (버튼, 콜백)
+- [x] claribot 메인 (Telegram 연동)
+- [x] 프로젝트 스위칭
 - [ ] 메시지 → Task 생성 로직
 - [ ] Claude Code TTY 연동
 - [ ] Task 실행 및 결과 반환
@@ -206,4 +211,4 @@ claribot
 
 ---
 
-*Claribot v0.2.1*
+*Claribot v0.2.3*

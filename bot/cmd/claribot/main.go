@@ -7,16 +7,21 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strings"
 	"syscall"
 	"time"
 
+	"parkjunwoo.com/claribot/internal/handler"
 	"parkjunwoo.com/claribot/pkg/claude"
 	"parkjunwoo.com/claribot/pkg/telegram"
 
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "0.2.1"
+const Version = "0.2.3"
+
+// Router for command handling
+var router *handler.Router
 
 // Config represents the full configuration
 type Config struct {
@@ -32,6 +37,9 @@ type Config struct {
 		Timeout int `yaml:"timeout"` // seconds
 		Max     int `yaml:"max"`
 	} `yaml:"claude"`
+	Project struct {
+		Path string `yaml:"path"` // 프로젝트 생성 기본 경로
+	} `yaml:"project"`
 }
 
 var bot *telegram.Bot
@@ -45,6 +53,14 @@ func main() {
 		Max:     cfg.Claude.Max,
 	})
 
+	// Initialize router
+	router = handler.NewRouter()
+
+	// Log project path
+	if cfg.Project.Path != "" {
+		log.Printf("Project path: %s", cfg.Project.Path)
+	}
+
 	// Initialize Telegram bot
 	if cfg.Telegram.Token != "" && cfg.Telegram.Token != "BOT_TOKEN" {
 		var err error
@@ -53,9 +69,13 @@ func main() {
 			log.Fatalf("Failed to create telegram bot: %v", err)
 		}
 
-		bot.SetHandler(func(msg telegram.Message) {
-			log.Printf("[Telegram] %s: %s", msg.Username, msg.Text)
-			bot.Send(msg.ChatID, "Echo: "+msg.Text)
+		bot.SetHandler(handleTelegramMessage)
+		bot.SetCallbackHandler(handleTelegramCallback)
+
+		// Set menu commands
+		bot.SetCommands([]telegram.Command{
+			{Command: "start", Description: "시작"},
+			{Command: "project", Description: "프로젝트 목록"},
 		})
 
 		if err := bot.Start(); err != nil {
@@ -118,6 +138,57 @@ func loadConfig() Config {
 
 	log.Printf("Config loaded from %s", configPath)
 	return cfg
+}
+
+func handleTelegramMessage(msg telegram.Message) {
+	log.Printf("[Telegram] %s: %s", msg.Username, msg.Text)
+
+	switch msg.Text {
+	case "/start":
+		// Set reply keyboard
+		bot.SetKeyboard(msg.ChatID, "Claribot 시작!", [][]string{
+			{"!project list", "!status"},
+		})
+
+	case "/project":
+		// Send project list with inline buttons
+		bot.SendWithButtons(msg.ChatID, "프로젝트 선택:", [][]telegram.Button{
+			{{Text: "claribot", Data: "switch:claribot"}},
+		})
+
+	default:
+		// Handle ! commands via router
+		if strings.HasPrefix(msg.Text, "!") {
+			cmd := strings.TrimPrefix(msg.Text, "!")
+			result := router.Execute(cmd)
+			bot.Send(msg.ChatID, result.Message)
+			return
+		}
+
+		// Handle message with current project context
+		projectID, _ := router.GetProject()
+		if projectID == "" {
+			bot.Send(msg.ChatID, "프로젝트를 먼저 선택하세요.\n!project switch <id>")
+			return
+		}
+		// Process message for current project
+		bot.Send(msg.ChatID, fmt.Sprintf("[%s] %s", projectID, msg.Text))
+	}
+}
+
+func handleTelegramCallback(cb telegram.Callback) {
+	log.Printf("[Callback] %s: %s", cb.Username, cb.Data)
+
+	// Handle project switch
+	if strings.HasPrefix(cb.Data, "switch:") {
+		projectID := strings.TrimPrefix(cb.Data, "switch:")
+		result := router.Execute("project switch " + projectID)
+		bot.AnswerCallback(cb.ID, projectID+" 선택됨")
+		bot.Send(cb.ChatID, result.Message)
+		return
+	}
+
+	bot.AnswerCallback(cb.ID, "")
 }
 
 func handleRequest(w http.ResponseWriter, r *http.Request) {

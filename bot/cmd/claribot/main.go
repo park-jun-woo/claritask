@@ -21,7 +21,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "0.2.10"
+const Version = "0.2.13"
 
 // Router for command handling
 var router *handler.Router

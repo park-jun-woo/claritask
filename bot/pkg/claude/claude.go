@@ -6,11 +6,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 	"sync"
 	"time"
 
 	"github.com/creack/pty"
 )
+
+// ansiEscapePattern matches ANSI escape sequences
+var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]*\x07|\x1b\][^\x1b]*\x1b\\`)
 
 // Config holds global Claude Code execution settings
 type Config struct {
@@ -142,7 +146,7 @@ func (m *Manager) execute(ctx context.Context, opts Options) (*Result, error) {
 	}
 
 	return &Result{
-		Output:   output,
+		Output:   stripANSI(output),
 		ExitCode: exitCode,
 	}, nil
 }
@@ -296,7 +300,7 @@ func (s *Session) Send(message string) (string, error) {
 		s.pty.SetReadDeadline(time.Now().Add(2 * time.Second))
 	}
 
-	return output.String(), nil
+	return stripANSI(output.String()), nil
 }
 
 // Close terminates the Claude Code session and releases semaphore
@@ -314,9 +318,14 @@ func (s *Session) Close() error {
 	return err
 }
 
+// stripANSI removes ANSI escape sequences from output
+func stripANSI(s string) string {
+	return ansiEscapePattern.ReplaceAllString(s, "")
+}
+
 // buildArgs constructs command line arguments for print mode
 func buildArgs(opts Options) []string {
-	args := []string{"-p"} // print mode for single-shot
+	args := []string{"-p", "--dangerously-skip-permissions"} // print mode, skip permission prompts
 
 	if opts.SystemPrompt != "" {
 		args = append(args, "--system-prompt", opts.SystemPrompt)

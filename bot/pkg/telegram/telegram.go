@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	"parkjunwoo.com/claribot/pkg/render"
 )
 
 // Message represents an incoming telegram message
@@ -268,6 +269,82 @@ func (b *Bot) SendMarkdown(chatID int64, text string) error {
 	_, err := b.api.Send(msg)
 	if err != nil {
 		return fmt.Errorf("send markdown: %w", err)
+	}
+	return nil
+}
+
+// SendReport sends markdown content as HTML message or HTML file based on length
+// < 500 chars: inline HTML message
+// >= 500 chars or has code blocks: HTML file attachment
+func (b *Bot) SendReport(chatID int64, markdown string) error {
+	if !render.ShouldRenderAsFile(markdown) {
+		// Short message: send as inline HTML
+		htmlText := render.ToTelegramHTML(markdown)
+		msg := tgbotapi.NewMessage(chatID, htmlText)
+		msg.ParseMode = tgbotapi.ModeHTML
+		_, err := b.api.Send(msg)
+		if err != nil {
+			// Fallback to plain text if HTML parsing fails
+			return b.Send(chatID, markdown)
+		}
+		return nil
+	}
+
+	// Long message: send as HTML file
+	title := render.ExtractTitle(markdown)
+	htmlContent, err := render.ToHTMLFile(markdown, title)
+	if err != nil {
+		// Fallback to plain text
+		return b.Send(chatID, markdown)
+	}
+
+	// Send as document from memory
+	fileBytes := tgbotapi.FileBytes{
+		Name:  "report.html",
+		Bytes: []byte(htmlContent),
+	}
+	doc := tgbotapi.NewDocument(chatID, fileBytes)
+	doc.Caption = title
+	_, err = b.api.Send(doc)
+	if err != nil {
+		return fmt.Errorf("send report file: %w", err)
+	}
+	return nil
+}
+
+// SendReportWithButtons sends report with inline buttons
+func (b *Bot) SendReportWithButtons(chatID int64, markdown string, buttons [][]Button) error {
+	if !render.ShouldRenderAsFile(markdown) {
+		// Short message: send as inline HTML with buttons
+		htmlText := render.ToTelegramHTML(markdown)
+
+		rows := make([][]tgbotapi.InlineKeyboardButton, len(buttons))
+		for i, row := range buttons {
+			rows[i] = make([]tgbotapi.InlineKeyboardButton, len(row))
+			for j, btn := range row {
+				rows[i][j] = tgbotapi.NewInlineKeyboardButtonData(btn.Text, btn.Data)
+			}
+		}
+
+		msg := tgbotapi.NewMessage(chatID, htmlText)
+		msg.ParseMode = tgbotapi.ModeHTML
+		msg.ReplyMarkup = tgbotapi.NewInlineKeyboardMarkup(rows...)
+		_, err := b.api.Send(msg)
+		if err != nil {
+			// Fallback to plain text with buttons
+			return b.SendWithButtons(chatID, markdown, buttons)
+		}
+		return nil
+	}
+
+	// Long message: send file first, then buttons in separate message
+	if err := b.SendReport(chatID, markdown); err != nil {
+		return err
+	}
+
+	// Send buttons separately if needed
+	if len(buttons) > 0 {
+		return b.SendWithButtons(chatID, "작업 선택:", buttons)
 	}
 	return nil
 }

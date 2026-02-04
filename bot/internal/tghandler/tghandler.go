@@ -100,6 +100,22 @@ func (h *Handler) sendResult(chatID int64, result types.Result) {
 	}
 }
 
+// sendReport sends Claude response as rendered HTML (inline or file)
+func (h *Handler) sendReport(chatID int64, result types.Result) {
+	cleanMsg, buttons := parseButtons(result.Message)
+
+	if len(buttons) > 0 {
+		h.bot.SendReportWithButtons(chatID, cleanMsg, buttons)
+	} else {
+		h.bot.SendReport(chatID, cleanMsg)
+	}
+
+	// Store context if needs input
+	if result.NeedsInput && result.Context != "" {
+		h.pendingContext[chatID] = result.Context
+	}
+}
+
 // HandleMessage handles incoming Telegram messages
 func (h *Handler) HandleMessage(msg telegram.Message) {
 	log.Printf("[Telegram] %s: %s", msg.Username, msg.Text)
@@ -149,7 +165,7 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 	// Route plain text to "message send" command with telegram source
 	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", projectID))
 	result := h.router.Execute("message send telegram " + msg.Text)
-	h.sendResult(msg.ChatID, result)
+	h.sendReport(msg.ChatID, result)
 }
 
 // isCLIOnly checks if a command is CLI-only

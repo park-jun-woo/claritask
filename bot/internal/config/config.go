@@ -26,8 +26,9 @@ type ServiceConfig struct {
 
 // TelegramConfig for telegram bot
 type TelegramConfig struct {
-	Token        string  `yaml:"token"`         // required for telegram
-	AllowedUsers []int64 `yaml:"allowed_users"` // empty = allow all
+	Token        string  `yaml:"token"`          // required for telegram
+	AllowedUsers []int64 `yaml:"allowed_users"`  // empty = allow all
+	AdminChatID  int64   `yaml:"admin_chat_id"`  // chat ID for schedule notifications
 }
 
 // ClaudeConfig for Claude Code execution

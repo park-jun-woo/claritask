@@ -239,28 +239,37 @@ tasks (
 
 ---
 
-## 구현 TODO
+## 구현 현황
 
-### Phase 1: 스키마 변경
-- [ ] tasks 테이블 마이그레이션
-- [ ] Task 구조체 수정
-- [ ] CRUD 함수 수정
+### Phase 1: 스키마 변경 ✅
+- [x] tasks 테이블 마이그레이션 (spec, plan, report 필드)
+- [x] Task 구조체 수정
+- [x] CRUD 함수 수정
 
-### Phase 2: 1회차 순회 (Plan 생성)
-- [ ] 연관 Task 조회 함수
-- [ ] Plan 생성 프롬프트
-- [ ] 순회 실행 함수
+### Phase 2: 연관 Task 조회 ✅
+- [x] `GetRelated()` - Edge/Parent/Child 연결된 Task 조회
+- [x] `GetRelatedSpecs()` - 연관 Task의 spec 조회
+- [x] `GetRelatedPlans()` - 연관 Task의 plan 조회
 
-### Phase 3: 2회차 순회 (실행)
-- [ ] 실행 프롬프트
-- [ ] Claude Code 연동
-- [ ] Report 저장
+### Phase 3: 1회차 순회 (Plan 생성) ✅
+- [x] `BuildPlanPrompt()` - Plan 생성 프롬프트
+- [x] `Plan()` - 단일 Task Plan 생성
+- [x] `PlanAll()` - 전체 spec_ready Task Plan 생성
 
-### Phase 4: CLI/Telegram 연동
-- [ ] `task plan` 명령어 (1회차 수동 실행)
-- [ ] `task run` 명령어 (2회차 수동 실행)
-- [ ] `task cycle` 명령어 (1회차 + 2회차 자동)
+### Phase 4: 2회차 순회 (실행) ✅
+- [x] `BuildExecutePrompt()` - 실행 프롬프트
+- [x] `Run()` - 단일 Task 실행
+- [x] `RunAll()` - 전체 plan_ready Task 실행
+- [x] Claude Code 연동
+- [x] Report 저장
+
+### Phase 5: CLI 명령어 ✅
+- [x] `task plan [id]` - 1회차 수동 실행
+- [x] `task plan --all` - 1회차 전체 실행
+- [x] `task run [id]` - 2회차 수동 실행
+- [x] `task run --all` - 2회차 전체 실행
+- [x] `task cycle` - 1회차 + 2회차 자동
 
 ---
 
-*Claribot Task System v0.1*
+*Claribot Task System v0.2*

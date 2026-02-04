@@ -11,18 +11,18 @@ import (
 
 // List lists messages with pagination
 func List(projectPath string, req pagination.PageRequest) types.Result {
-	localDB, err := db.OpenLocal(projectPath)
+	globalDB, err := db.OpenGlobal()
 	if err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("DB 열기 실패: %v", err),
 		}
 	}
-	defer localDB.Close()
+	defer globalDB.Close()
 
 	// Count total
 	var total int
-	if err := localDB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&total); err != nil {
+	if err := globalDB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&total); err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("카운트 실패: %v", err),
@@ -36,7 +36,7 @@ func List(projectPath string, req pagination.PageRequest) types.Result {
 		}
 	}
 
-	rows, err := localDB.Query(`
+	rows, err := globalDB.Query(`
 		SELECT id, content, source, status, created_at
 		FROM messages
 		ORDER BY id DESC

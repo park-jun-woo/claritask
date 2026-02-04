@@ -2,6 +2,7 @@ package message
 
 import (
 	"fmt"
+	"log"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/prompts"
@@ -11,21 +12,26 @@ import (
 
 // Send creates a message, sends it to Claude Code, and returns the report
 func Send(projectPath, content, source string) types.Result {
-	localDB, err := db.OpenLocal(projectPath)
+	return SendWithProject(nil, projectPath, content, source)
+}
+
+// SendWithProject creates a message with optional project association
+func SendWithProject(projectID *string, projectPath, content, source string) types.Result {
+	globalDB, err := db.OpenGlobal()
 	if err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("DB 열기 실패: %v", err),
 		}
 	}
-	defer localDB.Close()
+	defer globalDB.Close()
 
 	// Insert message with pending status
 	now := db.TimeNow()
-	result, err := localDB.Exec(`
-		INSERT INTO messages (content, source, status, created_at)
-		VALUES (?, ?, 'pending', ?)
-	`, content, source, now)
+	result, err := globalDB.Exec(`
+		INSERT INTO messages (project_id, content, source, status, created_at)
+		VALUES (?, ?, ?, 'pending', ?)
+	`, projectID, content, source, now)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -36,7 +42,7 @@ func Send(projectPath, content, source string) types.Result {
 	msgID, _ := result.LastInsertId()
 
 	// Update status to processing
-	_, err = localDB.Exec(`UPDATE messages SET status = 'processing' WHERE id = ?`, msgID)
+	_, err = globalDB.Exec(`UPDATE messages SET status = 'processing' WHERE id = ?`, msgID)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -61,11 +67,13 @@ func Send(projectPath, content, source string) types.Result {
 	if err != nil {
 		// Update status to failed
 		completedAt := db.TimeNow()
-		localDB.Exec(`
+		if _, dbErr := globalDB.Exec(`
 			UPDATE messages
 			SET status = 'failed', error = ?, completed_at = ?
 			WHERE id = ?
-		`, err.Error(), completedAt, msgID)
+		`, err.Error(), completedAt, msgID); dbErr != nil {
+			log.Printf("[Message] 에러 저장 실패 (msg #%d): %v", msgID, dbErr)
+		}
 
 		return types.Result{
 			Success: false,
@@ -75,7 +83,7 @@ func Send(projectPath, content, source string) types.Result {
 
 	// Update status to done with result
 	completedAt := db.TimeNow()
-	_, err = localDB.Exec(`
+	_, err = globalDB.Exec(`
 		UPDATE messages
 		SET status = 'done', result = ?, completed_at = ?
 		WHERE id = ?

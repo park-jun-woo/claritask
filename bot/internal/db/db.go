@@ -77,7 +77,7 @@ func TimeNow() string {
 	return time.Now().UTC().Format(time.RFC3339)
 }
 
-// MigrateGlobal creates global DB schema (projects)
+// MigrateGlobal creates global DB schema (projects, schedules)
 func (db *DB) MigrateGlobal() error {
 	schema := `
 CREATE TABLE IF NOT EXISTS projects (
@@ -95,9 +95,74 @@ CREATE TABLE IF NOT EXISTS projects (
 
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
 CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type);
+
+CREATE TABLE IF NOT EXISTS schedules (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT,
+    cron_expr TEXT NOT NULL,
+    message TEXT NOT NULL,
+    enabled INTEGER DEFAULT 1,
+    run_once INTEGER DEFAULT 0,
+    last_run TEXT,
+    next_run TEXT,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
+CREATE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
+
+CREATE TABLE IF NOT EXISTS schedule_runs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    schedule_id INTEGER NOT NULL,
+    status TEXT DEFAULT 'running'
+        CHECK(status IN ('running', 'done', 'failed')),
+    result TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    started_at TEXT NOT NULL,
+    completed_at TEXT,
+    FOREIGN KEY (schedule_id) REFERENCES schedules(id) ON DELETE CASCADE
+);
+
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_schedule ON schedule_runs(schedule_id);
+CREATE INDEX IF NOT EXISTS idx_schedule_runs_status ON schedule_runs(status);
+
+CREATE TABLE IF NOT EXISTS messages (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    project_id TEXT,
+    content TEXT NOT NULL,
+    source TEXT DEFAULT ''
+        CHECK(source IN ('', 'telegram', 'cli', 'schedule')),
+    status TEXT DEFAULT 'pending'
+        CHECK(status IN ('pending', 'processing', 'done', 'failed')),
+    result TEXT DEFAULT '',
+    error TEXT DEFAULT '',
+    created_at TEXT NOT NULL,
+    completed_at TEXT
+);
+
+CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
+CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id);
 `
 	_, err := db.Exec(schema)
-	return err
+	if err != nil {
+		return err
+	}
+
+	// Run migrations for existing tables
+	migrations := []string{
+		// Add run_once column to schedules if not exists
+		`ALTER TABLE schedules ADD COLUMN run_once INTEGER DEFAULT 0`,
+		// Add project_id column to messages if not exists (for old local messages migrated to global)
+		`ALTER TABLE messages ADD COLUMN project_id TEXT`,
+	}
+
+	for _, migration := range migrations {
+		// Ignore errors (column already exists)
+		db.Exec(migration)
+	}
+
+	return nil
 }
 
 // MigrateLocal creates local DB schema (tasks, task_edges)
@@ -106,17 +171,15 @@ func (db *DB) MigrateLocal() error {
 CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_id INTEGER,
-    source TEXT DEFAULT ''
-        CHECK(source IN ('', 'telegram', 'cli', 'agent')),
     title TEXT NOT NULL,
-    content TEXT DEFAULT '',
-    status TEXT DEFAULT 'pending'
-        CHECK(status IN ('pending', 'running', 'done', 'failed')),
-    result TEXT DEFAULT '',
+    spec TEXT DEFAULT '',
+    plan TEXT DEFAULT '',
+    report TEXT DEFAULT '',
+    status TEXT DEFAULT 'spec_ready'
+        CHECK(status IN ('spec_ready', 'plan_ready', 'done', 'failed')),
     error TEXT DEFAULT '',
     created_at TEXT NOT NULL,
-    started_at TEXT,
-    completed_at TEXT,
+    updated_at TEXT NOT NULL,
     FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
 );
 
@@ -132,21 +195,6 @@ CREATE TABLE IF NOT EXISTS task_edges (
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_task_edges_to ON task_edges(to_task_id);
-
-CREATE TABLE IF NOT EXISTS messages (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    content TEXT NOT NULL,
-    source TEXT DEFAULT ''
-        CHECK(source IN ('', 'telegram', 'cli')),
-    status TEXT DEFAULT 'pending'
-        CHECK(status IN ('pending', 'processing', 'done', 'failed')),
-    result TEXT DEFAULT '',
-    error TEXT DEFAULT '',
-    created_at TEXT NOT NULL,
-    completed_at TEXT
-);
-
-CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 `
 	_, err := db.Exec(schema)
 	return err

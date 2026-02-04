@@ -1,5 +1,7 @@
 package types
 
+import "strings"
+
 // Request represents a CLI request to the service
 type Request struct {
 	Command string   `json:"command"`          // e.g., "project", "task", "send"
@@ -14,7 +16,12 @@ func (r *Request) ToCommandString() string {
 	}
 	result := r.Command
 	for _, arg := range r.Args {
-		result += " " + arg
+		// Quote args that contain spaces
+		if strings.Contains(arg, " ") {
+			result += " \"" + arg + "\""
+		} else {
+			result += " " + arg
+		}
 	}
 	return result
 }

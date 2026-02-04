@@ -32,9 +32,9 @@ func Add(projectPath, title string, parentID *int) types.Result {
 
 	now := db.TimeNow()
 	result, err := localDB.Exec(`
-		INSERT INTO tasks (parent_id, title, status, created_at)
-		VALUES (?, ?, 'pending', ?)
-	`, parentID, title, now)
+		INSERT INTO tasks (parent_id, title, status, created_at, updated_at)
+		VALUES (?, ?, 'spec_ready', ?, ?)
+	`, parentID, title, now, now)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -57,8 +57,9 @@ func Add(projectPath, title string, parentID *int) types.Result {
 			ID:        int(id),
 			ParentID:  parentID,
 			Title:     title,
-			Status:    "pending",
+			Status:    "spec_ready",
 			CreatedAt: now,
+			UpdatedAt: now,
 		},
 	}
 }

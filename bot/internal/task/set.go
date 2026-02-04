@@ -11,31 +11,32 @@ import (
 func Set(projectPath, id, field, value string) types.Result {
 	// Allowed fields
 	allowedFields := map[string]bool{
-		"title":   true,
-		"content": true,
-		"status":  true,
-		"result":  true,
+		"title":  true,
+		"spec":   true,
+		"plan":   true,
+		"report": true,
+		"status": true,
 	}
 
 	if !allowedFields[field] {
 		return types.Result{
 			Success: false,
-			Message: fmt.Sprintf("허용되지 않는 필드: %s\n허용: title, content, status, result", field),
+			Message: fmt.Sprintf("허용되지 않는 필드: %s\n허용: title, spec, plan, report, status", field),
 		}
 	}
 
 	// Validate status values
 	if field == "status" {
 		validStatus := map[string]bool{
-			"pending": true,
-			"running": true,
-			"done":    true,
-			"failed":  true,
+			"spec_ready": true,
+			"plan_ready": true,
+			"done":       true,
+			"failed":     true,
 		}
 		if !validStatus[value] {
 			return types.Result{
 				Success: false,
-				Message: "허용되지 않는 상태: " + value + "\n허용: pending, running, done, failed",
+				Message: "허용되지 않는 상태: " + value + "\n허용: spec_ready, plan_ready, done, failed",
 			}
 		}
 	}
@@ -49,46 +50,6 @@ func Set(projectPath, id, field, value string) types.Result {
 	}
 	defer localDB.Close()
 
-	now := db.TimeNow()
-
-	// Handle status field with automatic timestamp management
-	if field == "status" {
-		var query string
-		var execErr error
-
-		switch value {
-		case "running":
-			// Set started_at when status changes to running
-			query = "UPDATE tasks SET status = ?, started_at = ? WHERE id = ?"
-			_, execErr = localDB.Exec(query, value, now, id)
-		case "done", "failed":
-			// Set completed_at when status changes to done or failed
-			query = "UPDATE tasks SET status = ?, completed_at = ? WHERE id = ?"
-			_, execErr = localDB.Exec(query, value, now, id)
-		case "pending":
-			// Clear timestamps when reverting to pending
-			query = "UPDATE tasks SET status = ?, started_at = NULL, completed_at = NULL WHERE id = ?"
-			_, execErr = localDB.Exec(query, value, id)
-		}
-
-		if execErr != nil {
-			return types.Result{
-				Success: false,
-				Message: fmt.Sprintf("업데이트 실패: %v", execErr),
-			}
-		}
-	} else {
-		// Regular field update
-		query := fmt.Sprintf("UPDATE tasks SET %s = ? WHERE id = ?", field)
-		_, err = localDB.Exec(query, value, id)
-		if err != nil {
-			return types.Result{
-				Success: false,
-				Message: fmt.Sprintf("업데이트 실패: %v", err),
-			}
-		}
-	}
-
 	// Check if task exists
 	var exists int
 	localDB.QueryRow("SELECT COUNT(*) FROM tasks WHERE id = ?", id).Scan(&exists)
@@ -96,6 +57,18 @@ func Set(projectPath, id, field, value string) types.Result {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("작업을 찾을 수 없습니다: #%s", id),
+		}
+	}
+
+	now := db.TimeNow()
+
+	// Update field and updated_at
+	query := fmt.Sprintf("UPDATE tasks SET %s = ?, updated_at = ? WHERE id = ?", field)
+	_, err = localDB.Exec(query, value, now, id)
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("업데이트 실패: %v", err),
 		}
 	}
 

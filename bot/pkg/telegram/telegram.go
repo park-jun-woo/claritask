@@ -55,6 +55,8 @@ type Bot struct {
 	ctx             context.Context
 	cancel          context.CancelFunc
 	wg              sync.WaitGroup
+	adminChatID     int64 // 스케줄 알림을 보낼 chat ID
+	mu              sync.RWMutex
 }
 
 // New creates a new telegram bot
@@ -168,6 +170,14 @@ func (b *Bot) Start() error {
 				if update.Message == nil {
 					continue
 				}
+
+				// Remember chat ID for broadcast
+				b.mu.Lock()
+				if b.adminChatID == 0 {
+					b.adminChatID = update.Message.Chat.ID
+				}
+				b.mu.Unlock()
+
 				if b.handler != nil {
 					msg := Message{
 						ChatID:    update.Message.Chat.ID,
@@ -192,6 +202,26 @@ func (b *Bot) Stop() {
 	b.api.StopReceivingUpdates()
 	b.wg.Wait()
 	log.Println("Telegram bot stopped")
+}
+
+// SetAdminChatID sets the admin chat ID for broadcast
+func (b *Bot) SetAdminChatID(chatID int64) {
+	b.mu.Lock()
+	b.adminChatID = chatID
+	b.mu.Unlock()
+}
+
+// Broadcast sends a message to the admin chat (first user who messaged the bot)
+func (b *Bot) Broadcast(text string) error {
+	b.mu.RLock()
+	chatID := b.adminChatID
+	b.mu.RUnlock()
+
+	if chatID == 0 {
+		return fmt.Errorf("no admin chat registered (send a message to bot first or set admin_chat_id in config)")
+	}
+
+	return b.Send(chatID, text)
 }
 
 // Send sends a text message to a chat

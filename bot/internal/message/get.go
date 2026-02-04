@@ -18,18 +18,18 @@ func Get(projectPath, idStr string) types.Result {
 		}
 	}
 
-	localDB, err := db.OpenLocal(projectPath)
+	globalDB, err := db.OpenGlobal()
 	if err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("DB 열기 실패: %v", err),
 		}
 	}
-	defer localDB.Close()
+	defer globalDB.Close()
 
 	var m Message
 	var completedAt *string
-	err = localDB.QueryRow(`
+	err = globalDB.QueryRow(`
 		SELECT id, content, source, status, result, error, created_at, completed_at
 		FROM messages WHERE id = ?
 	`, id).Scan(&m.ID, &m.Content, &m.Source, &m.Status, &m.Result, &m.Error, &m.CreatedAt, &completedAt)

@@ -88,10 +88,14 @@ func parseButtons(msg string) (string, [][]telegram.Button) {
 func (h *Handler) sendResult(chatID int64, result types.Result) {
 	cleanMsg, buttons := parseButtons(result.Message)
 
+	var err error
 	if len(buttons) > 0 {
-		h.bot.SendWithButtons(chatID, cleanMsg, buttons)
+		err = h.bot.SendWithButtons(chatID, cleanMsg, buttons)
 	} else {
-		h.bot.Send(chatID, result.Message)
+		err = h.bot.Send(chatID, result.Message)
+	}
+	if err != nil {
+		log.Printf("[Telegram] 메시지 전송 실패: %v", err)
 	}
 
 	// Store context if needs input
@@ -104,10 +108,14 @@ func (h *Handler) sendResult(chatID int64, result types.Result) {
 func (h *Handler) sendReport(chatID int64, result types.Result) {
 	cleanMsg, buttons := parseButtons(result.Message)
 
+	var err error
 	if len(buttons) > 0 {
-		h.bot.SendReportWithButtons(chatID, cleanMsg, buttons)
+		err = h.bot.SendReportWithButtons(chatID, cleanMsg, buttons)
 	} else {
-		h.bot.SendReport(chatID, cleanMsg)
+		err = h.bot.SendReport(chatID, cleanMsg)
+	}
+	if err != nil {
+		log.Printf("[Telegram] Report 전송 실패: %v (길이: %d)", err, len(cleanMsg))
 	}
 
 	// Store context if needs input
@@ -155,15 +163,15 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		return
 	}
 
-	// Handle message with current project context
+	// Handle message with current project context (or global)
 	projectID, _ := h.router.GetProject()
-	if projectID == "" {
-		h.bot.Send(msg.ChatID, "프로젝트를 먼저 선택하세요.\n/project_switch <id>")
-		return
+	label := projectID
+	if label == "" {
+		label = "global"
 	}
 
 	// Route plain text to "message send" command with telegram source
-	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", projectID))
+	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", label))
 	result := h.router.Execute("message send telegram " + msg.Text)
 	h.sendReport(msg.ChatID, result)
 }

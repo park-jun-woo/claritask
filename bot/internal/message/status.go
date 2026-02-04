@@ -19,19 +19,19 @@ type StatusSummary struct {
 
 // Status returns message status summary
 func Status(projectPath string) types.Result {
-	localDB, err := db.OpenLocal(projectPath)
+	globalDB, err := db.OpenGlobal()
 	if err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("DB 열기 실패: %v", err),
 		}
 	}
-	defer localDB.Close()
+	defer globalDB.Close()
 
 	var summary StatusSummary
 
 	// Count by status
-	rows, err := localDB.Query(`
+	rows, err := globalDB.Query(`
 		SELECT status, COUNT(*) as cnt
 		FROM messages
 		GROUP BY status
@@ -80,16 +80,16 @@ func Status(projectPath string) types.Result {
 
 // Processing returns list of currently processing messages
 func Processing(projectPath string) types.Result {
-	localDB, err := db.OpenLocal(projectPath)
+	globalDB, err := db.OpenGlobal()
 	if err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("DB 열기 실패: %v", err),
 		}
 	}
-	defer localDB.Close()
+	defer globalDB.Close()
 
-	rows, err := localDB.Query(`
+	rows, err := globalDB.Query(`
 		SELECT id, content, source, created_at
 		FROM messages
 		WHERE status = 'processing'

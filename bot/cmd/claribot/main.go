@@ -13,6 +13,7 @@ import (
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/handler"
 	"parkjunwoo.com/claribot/internal/project"
+	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/tghandler"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
@@ -94,6 +95,12 @@ func main() {
 			os.Exit(1)
 		}
 
+		// Set admin chat ID from config (for schedule notifications)
+		if cfg.Telegram.AdminChatID != 0 {
+			bot.SetAdminChatID(cfg.Telegram.AdminChatID)
+			logger.Info("Admin chat ID configured: %d", cfg.Telegram.AdminChatID)
+		}
+
 		// Setup handler (also registers menu commands)
 		tgHandler := tghandler.New(bot, router)
 		bot.SetHandler(tgHandler.HandleMessage)
@@ -106,6 +113,20 @@ func main() {
 		logger.Info("Telegram bot connected: @%s", bot.Username())
 	} else {
 		logger.Info("Telegram bot disabled (no token configured)")
+	}
+
+	// Initialize scheduler with telegram notifier
+	notifier := func(projectID *string, msg string) {
+		if bot != nil {
+			if err := bot.Broadcast(msg); err != nil {
+				logger.Error("Schedule notification failed: %v", err)
+			}
+		}
+	}
+	if err := schedule.Init(notifier); err != nil {
+		logger.Error("Failed to initialize scheduler: %v", err)
+	} else {
+		logger.Info("Scheduler initialized (jobs: %d)", schedule.JobCount())
 	}
 
 	// Setup HTTP handler
@@ -129,6 +150,9 @@ func main() {
 	logger.Info("Shutting down...")
 
 	// Graceful shutdown
+	schedule.Shutdown()
+	logger.Info("Scheduler stopped")
+
 	if bot != nil {
 		bot.Stop()
 		logger.Info("Telegram bot stopped")

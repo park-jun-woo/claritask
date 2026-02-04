@@ -8,6 +8,7 @@ import (
 	"parkjunwoo.com/claribot/internal/edge"
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
+	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
@@ -54,9 +55,38 @@ func (r *Router) GetProject() (string, string) {
 	return r.ctx.ProjectID, r.ctx.ProjectPath
 }
 
+// parseArgs splits input respecting quoted strings
+func parseArgs(input string) []string {
+	var args []string
+	var current strings.Builder
+	inQuote := false
+	quoteChar := rune(0)
+
+	for _, ch := range input {
+		if !inQuote && (ch == '"' || ch == '\'') {
+			inQuote = true
+			quoteChar = ch
+		} else if inQuote && ch == quoteChar {
+			inQuote = false
+			quoteChar = 0
+		} else if !inQuote && (ch == ' ' || ch == '\t') {
+			if current.Len() > 0 {
+				args = append(args, current.String())
+				current.Reset()
+			}
+		} else {
+			current.WriteRune(ch)
+		}
+	}
+	if current.Len() > 0 {
+		args = append(args, current.String())
+	}
+	return args
+}
+
 // Execute parses and executes a command
 func (r *Router) Execute(input string) types.Result {
-	parts := strings.Fields(input)
+	parts := parseArgs(input)
 	if len(parts) == 0 {
 		return types.Result{Success: false, Message: "empty command"}
 	}
@@ -81,6 +111,8 @@ func (r *Router) Execute(input string) types.Result {
 		return r.handleEdge(cmd, args)
 	case "message":
 		return r.handleMessage(cmd, args)
+	case "schedule":
+		return r.handleSchedule(cmd, args)
 	case "send":
 		// "send <content>" → message send <content>
 		content := strings.TrimSpace(strings.TrimPrefix(input, "send"))
@@ -220,7 +252,7 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 	if cmd == "" {
 		return types.Result{
 			Success: true,
-			Message: "task 명령어:\n  [목록:task list]\n  [추가:task add]\n  [실행:task run]",
+			Message: "task 명령어:\n  [목록:task list]\n  [추가:task add]\n  [Plan 생성:task plan]\n  [실행:task run]\n  [전체 순회:task cycle]",
 		}
 	}
 
@@ -300,12 +332,29 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 			return types.Result{Success: true, Message: "삭제 취소됨"}
 		}
 		return task.Delete(r.ctx.ProjectPath, args[0], confirmed)
+	case "plan":
+		// task plan [id] [--all]
+		if len(args) > 0 && args[0] == "--all" {
+			return task.PlanAll(r.ctx.ProjectPath)
+		}
+		var id string
+		if len(args) > 0 {
+			id = args[0]
+		}
+		return task.Plan(r.ctx.ProjectPath, id)
 	case "run":
+		// task run [id] [--all]
+		if len(args) > 0 && args[0] == "--all" {
+			return task.RunAll(r.ctx.ProjectPath)
+		}
 		var id string
 		if len(args) > 0 {
 			id = args[0]
 		}
 		return task.Run(r.ctx.ProjectPath, id)
+	case "cycle":
+		// task cycle - 1회차 + 2회차 자동 실행
+		return task.Cycle(r.ctx.ProjectPath)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown task command: %s", cmd)}
 	}
@@ -368,8 +417,13 @@ func (r *Router) handleMessage(cmd string, args []string) types.Result {
 		}
 	}
 
-	if r.ctx.ProjectPath == "" {
-		return types.Result{Success: false, Message: "프로젝트를 먼저 선택하세요: /project switch <id>"}
+	// Use default path if no project selected (global mode)
+	projectPath := r.ctx.ProjectPath
+	if projectPath == "" {
+		projectPath = project.DefaultPath
+	}
+	if projectPath == "" {
+		return types.Result{Success: false, Message: "프로젝트 경로가 설정되지 않았습니다"}
 	}
 
 	switch cmd {
@@ -390,19 +444,19 @@ func (r *Router) handleMessage(cmd string, args []string) types.Result {
 			source = args[0]
 			content = strings.Join(args[1:], " ")
 		}
-		return message.Send(r.ctx.ProjectPath, content, source)
+		return message.Send(projectPath, content, source)
 	case "list":
 		page, pageSize := r.parsePagination(args)
-		return message.List(r.ctx.ProjectPath, pagination.NewPageRequest(page, pageSize))
+		return message.List(projectPath, pagination.NewPageRequest(page, pageSize))
 	case "get":
 		if len(args) < 1 {
-			return message.List(r.ctx.ProjectPath, pagination.NewPageRequest(1, r.pageSize))
+			return message.List(projectPath, pagination.NewPageRequest(1, r.pageSize))
 		}
-		return message.Get(r.ctx.ProjectPath, args[0])
+		return message.Get(projectPath, args[0])
 	case "status":
-		return message.Status(r.ctx.ProjectPath)
+		return message.Status(projectPath)
 	case "processing":
-		return message.Processing(r.ctx.ProjectPath)
+		return message.Processing(projectPath)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown message command: %s", cmd)}
 	}
@@ -440,4 +494,133 @@ func (r *Router) parsePagination(args []string) (page, pageSize int) {
 		}
 	}
 	return
+}
+
+func (r *Router) handleSchedule(cmd string, args []string) types.Result {
+	if cmd == "" {
+		return types.Result{
+			Success: true,
+			Message: "schedule 명령어:\n  [목록:schedule list]\n  [추가:schedule add]\n  [조회:schedule get]\n  [수정:schedule set]\n  [실행기록:schedule runs]",
+		}
+	}
+
+	switch cmd {
+	case "add":
+		// schedule add "cron" "message" [--project id] [--once]
+		if len(args) < 2 {
+			return types.Result{
+				Success: false,
+				Message: "usage: schedule add <cron_expr> <message> [--project <id>] [--once]",
+			}
+		}
+
+		cronExpr := args[0]
+		var messageParts []string
+		var projectID *string
+		runOnce := false
+
+		for i := 1; i < len(args); i++ {
+			if args[i] == "--project" && i+1 < len(args) {
+				projectID = &args[i+1]
+				i++
+			} else if args[i] == "--once" {
+				runOnce = true
+			} else {
+				messageParts = append(messageParts, args[i])
+			}
+		}
+
+		message := strings.Join(messageParts, " ")
+		if message == "" {
+			return types.Result{
+				Success: false,
+				Message: "메시지를 입력하세요",
+			}
+		}
+
+		// Use current project if not specified
+		if projectID == nil && r.ctx.ProjectID != "" {
+			projectID = &r.ctx.ProjectID
+		}
+
+		return schedule.Add(cronExpr, message, projectID, runOnce)
+
+	case "list":
+		// schedule list [--all] [-p page]
+		showAll := false
+		for _, arg := range args {
+			if arg == "--all" {
+				showAll = true
+				break
+			}
+		}
+		page, pageSize := r.parsePagination(args)
+
+		var projectID *string
+		if !showAll && r.ctx.ProjectID != "" {
+			projectID = &r.ctx.ProjectID
+		}
+
+		return schedule.List(projectID, showAll, pagination.NewPageRequest(page, pageSize))
+
+	case "get":
+		if len(args) < 1 {
+			return schedule.List(nil, true, pagination.NewPageRequest(1, r.pageSize))
+		}
+		return schedule.Get(args[0])
+
+	case "delete":
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: schedule delete <id>"}
+		}
+		confirmed := len(args) > 1 && args[1] == "yes"
+		if len(args) > 1 && args[1] == "no" {
+			return types.Result{Success: true, Message: "삭제 취소됨"}
+		}
+		return schedule.Delete(args[0], confirmed)
+
+	case "enable":
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: schedule enable <id>"}
+		}
+		return schedule.Enable(args[0])
+
+	case "disable":
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: schedule disable <id>"}
+		}
+		return schedule.Disable(args[0])
+
+	case "runs":
+		// schedule runs <schedule_id> [-p page]
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: schedule runs <schedule_id>"}
+		}
+		page, pageSize := r.parsePagination(args)
+		return schedule.Runs(args[0], pagination.NewPageRequest(page, pageSize))
+
+	case "run":
+		// schedule run <run_id>
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: schedule run <run_id>"}
+		}
+		return schedule.Run(args[0])
+
+	case "set":
+		// schedule set <id> project <project_id|none>
+		if len(args) < 3 {
+			return types.Result{Success: false, Message: "usage: schedule set <id> project <project_id|none>"}
+		}
+		if args[1] != "project" {
+			return types.Result{Success: false, Message: "usage: schedule set <id> project <project_id|none>"}
+		}
+		var projectID *string
+		if args[2] != "none" {
+			projectID = &args[2]
+		}
+		return schedule.SetProject(args[0], projectID)
+
+	default:
+		return types.Result{Success: false, Message: fmt.Sprintf("unknown schedule command: %s", cmd)}
+	}
 }

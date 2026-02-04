@@ -126,10 +126,10 @@ func List(projectPath string, parentID *int, req pagination.PageRequest) types.R
 
 func statusToIcon(status string) string {
 	switch status {
-	case "pending":
-		return "⏳"
-	case "running":
-		return "🔄"
+	case "spec_ready":
+		return "📝"
+	case "plan_ready":
+		return "📋"
 	case "done":
 		return "✅"
 	case "failed":

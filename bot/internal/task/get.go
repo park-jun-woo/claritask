@@ -21,9 +21,9 @@ func Get(projectPath, id string) types.Result {
 
 	var t Task
 	err = localDB.QueryRow(`
-		SELECT id, parent_id, source, title, content, status, result, error, created_at, started_at, completed_at
+		SELECT id, parent_id, title, spec, plan, report, status, error, created_at, updated_at
 		FROM tasks WHERE id = ?
-	`, id).Scan(&t.ID, &t.ParentID, &t.Source, &t.Title, &t.Content, &t.Status, &t.Result, &t.Error, &t.CreatedAt, &t.StartedAt, &t.CompletedAt)
+	`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Report, &t.Status, &t.Error, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -40,19 +40,24 @@ func Get(projectPath, id string) types.Result {
 
 	statusIcon := statusToIcon(t.Status)
 	msg := fmt.Sprintf("%s #%d %s\nStatus: %s\nCreated: %s", statusIcon, t.ID, t.Title, t.Status, t.CreatedAt)
-	if t.Content != "" {
-		msg += fmt.Sprintf("\n\n%s", t.Content)
+	if t.Spec != "" {
+		msg += fmt.Sprintf("\n\n📝 Spec:\n%s", t.Spec)
 	}
-	if t.Result != "" {
-		msg += fmt.Sprintf("\n\nResult: %s", t.Result)
+	if t.Plan != "" {
+		msg += fmt.Sprintf("\n\n📋 Plan:\n%s", t.Plan)
+	}
+	if t.Report != "" {
+		msg += fmt.Sprintf("\n\n📄 Report:\n%s", t.Report)
 	}
 	if t.Error != "" {
-		msg += fmt.Sprintf("\n\nError: %s", t.Error)
+		msg += fmt.Sprintf("\n\n❌ Error:\n%s", t.Error)
 	}
 
 	// Add action buttons based on status
 	switch t.Status {
-	case "pending":
+	case "spec_ready":
+		msg += fmt.Sprintf("\n[Plan 생성:task plan %d][삭제:task delete %d]", t.ID, t.ID)
+	case "plan_ready":
 		msg += fmt.Sprintf("\n[실행:task run %d][삭제:task delete %d]", t.ID, t.ID)
 	case "done", "failed":
 		msg += fmt.Sprintf("\n[삭제:task delete %d]", t.ID)

@@ -8,6 +8,7 @@ import (
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
+	"parkjunwoo.com/claribot/pkg/claude"
 )
 
 // Context holds the current state for command execution
@@ -69,7 +70,29 @@ func (r *Router) Execute(input string) types.Result {
 	case "status":
 		return r.handleStatus()
 	default:
-		return types.Result{Success: false, Message: fmt.Sprintf("unknown category: %s", category)}
+		return r.handleClaude(input)
+	}
+}
+
+// handleClaude sends the input to Claude Code TTY
+func (r *Router) handleClaude(input string) types.Result {
+	opts := claude.Options{
+		UserPrompt:   input,
+		SystemPrompt: "",
+		WorkDir:      r.ctx.ProjectPath,
+	}
+
+	result, err := claude.Run(opts)
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("Claude 실행 오류: %v", err),
+		}
+	}
+
+	return types.Result{
+		Success: result.ExitCode == 0,
+		Message: result.Output,
 	}
 }
 
@@ -124,10 +147,23 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 		if len(args) > 1 && args[1] == "no" {
 			return types.Result{Success: true, Message: "삭제 취소됨"}
 		}
-		return project.Delete(args[0], confirmed)
+		result := project.Delete(args[0], confirmed)
+		// Clear context if deleted project was selected
+		if result.Success && confirmed && r.ctx.ProjectID == args[0] {
+			r.SetProject("", "", "")
+		}
+		return result
 	case "switch":
 		if len(args) < 1 {
 			return project.List() // show list with switch buttons
+		}
+		// Handle deselect
+		if args[0] == "none" {
+			r.SetProject("", project.DefaultPath, "글로벌 모드")
+			return types.Result{
+				Success: true,
+				Message: "프로젝트 선택 해제됨 (글로벌 모드)\nPath: " + project.DefaultPath,
+			}
 		}
 		result := project.Switch(args[0])
 		if result.Success {
@@ -157,7 +193,13 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 	switch cmd {
 	case "add":
 		if len(args) < 1 {
-			return types.Result{Success: false, Message: "usage: task add <title>"}
+			return types.Result{
+				Success:    true,
+				Message:    "작업 제목을 입력하세요:",
+				NeedsInput: true,
+				Prompt:     "Title: ",
+				Context:    "task add",
+			}
 		}
 		title := strings.Join(args, " ")
 		return task.Add(r.ctx.ProjectPath, title)
@@ -165,7 +207,7 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 		return task.List(r.ctx.ProjectPath)
 	case "get":
 		if len(args) < 1 {
-			return types.Result{Success: false, Message: "usage: task get <id>"}
+			return task.List(r.ctx.ProjectPath) // show list if no id
 		}
 		return task.Get(r.ctx.ProjectPath, args[0])
 	case "set":
@@ -178,7 +220,11 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 		if len(args) < 1 {
 			return types.Result{Success: false, Message: "usage: task delete <id>"}
 		}
-		return task.Delete(r.ctx.ProjectPath, args[0])
+		confirmed := len(args) > 1 && args[1] == "yes"
+		if len(args) > 1 && args[1] == "no" {
+			return types.Result{Success: true, Message: "삭제 취소됨"}
+		}
+		return task.Delete(r.ctx.ProjectPath, args[0], confirmed)
 	case "run":
 		var id string
 		if len(args) > 0 {

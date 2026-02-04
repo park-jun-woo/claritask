@@ -56,6 +56,7 @@ func List() types.Result {
 	for _, p := range projects {
 		sb.WriteString(fmt.Sprintf("  [%s:project switch %s]\n", p.ID, p.ID))
 	}
+	sb.WriteString("  [선택안함:project switch none]")
 
 	return types.Result{
 		Success: true,

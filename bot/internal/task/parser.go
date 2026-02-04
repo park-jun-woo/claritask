@@ -18,11 +18,37 @@ type Child struct {
 	Title string
 }
 
+// stripCodeBlocks removes wrapping code block markers (```) from output.
+// Claude often wraps structured output in code blocks, which breaks HasPrefix checks.
+// Handles: ```\n...\n```, ```text\n...\n```, ```bash\n...\n``` etc.
+func stripCodeBlocks(output string) string {
+	re := regexp.MustCompile("(?s)^```[a-zA-Z]*\\s*\\n(.*)\\n```\\s*$")
+	if m := re.FindStringSubmatch(output); len(m) >= 2 {
+		return strings.TrimSpace(m[1])
+	}
+	return output
+}
+
+// extractMarker finds [SUBDIVIDED] or [PLANNED] marker anywhere in the output,
+// handling cases where Claude adds preamble text before the marker.
+func extractMarker(output string) (marker string, content string, found bool) {
+	for _, m := range []string{"[SUBDIVIDED]", "[PLANNED]"} {
+		idx := strings.Index(output, m)
+		if idx >= 0 {
+			return m, output[idx:], true
+		}
+	}
+	return "", "", false
+}
+
 // ParsePlanOutput parses Claude output from 1회차 순회
 func ParsePlanOutput(output string) PlanResult {
 	output = strings.TrimSpace(output)
 
-	// Check for [SUBDIVIDED]
+	// Strip code block wrappers (Claude often wraps output in ```)
+	output = stripCodeBlocks(output)
+
+	// Try direct prefix match first (fast path)
 	if strings.HasPrefix(output, "[SUBDIVIDED]") {
 		return PlanResult{
 			Type:     "subdivided",
@@ -30,13 +56,32 @@ func ParsePlanOutput(output string) PlanResult {
 		}
 	}
 
-	// Check for [PLANNED]
 	if strings.HasPrefix(output, "[PLANNED]") {
 		plan := strings.TrimPrefix(output, "[PLANNED]")
 		plan = strings.TrimSpace(plan)
 		return PlanResult{
 			Type: "planned",
 			Plan: plan,
+		}
+	}
+
+	// Fallback: search for markers anywhere in output
+	// (handles preamble text, \r\n line endings, etc.)
+	marker, content, found := extractMarker(output)
+	if found {
+		switch marker {
+		case "[SUBDIVIDED]":
+			return PlanResult{
+				Type:     "subdivided",
+				Children: parseSubdividedChildren(content),
+			}
+		case "[PLANNED]":
+			plan := strings.TrimPrefix(content, "[PLANNED]")
+			plan = strings.TrimSpace(plan)
+			return PlanResult{
+				Type: "planned",
+				Plan: plan,
+			}
 		}
 	}
 

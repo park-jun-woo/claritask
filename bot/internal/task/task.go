@@ -18,3 +18,14 @@ type Task struct {
 	CreatedAt string
 	UpdatedAt string
 }
+
+// Stats represents task statistics
+type Stats struct {
+	Total      int // 전체 task 수
+	Leaf       int // 실행 대상 (is_leaf=1)
+	SpecReady  int // 명세 작성됨 (plan 대기)
+	PlanReady  int // plan 작성됨 (실행 대기)
+	Done       int // 완료
+	Failed     int // 실패
+	InProgress int // 현재 실행 중 (Claude 점유)
+}

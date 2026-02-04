@@ -305,14 +305,20 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 		// task list [parent_id] [-p page] [-n pageSize]
 		var parentID *int
 		page, pageSize := r.parsePagination(args)
-		// Check first positional arg for parent_id
-		for _, arg := range args {
-			if arg != "-p" && arg != "-n" && !strings.HasPrefix(arg, "-") {
-				pid, err := strconv.Atoi(arg)
-				if err == nil {
-					parentID = &pid
-					break
-				}
+		// Check first positional arg for parent_id (skip -p/-n and their values)
+		for i := 0; i < len(args); i++ {
+			arg := args[i]
+			if arg == "-p" || arg == "-n" {
+				i++ // skip next value
+				continue
+			}
+			if strings.HasPrefix(arg, "-") {
+				continue
+			}
+			pid, err := strconv.Atoi(arg)
+			if err == nil {
+				parentID = &pid
+				break
 			}
 		}
 		return task.List(r.ctx.ProjectPath, parentID, pagination.NewPageRequest(page, pageSize))
@@ -483,7 +489,35 @@ func (r *Router) handleStatus() types.Result {
 		sb.WriteString("[선택:project switch]")
 	} else {
 		sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", r.ctx.ProjectID))
-		sb.WriteString(fmt.Sprintf("   설명: %s", r.ctx.ProjectDescription))
+		sb.WriteString(fmt.Sprintf("   설명: %s\n", r.ctx.ProjectDescription))
+
+		// Task stats
+		if stats, err := task.GetStats(r.ctx.ProjectPath); err == nil && stats.Total > 0 {
+			sb.WriteString("\n📊 Task 현황:\n")
+
+			// 진행 상태 표시
+			if claudeStatus.Used > 0 {
+				sb.WriteString("   🔄 순회 진행 중\n")
+			}
+
+			// 통계
+			remaining := stats.SpecReady + stats.PlanReady
+			sb.WriteString(fmt.Sprintf("   전체: %d개 (실행대상: %d개)\n", stats.Total, stats.Leaf))
+			sb.WriteString(fmt.Sprintf("   ✅ 완료: %d개", stats.Done))
+			if stats.Failed > 0 {
+				sb.WriteString(fmt.Sprintf(" / ❌ 실패: %d개", stats.Failed))
+			}
+			sb.WriteString("\n")
+			if remaining > 0 {
+				sb.WriteString(fmt.Sprintf("   ⏳ 대기: %d개 (spec:%d, plan:%d)\n", remaining, stats.SpecReady, stats.PlanReady))
+			}
+
+			// 진행률
+			if stats.Leaf > 0 {
+				progress := float64(stats.Done) / float64(stats.Leaf) * 100
+				sb.WriteString(fmt.Sprintf("   진행률: %.0f%%", progress))
+			}
+		}
 	}
 
 	return types.Result{

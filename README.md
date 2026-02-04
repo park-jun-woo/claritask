@@ -245,6 +245,19 @@ make clean && make build
 make uninstall
 ```
 
+## Disclaimer
+
+이 프로젝트는 Anthropic의 [Claude Code](https://claude.ai/claude-code) CLI를 필요로 한다.
+
+Claribot은 Claude Code를 subprocess로 호출하는 래퍼 프로그램이다. Claude Code 자체를 포함하거나 재배포하지 않으며, 사용자는 별도로 Claude Code를 설치하고 Anthropic 계정을 보유해야 한다.
+
+**사용자 책임:**
+- 사용자는 [Anthropic 이용약관](https://www.anthropic.com/legal)을 준수할 책임이 있다
+- Consumer 플랜(Free/Pro/Max)의 자동화 사용은 약관에 따라 제한될 수 있다
+- 상업적 사용 시 [Commercial Terms](https://www.anthropic.com/legal/commercial-terms) 확인을 권장한다
+
+이 프로젝트의 개발자는 사용자의 Anthropic 약관 위반에 대해 책임지지 않는다.
+
 ## License
 
 MIT License - see [LICENSE](LICENSE)

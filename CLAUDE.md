@@ -4,9 +4,10 @@
 
 LLM 기반 프로젝트 자동 실행 시스템. 텔레그램 봇과 CLI로 Claude Code를 제어하여 프로젝트 작업을 자동화한다.
 
-**아키텍처**: `claribot(daemon)` ← HTTP → `clari(CLI)` / 텔레그램
-- **claribot**: 항상 실행되는 서비스. 텔레그램 핸들러 + CLI 핸들러 + TTY 매니저
+**아키텍처**: `claribot(daemon)` ← HTTP → `clari(CLI)` / 텔레그램 / Web UI
+- **claribot**: 항상 실행되는 서비스. 텔레그램 핸들러 + CLI 핸들러 + Web UI + TTY 매니저
 - **clari CLI**: 서비스에 HTTP 요청을 보내는 클라이언트 (127.0.0.1:9847)
+- **Web UI**: 브라우저 기반 대시보드 (Go embed, 같은 포트)
 
 **DB 분리**:
 - 전역 DB (`~/.claribot/db.clt`): 프로젝트 목록, 경로 매핑
@@ -21,6 +22,7 @@ LLM 기반 프로젝트 자동 실행 시스템. 텔레그램 봇과 CLI로 Clau
 - **Language**: Go 1.21+
 - **CLI Framework**: Cobra
 - **Database**: SQLite (mattn/go-sqlite3)
+- **Web UI**: React + TypeScript + Vite + shadcn/ui + TanStack Query
 
 ## Project Structure
 
@@ -28,6 +30,7 @@ LLM 기반 프로젝트 자동 실행 시스템. 텔레그램 봇과 CLI로 Clau
 claribot/
 ├── bot/          # Claribot Go 소스코드
 ├── cli/          # Go CLI 소스코드
+├── gui/          # Web UI (React + TypeScript + Vite + shadcn/ui)
 ├── vsx/          # Claribot VSCode Extension 소스코드
 ├── docs/         # 설계 문서
 └── deploy/       # 배포 설정 파일
@@ -38,6 +41,7 @@ claribot/
 - [docs/Claribot.md](docs/Claribot.md) - 아키텍처, DB 스키마, 구현 현황
 - [docs/Task.md](docs/Task.md) - Task 시스템 설계 (분할 정복, 순회 로직)
 - [docs/Schedule.md](docs/Schedule.md) - Schedule 시스템 설계 (cron 기반 자동 실행)
+- [docs/webui.md](docs/webui.md) - Web UI 기획 및 구현 현황
 
 ## Coding Conventions
 

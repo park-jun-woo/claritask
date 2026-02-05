@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"sync"
 
 	"parkjunwoo.com/claribot/internal/edge"
 	"parkjunwoo.com/claribot/internal/message"
@@ -25,7 +26,8 @@ type Context struct {
 // Router handles command routing
 type Router struct {
 	ctx      *Context
-	pageSize int // 페이지당 항목 수
+	mu       sync.RWMutex // protects ctx for concurrent access
+	pageSize int          // 페이지당 항목 수
 }
 
 // NewRouter creates a new router
@@ -45,6 +47,8 @@ func (r *Router) SetPageSize(size int) {
 
 // SetProject sets the current project context
 func (r *Router) SetProject(id, path, desc string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	r.ctx.ProjectID = id
 	r.ctx.ProjectPath = path
 	r.ctx.ProjectDescription = desc
@@ -52,7 +56,20 @@ func (r *Router) SetProject(id, path, desc string) {
 
 // GetProject returns the current project
 func (r *Router) GetProject() (string, string) {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 	return r.ctx.ProjectID, r.ctx.ProjectPath
+}
+
+// SnapshotContext returns a copy of the current context (thread-safe)
+func (r *Router) SnapshotContext() *Context {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return &Context{
+		ProjectID:          r.ctx.ProjectID,
+		ProjectPath:        r.ctx.ProjectPath,
+		ProjectDescription: r.ctx.ProjectDescription,
+	}
 }
 
 // parseArgs splits input respecting quoted strings
@@ -84,8 +101,8 @@ func parseArgs(input string) []string {
 	return args
 }
 
-// Execute parses and executes a command
-func (r *Router) Execute(input string) types.Result {
+// Execute parses and executes a command with the given context
+func (r *Router) Execute(ctx *Context, input string) types.Result {
 	parts := parseArgs(input)
 	if len(parts) == 0 {
 		return types.Result{Success: false, Message: "empty command"}
@@ -104,32 +121,32 @@ func (r *Router) Execute(input string) types.Result {
 
 	switch category {
 	case "project":
-		return r.handleProject(cmd, args)
+		return r.handleProject(ctx, cmd, args)
 	case "task":
-		return r.handleTask(cmd, args)
+		return r.handleTask(ctx, cmd, args)
 	case "edge":
-		return r.handleEdge(cmd, args)
+		return r.handleEdge(ctx, cmd, args)
 	case "message":
-		return r.handleMessage(cmd, args)
+		return r.handleMessage(ctx, cmd, args)
 	case "schedule":
-		return r.handleSchedule(cmd, args)
+		return r.handleSchedule(ctx, cmd, args)
 	case "send":
 		// "send <content>" → message send <content>
 		content := strings.TrimSpace(strings.TrimPrefix(input, "send"))
-		return r.handleMessage("send", []string{content})
+		return r.handleMessage(ctx, "send", []string{content})
 	case "status":
-		return r.handleStatus()
+		return r.handleStatus(ctx)
 	default:
-		return r.handleClaude(input)
+		return r.handleClaude(ctx, input)
 	}
 }
 
 // handleClaude sends the input to Claude Code TTY
-func (r *Router) handleClaude(input string) types.Result {
+func (r *Router) handleClaude(ctx *Context, input string) types.Result {
 	opts := claude.Options{
 		UserPrompt:   input,
 		SystemPrompt: "",
-		WorkDir:      r.ctx.ProjectPath,
+		WorkDir:      ctx.ProjectPath,
 	}
 
 	result, err := claude.Run(opts)
@@ -146,7 +163,7 @@ func (r *Router) handleClaude(input string) types.Result {
 	}
 }
 
-func (r *Router) handleProject(cmd string, args []string) types.Result {
+func (r *Router) handleProject(ctx *Context, cmd string, args []string) types.Result {
 	switch cmd {
 	case "":
 		return types.Result{
@@ -201,7 +218,7 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 		page, pageSize := r.parsePagination(args)
 		return project.List(pagination.NewPageRequest(page, pageSize))
 	case "get":
-		id := r.ctx.ProjectID
+		id := ctx.ProjectID
 		if len(args) > 0 {
 			id = args[0]
 		}
@@ -219,7 +236,7 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 		}
 		result := project.Delete(args[0], confirmed)
 		// Clear context if deleted project was selected
-		if result.Success && confirmed && r.ctx.ProjectID == args[0] {
+		if result.Success && confirmed && ctx.ProjectID == args[0] {
 			r.SetProject("", "", "")
 		}
 		return result
@@ -247,7 +264,7 @@ func (r *Router) handleProject(cmd string, args []string) types.Result {
 	}
 }
 
-func (r *Router) handleTask(cmd string, args []string) types.Result {
+func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Result {
 	// Show help even without project selected
 	if cmd == "" {
 		return types.Result{
@@ -256,7 +273,7 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 		}
 	}
 
-	if r.ctx.ProjectPath == "" {
+	if ctx.ProjectPath == "" {
 		return types.Result{Success: false, Message: "프로젝트를 먼저 선택하세요: /project switch <id>"}
 	}
 
@@ -300,7 +317,7 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 				Context:    "task add",
 			}
 		}
-		return task.Add(r.ctx.ProjectPath, title, parentID, spec)
+		return task.Add(ctx.ProjectPath, title, parentID, spec)
 	case "list":
 		// task list [parent_id] [-p page] [-n pageSize]
 		var parentID *int
@@ -321,18 +338,18 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 				break
 			}
 		}
-		return task.List(r.ctx.ProjectPath, parentID, pagination.NewPageRequest(page, pageSize))
+		return task.List(ctx.ProjectPath, parentID, pagination.NewPageRequest(page, pageSize))
 	case "get":
 		if len(args) < 1 {
-			return task.List(r.ctx.ProjectPath, nil, pagination.NewPageRequest(1, r.pageSize)) // show list if no id
+			return task.List(ctx.ProjectPath, nil, pagination.NewPageRequest(1, r.pageSize)) // show list if no id
 		}
-		return task.Get(r.ctx.ProjectPath, args[0])
+		return task.Get(ctx.ProjectPath, args[0])
 	case "set":
 		if len(args) < 3 {
 			return types.Result{Success: false, Message: "usage: task set <id> <field> <value>"}
 		}
 		value := strings.Join(args[2:], " ")
-		return task.Set(r.ctx.ProjectPath, args[0], args[1], value)
+		return task.Set(ctx.ProjectPath, args[0], args[1], value)
 	case "delete":
 		if len(args) < 1 {
 			return types.Result{Success: false, Message: "usage: task delete <id>"}
@@ -341,36 +358,36 @@ func (r *Router) handleTask(cmd string, args []string) types.Result {
 		if len(args) > 1 && args[1] == "no" {
 			return types.Result{Success: true, Message: "삭제 취소됨"}
 		}
-		return task.Delete(r.ctx.ProjectPath, args[0], confirmed)
+		return task.Delete(ctx.ProjectPath, args[0], confirmed)
 	case "plan":
 		// task plan [id] [--all]
 		if len(args) > 0 && args[0] == "--all" {
-			return task.PlanAll(r.ctx.ProjectPath)
+			return task.PlanAll(ctx.ProjectPath)
 		}
 		var id string
 		if len(args) > 0 {
 			id = args[0]
 		}
-		return task.Plan(r.ctx.ProjectPath, id)
+		return task.Plan(ctx.ProjectPath, id)
 	case "run":
 		// task run [id] [--all]
 		if len(args) > 0 && args[0] == "--all" {
-			return task.RunAll(r.ctx.ProjectPath)
+			return task.RunAll(ctx.ProjectPath)
 		}
 		var id string
 		if len(args) > 0 {
 			id = args[0]
 		}
-		return task.Run(r.ctx.ProjectPath, id)
+		return task.Run(ctx.ProjectPath, id)
 	case "cycle":
 		// task cycle - 1회차 + 2회차 자동 실행
-		return task.Cycle(r.ctx.ProjectPath)
+		return task.Cycle(ctx.ProjectPath)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown task command: %s", cmd)}
 	}
 }
 
-func (r *Router) handleEdge(cmd string, args []string) types.Result {
+func (r *Router) handleEdge(ctx *Context, cmd string, args []string) types.Result {
 	// Show help even without project selected
 	if cmd == "" {
 		return types.Result{
@@ -379,7 +396,7 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 		}
 	}
 
-	if r.ctx.ProjectPath == "" {
+	if ctx.ProjectPath == "" {
 		return types.Result{Success: false, Message: "프로젝트를 먼저 선택하세요: /project switch <id>"}
 	}
 
@@ -388,7 +405,7 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 		if len(args) < 2 {
 			return types.Result{Success: false, Message: "usage: edge add <from_id> <to_id>"}
 		}
-		return edge.Add(r.ctx.ProjectPath, args[0], args[1])
+		return edge.Add(ctx.ProjectPath, args[0], args[1])
 	case "list":
 		var taskID string
 		page, pageSize := r.parsePagination(args)
@@ -398,12 +415,12 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 				break
 			}
 		}
-		return edge.List(r.ctx.ProjectPath, taskID, pagination.NewPageRequest(page, pageSize))
+		return edge.List(ctx.ProjectPath, taskID, pagination.NewPageRequest(page, pageSize))
 	case "get":
 		if len(args) < 2 {
 			return types.Result{Success: false, Message: "usage: edge get <from_id> <to_id>"}
 		}
-		return edge.Get(r.ctx.ProjectPath, args[0], args[1])
+		return edge.Get(ctx.ProjectPath, args[0], args[1])
 	case "delete":
 		if len(args) < 2 {
 			return types.Result{Success: false, Message: "usage: edge delete <from_id> <to_id>"}
@@ -412,13 +429,13 @@ func (r *Router) handleEdge(cmd string, args []string) types.Result {
 		if len(args) > 2 && args[2] == "no" {
 			return types.Result{Success: true, Message: "삭제 취소됨"}
 		}
-		return edge.Delete(r.ctx.ProjectPath, args[0], args[1], confirmed)
+		return edge.Delete(ctx.ProjectPath, args[0], args[1], confirmed)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown edge command: %s", cmd)}
 	}
 }
 
-func (r *Router) handleMessage(cmd string, args []string) types.Result {
+func (r *Router) handleMessage(ctx *Context, cmd string, args []string) types.Result {
 	// Show help even without project selected
 	if cmd == "" {
 		return types.Result{
@@ -428,7 +445,7 @@ func (r *Router) handleMessage(cmd string, args []string) types.Result {
 	}
 
 	// Use default path if no project selected (global mode)
-	projectPath := r.ctx.ProjectPath
+	projectPath := ctx.ProjectPath
 	if projectPath == "" {
 		projectPath = project.DefaultPath
 	}
@@ -472,7 +489,7 @@ func (r *Router) handleMessage(cmd string, args []string) types.Result {
 	}
 }
 
-func (r *Router) handleStatus() types.Result {
+func (r *Router) handleStatus(ctx *Context) types.Result {
 	var sb strings.Builder
 
 	// Claude status
@@ -484,15 +501,15 @@ func (r *Router) handleStatus() types.Result {
 	sb.WriteString("\n")
 
 	// Project status
-	if r.ctx.ProjectID == "" {
+	if ctx.ProjectID == "" {
 		sb.WriteString("\n📁 프로젝트: 선택 안됨 (글로벌 모드)\n")
 		sb.WriteString("[선택:project switch]")
 	} else {
-		sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", r.ctx.ProjectID))
-		sb.WriteString(fmt.Sprintf("   설명: %s\n", r.ctx.ProjectDescription))
+		sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", ctx.ProjectID))
+		sb.WriteString(fmt.Sprintf("   설명: %s\n", ctx.ProjectDescription))
 
 		// Task stats
-		if stats, err := task.GetStats(r.ctx.ProjectPath); err == nil && stats.Total > 0 {
+		if stats, err := task.GetStats(ctx.ProjectPath); err == nil && stats.Total > 0 {
 			sb.WriteString("\n📊 Task 현황:\n")
 
 			// 진행 상태 표시
@@ -550,7 +567,7 @@ func (r *Router) parsePagination(args []string) (page, pageSize int) {
 	return
 }
 
-func (r *Router) handleSchedule(cmd string, args []string) types.Result {
+func (r *Router) handleSchedule(ctx *Context, cmd string, args []string) types.Result {
 	if cmd == "" {
 		return types.Result{
 			Success: true,
@@ -593,8 +610,8 @@ func (r *Router) handleSchedule(cmd string, args []string) types.Result {
 		}
 
 		// Use current project if not specified
-		if projectID == nil && r.ctx.ProjectID != "" {
-			projectID = &r.ctx.ProjectID
+		if projectID == nil && ctx.ProjectID != "" {
+			projectID = &ctx.ProjectID
 		}
 
 		return schedule.Add(cronExpr, message, projectID, runOnce)
@@ -611,8 +628,8 @@ func (r *Router) handleSchedule(cmd string, args []string) types.Result {
 		page, pageSize := r.parsePagination(args)
 
 		var projectID *string
-		if !showAll && r.ctx.ProjectID != "" {
-			projectID = &r.ctx.ProjectID
+		if !showAll && ctx.ProjectID != "" {
+			projectID = &ctx.ProjectID
 		}
 
 		return schedule.List(projectID, showAll, pagination.NewPageRequest(page, pageSize))

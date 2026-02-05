@@ -1,8 +1,12 @@
 package message
 
 import (
+	"bytes"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
+	"text/template"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/prompts"
@@ -50,17 +54,24 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 		}
 	}
 
-	// Get system prompt template
+	// Build report path
+	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("message-%d-report.md", msgID))
+	// Ensure .claribot directory exists
+	os.MkdirAll(filepath.Dir(reportPath), 0755)
+
+	// Get system prompt template and render with ReportPath
 	systemPrompt, err := prompts.Get(prompts.Common, "message")
 	if err != nil {
 		systemPrompt = defaultSystemPrompt()
 	}
+	systemPrompt = renderPrompt(systemPrompt, map[string]string{"ReportPath": reportPath})
 
 	// Execute Claude Code
 	opts := claude.Options{
 		UserPrompt:   content,
 		SystemPrompt: systemPrompt,
 		WorkDir:      projectPath,
+		ReportPath:   reportPath,
 	}
 
 	claudeResult, err := claude.Run(opts)
@@ -108,6 +119,26 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 			CompletedAt: &completedAt,
 		},
 	}
+}
+
+// renderPrompt renders a Go template string with the given data
+func renderPrompt(tmplStr string, data map[string]string) string {
+	tmpl, err := template.New("prompt").Parse(tmplStr)
+	if err != nil {
+		return tmplStr
+	}
+
+	// Convert map to struct-like data
+	type PromptData struct {
+		ReportPath string
+	}
+	d := PromptData{ReportPath: data["ReportPath"]}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, d); err != nil {
+		return tmplStr
+	}
+	return buf.String()
 }
 
 func defaultSystemPrompt() string {

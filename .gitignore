@@ -52,6 +52,7 @@ dist/
 build/
 out/
 *.vsix
+bot/internal/webui/dist/
 
 # Environment
 .env

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -17,16 +18,18 @@ import (
 	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/tghandler"
 	"parkjunwoo.com/claribot/internal/types"
+	"parkjunwoo.com/claribot/internal/webui"
 	"parkjunwoo.com/claribot/pkg/claude"
 	"parkjunwoo.com/claribot/pkg/logger"
 	"parkjunwoo.com/claribot/pkg/telegram"
 )
 
-const Version = "0.2.20"
+const Version = "0.2.21"
 
 // Router for command handling
 var router *handler.Router
 var bot *telegram.Bot
+var startTime = time.Now()
 
 func main() {
 	// Load config
@@ -137,19 +140,42 @@ func main() {
 		logger.Info("Scheduler initialized (jobs: %d)", schedule.JobCount())
 	}
 
-	// Setup HTTP handler
-	http.HandleFunc("/", handleRequest)
+	// Setup HTTP mux
+	mux := http.NewServeMux()
+
+	// API endpoints
+	mux.HandleFunc("/api/health", handleHealth)
+	mux.HandleFunc("/api", handleAPIRequest)
+
+	// Web UI: all non-API GET requests serve static files
+	webuiHandler := webui.Handler()
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+
+		// GET with ?args= = CLI backward compatibility
+		if r.Method == http.MethodGet && r.URL.Query().Get("args") != "" {
+			handleAPIRequest(w, r)
+			return
+		}
+
+		// Everything else: serve Web UI
+		webuiHandler.ServeHTTP(w, r)
+	})
+
+	// CORS middleware for development
+	handler := corsMiddleware(mux)
 
 	// Start HTTP server in goroutine with timeout settings
 	addr := fmt.Sprintf("%s:%d", cfg.Service.Host, cfg.Service.Port)
 	server := &http.Server{
 		Addr:         addr,
+		Handler:      handler,
 		ReadTimeout:  10 * time.Second,
 		WriteTimeout: 30 * time.Minute, // Long timeout for Claude operations
 		IdleTimeout:  60 * time.Second,
 	}
 	go func() {
 		logger.Info("HTTP server starting on %s", addr)
+		logger.Info("Web UI available at http://%s", addr)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			logger.Error("HTTP server error: %v", err)
 			os.Exit(1)
@@ -183,7 +209,8 @@ func main() {
 	logger.Info("Goodbye!")
 }
 
-func handleRequest(w http.ResponseWriter, r *http.Request) {
+// handleAPIRequest handles command requests from CLI and Web UI
+func handleAPIRequest(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 
 	var cmdStr string
@@ -200,8 +227,8 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		cmdStr = req.ToCommandString()
-		logger.Debug("[CLI/POST] %s", cmdStr)
-	} else {
+		logger.Debug("[API/POST] %s", cmdStr)
+	} else if r.Method == http.MethodGet {
 		// GET: query parameter (backward compatibility)
 		cmdStr = r.URL.Query().Get("args")
 		if cmdStr == "" {
@@ -212,13 +239,56 @@ func handleRequest(w http.ResponseWriter, r *http.Request) {
 			})
 			return
 		}
-		logger.Debug("[CLI/GET] %s", cmdStr)
+		logger.Debug("[API/GET] %s", cmdStr)
+	} else {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(types.Result{
+			Success: false,
+			Message: "method not allowed",
+		})
+		return
 	}
 
-	result := router.Execute(cmdStr)
+	snapshot := router.SnapshotContext()
+	result := router.Execute(snapshot, cmdStr)
 
 	if !result.Success {
 		w.WriteHeader(http.StatusBadRequest)
 	}
 	json.NewEncoder(w).Encode(result)
+}
+
+// handleHealth returns service health information
+func handleHealth(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	uptime := time.Since(startTime).Seconds()
+	claudeStatus := claude.GetStatus()
+
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"version": Version,
+		"uptime":  int(uptime),
+		"claude": map[string]interface{}{
+			"used":      claudeStatus.Used,
+			"max":       claudeStatus.Max,
+			"available": claudeStatus.Available,
+		},
+	})
+}
+
+// corsMiddleware adds CORS headers for development (Vite dev server)
+func corsMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		origin := r.Header.Get("Origin")
+		if origin != "" && strings.HasPrefix(origin, "http://localhost") {
+			w.Header().Set("Access-Control-Allow-Origin", origin)
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		}
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -212,7 +213,7 @@ func (b *Bot) Start() error {
 							Username:  update.CallbackQuery.From.UserName,
 							Data:      update.CallbackQuery.Data,
 						}
-						b.callbackHandler(cb)
+						go b.callbackHandler(cb)
 					}
 					continue
 				}
@@ -237,7 +238,7 @@ func (b *Bot) Start() error {
 						Username:  update.Message.From.UserName,
 						Text:      update.Message.Text,
 					}
-					b.handler(msg)
+					go b.handler(msg)
 				}
 			}
 		}
@@ -277,6 +278,7 @@ func (b *Bot) Broadcast(text string) error {
 
 // Send sends a text message to a chat
 func (b *Bot) Send(chatID int64, text string) error {
+	text = sanitizeUTF8(text)
 	return b.sendWithRetry(func() error {
 		msg := tgbotapi.NewMessage(chatID, text)
 		_, err := b.api.Send(msg)
@@ -358,10 +360,18 @@ func (b *Bot) SendMarkdown(chatID int64, text string) error {
 	return nil
 }
 
+// sanitizeUTF8 ensures text is valid UTF-8 for telegram API
+func sanitizeUTF8(s string) string {
+	return strings.ToValidUTF8(s, "")
+}
+
 // SendReport sends markdown content as HTML message or HTML file based on length
 // < 500 chars: inline HTML message
 // >= 500 chars or has code blocks: HTML file attachment
 func (b *Bot) SendReport(chatID int64, markdown string) error {
+	// Ensure valid UTF-8 before any telegram API call
+	markdown = sanitizeUTF8(markdown)
+
 	if !render.ShouldRenderAsFile(markdown) {
 		// Short message: send as inline HTML
 		htmlText := render.ToTelegramHTML(markdown)
@@ -404,6 +414,7 @@ func (b *Bot) SendReport(chatID int64, markdown string) error {
 
 // SendReportWithButtons sends report with inline buttons
 func (b *Bot) SendReportWithButtons(chatID int64, markdown string, buttons [][]Button) error {
+	markdown = sanitizeUTF8(markdown)
 	if !render.ShouldRenderAsFile(markdown) {
 		// Short message: send as inline HTML with buttons
 		htmlText := render.ToTelegramHTML(markdown)

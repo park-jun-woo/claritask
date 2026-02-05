@@ -18,10 +18,11 @@ type PlanPromptData struct {
 	Depth        int
 	MaxDepth     int
 	RelatedTasks []Task
+	ReportPath   string
 }
 
 // BuildPlanPrompt builds prompt for Plan generation (1회차 순회)
-func BuildPlanPrompt(t *Task, relatedTasks []Task) string {
+func BuildPlanPrompt(t *Task, relatedTasks []Task, reportPath string) string {
 	// Load template from prompts
 	tmplContent, err := prompts.Get(prompts.DevPlatform, "task")
 	if err != nil {
@@ -42,6 +43,7 @@ func BuildPlanPrompt(t *Task, relatedTasks []Task) string {
 		Depth:        t.Depth,
 		MaxDepth:     MaxDepth,
 		RelatedTasks: relatedTasks,
+		ReportPath:   reportPath,
 	}
 
 	var buf bytes.Buffer
@@ -76,7 +78,7 @@ func buildSimplePlanPrompt(t *Task, relatedTasks []Task) string {
 }
 
 // BuildExecutePrompt builds prompt for execution (2회차 순회)
-func BuildExecutePrompt(t *Task, relatedTasks []Task) string {
+func BuildExecutePrompt(t *Task, relatedTasks []Task, reportPath string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("# Task: %s\n\n", t.Title))
@@ -97,7 +99,12 @@ func BuildExecutePrompt(t *Task, relatedTasks []Task) string {
 	sb.WriteString("완료 후 보고서를 작성하세요:\n")
 	sb.WriteString("- 수행한 작업 요약\n")
 	sb.WriteString("- 변경된 파일 목록\n")
-	sb.WriteString("- 특이사항\n")
+	sb.WriteString("- 특이사항\n\n")
+	sb.WriteString("## ⚠️ 결과 보고서 파일 저장 (필수)\n\n")
+	sb.WriteString(fmt.Sprintf("**모든 작업이 완료되면 반드시** 보고서를 다음 경로에 파일로 저장하세요:\n\n"))
+	sb.WriteString(fmt.Sprintf("```\n파일 경로: %s\n```\n\n", reportPath))
+	sb.WriteString("- 이 파일이 생성되어야 작업 완료로 인식됩니다\n")
+	sb.WriteString("- 파일이 없으면 작업이 완료되지 않은 것으로 간주합니다\n")
 
 	return sb.String()
 }

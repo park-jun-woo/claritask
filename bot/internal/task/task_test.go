@@ -170,7 +170,7 @@ func TestBuildPlanPrompt(t *testing.T) {
 		{ID: 2, Title: "Related Task", Spec: "Related spec"},
 	}
 
-	prompt := BuildPlanPrompt(task, related)
+	prompt := BuildPlanPrompt(task, related, "/tmp/test-report.md")
 
 	if prompt == "" {
 		t.Error("Expected non-empty prompt")
@@ -202,7 +202,7 @@ func TestBuildExecutePrompt(t *testing.T) {
 		{ID: 2, Title: "Related Task", Plan: "Related plan"},
 	}
 
-	prompt := BuildExecutePrompt(task, related)
+	prompt := BuildExecutePrompt(task, related, "/tmp/test-report.md")
 
 	if prompt == "" {
 		t.Error("Expected non-empty prompt")

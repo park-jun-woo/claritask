@@ -185,8 +185,9 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		}
 
 		// Quick commands: synchronous processing
+		snapshot := h.router.SnapshotContext()
 		if !needsClaudeExecution(cmd) {
-			result := h.router.Execute(cmd)
+			result := h.router.Execute(snapshot, cmd)
 			h.sendResult(msg.ChatID, result)
 			return
 		}
@@ -194,7 +195,7 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		// Claude commands: async processing
 		h.bot.Send(msg.ChatID, "처리 중...")
 		go func() {
-			result := h.router.Execute(cmd)
+			result := h.router.Execute(snapshot, cmd)
 			h.sendReport(msg.ChatID, result)
 		}()
 		return
@@ -210,10 +211,11 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 
 	if ok {
 		cmd := ctx + " " + msg.Text
+		snapshot := h.router.SnapshotContext()
 
 		// Quick commands: synchronous
 		if !needsClaudeExecution(cmd) {
-			result := h.router.Execute(cmd)
+			result := h.router.Execute(snapshot, cmd)
 			h.sendResult(msg.ChatID, result)
 			return
 		}
@@ -221,7 +223,7 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		// Claude commands: async
 		h.bot.Send(msg.ChatID, "처리 중...")
 		go func() {
-			result := h.router.Execute(cmd)
+			result := h.router.Execute(snapshot, cmd)
 			h.sendReport(msg.ChatID, result)
 		}()
 		return
@@ -235,9 +237,10 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 	}
 
 	// Route plain text to "message send" command with telegram source (async)
+	snapshot := h.router.SnapshotContext()
 	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", label))
 	go func() {
-		result := h.router.Execute("message send telegram " + msg.Text)
+		result := h.router.Execute(snapshot, "message send telegram "+msg.Text)
 		h.sendReport(msg.ChatID, result)
 	}()
 }
@@ -283,8 +286,9 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 		}
 
 		// Quick commands: synchronous
+		snapshot := h.router.SnapshotContext()
 		if !needsClaudeExecution(cmd) {
-			result := h.router.Execute(cmd)
+			result := h.router.Execute(snapshot, cmd)
 			h.sendResult(cb.ChatID, result)
 			return
 		}
@@ -292,7 +296,7 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 		// Claude commands: async
 		h.bot.Send(cb.ChatID, "처리 중...")
 		go func() {
-			result := h.router.Execute(cmd)
+			result := h.router.Execute(snapshot, cmd)
 			h.sendReport(cb.ChatID, result)
 		}()
 		return
@@ -301,7 +305,8 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 	// Handle project switch (quick command, synchronous)
 	if strings.HasPrefix(cb.Data, "switch:") {
 		projectID := strings.TrimPrefix(cb.Data, "switch:")
-		result := h.router.Execute("project switch " + projectID)
+		snapshot := h.router.SnapshotContext()
+		result := h.router.Execute(snapshot, "project switch "+projectID)
 		h.bot.AnswerCallback(cb.ID, projectID+" 선택됨")
 		h.bot.Send(cb.ChatID, result.Message)
 		return

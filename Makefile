@@ -1,4 +1,4 @@
-.PHONY: all build build-cli build-bot clean install uninstall install-cli install-bot uninstall-cli uninstall-bot
+.PHONY: all build build-cli build-bot build-gui clean install uninstall install-cli install-bot uninstall-cli uninstall-bot
 
 # 변수
 BIN_DIR = /usr/local/bin
@@ -11,7 +11,7 @@ HOME_DIR = $(shell echo ~)
 all: build
 
 # 전체 빌드
-build: build-cli build-bot
+build: build-gui build-cli build-bot
 
 # CLI 빌드
 build-cli:
@@ -19,7 +19,15 @@ build-cli:
 	@mkdir -p bin
 	cd cli && go build -o ../bin/clari ./cmd/clari
 
-# Bot 빌드
+# GUI 빌드 (React → dist → Go embed)
+build-gui:
+	@echo "Building Web UI..."
+	cd gui && npm install && npm run build
+	@echo "Copying dist to Go embed..."
+	rm -rf bot/internal/webui/dist
+	cp -r gui/dist bot/internal/webui/dist
+
+# Bot 빌드 (GUI embed 포함)
 build-bot:
 	@echo "Building claribot..."
 	@mkdir -p bin
@@ -29,6 +37,8 @@ build-bot:
 clean:
 	@echo "Cleaning..."
 	rm -rf bin/
+	rm -rf gui/dist
+	rm -rf bot/internal/webui/dist
 
 # 전체 설치
 install: build install-cli install-bot
@@ -94,6 +104,10 @@ run-bot:
 run-cli:
 	cd cli && go run ./cmd/clari
 
+# GUI 개발 서버 (Vite HMR + API proxy → 127.0.0.1:9847)
+dev-gui:
+	cd gui && npm run dev
+
 # 테스트
 test:
 	cd cli && go test ./...
@@ -104,9 +118,10 @@ help:
 	@echo "Claribot Makefile"
 	@echo ""
 	@echo "빌드:"
-	@echo "  make build        - CLI와 Bot 빌드"
+	@echo "  make build        - GUI, CLI, Bot 전체 빌드"
 	@echo "  make build-cli    - CLI만 빌드"
-	@echo "  make build-bot    - Bot만 빌드"
+	@echo "  make build-bot    - Bot 빌드 (GUI embed 포함)"
+	@echo "  make build-gui    - GUI만 빌드 (npm)"
 	@echo "  make clean        - 빌드 결과물 삭제"
 	@echo ""
 	@echo "설치:"
@@ -127,4 +142,5 @@ help:
 	@echo "개발:"
 	@echo "  make run-bot      - Bot 로컬 실행"
 	@echo "  make run-cli      - CLI 로컬 실행"
+	@echo "  make dev-gui      - GUI 개발 서버 (Vite HMR)"
 	@echo "  make test         - 테스트 실행"

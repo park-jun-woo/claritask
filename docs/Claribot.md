@@ -1,6 +1,6 @@
 # Claribot v0.2
 
-> **버전**: v0.2.19
+> **버전**: v0.2.21
 
 ---
 
@@ -30,31 +30,34 @@
 ## 아키텍처
 
 ```
-┌─────────────────────────────────────────────────────────┐
-│                    claribot (daemon)                    │
-│                                                         │
-│  ┌───────────┐  ┌───────────┐  ┌───────────────────┐   │
-│  │ Telegram  │  │    CLI    │  │    TTY Manager    │   │
-│  │  Handler  │  │  Handler  │  │  (Claude Code)    │   │
-│  └─────┬─────┘  └─────┬─────┘  └─────────┬─────────┘   │
-│        │              │                   │             │
-│        └──────────────┼───────────────────┘             │
-│                       ▼                                 │
-│               ┌──────────────┐                          │
-│               │      DB      │                          │
-│               └──────────────┘                          │
-└─────────────────────────────────────────────────────────┘
-         ▲                              ▲
-         │ 메시지                        │ HTTP
-    [Telegram]                     [clari CLI]
+┌──────────────────────────────────────────────────────────┐
+│                     claribot (daemon)                     │
+│                                                           │
+│  ┌──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐ │
+│  │ Telegram │  │   CLI    │  │  Web UI  │  │   TTY    │ │
+│  │ Handler  │  │ Handler  │  │ Handler  │  │ Manager  │ │
+│  └────┬─────┘  └────┬─────┘  └────┬─────┘  └────┬─────┘ │
+│       │             │             │              │        │
+│       └─────────────┼─────────────┼──────────────┘        │
+│                     ▼             │                        │
+│              ┌──────────┐   ┌────▼─────┐                  │
+│              │    DB    │   │ /api     │ ← POST JSON      │
+│              └──────────┘   │ /api/health│ ← GET           │
+│                             │ /*       │ ← SPA (embed)    │
+│                             └──────────┘                  │
+└──────────────────────────────────────────────────────────┘
+       ▲              ▲              ▲
+       │ 메시지        │ HTTP         │ HTTP (브라우저)
+  [Telegram]     [clari CLI]     [Web UI]
 ```
 
 ### 컴포넌트
 
 | 컴포넌트 | 역할 | 실행 |
 |----------|------|------|
-| claribot | Telegram + CLI 핸들러 + TTY 관리 | systemctl 서비스 |
+| claribot | Telegram + CLI + WebUI 핸들러 + TTY 관리 | systemctl 서비스 |
 | clari CLI | 서비스에 HTTP 요청 | 일시 실행 |
+| Web UI | 브라우저 기반 대시보드 (Go embed) | 127.0.0.1:9847 |
 | Claude Code (전역) | ~/.claribot/에서 실행, 라우터 | TTY → kill |
 | Claude Code (프로젝트) | 프로젝트 폴더에서 실행, 실제 작업 | TTY → kill |
 
@@ -68,6 +71,15 @@ claribot/
 ├── deploy/
 │   ├── claribot.service.template
 │   └── config.example.yaml
+├── gui/                          # Web UI (React + TypeScript + Vite)
+│   ├── src/
+│   │   ├── components/           # Layout, UI 컴포넌트
+│   │   ├── pages/                # Dashboard, Projects, Tasks, Messages, Schedules, Settings
+│   │   ├── hooks/                # 커스텀 훅 (TanStack Query)
+│   │   ├── api/                  # API 클라이언트
+│   │   └── types/                # TypeScript 타입
+│   ├── package.json
+│   └── vite.config.ts
 ├── bot/
 │   ├── cmd/claribot/main.go
 │   ├── internal/
@@ -80,7 +92,8 @@ claribot/
 │   │   ├── schedule/
 │   │   ├── edge/
 │   │   ├── prompts/
-│   │   └── tghandler/
+│   │   ├── tghandler/
+│   │   └── webui/                # Go embed + 정적 파일 서빙
 │   └── pkg/
 │       ├── claude/
 │       ├── telegram/
@@ -264,7 +277,22 @@ claribot
 - [x] Schedule 시스템 (cron 기반)
 - [x] 스케줄 실행 결과 텔레그램 알림
 - [x] Message 전역 실행 지원
+- [x] Web UI (React + shadcn/ui, Go embed)
+- [x] API 엔드포인트 분리 (`/api`, `/api/health`)
+- [x] CORS 미들웨어 (개발용)
+- [x] SPA fallback 라우팅
 
 ---
 
-*Claribot v0.2.19*
+## HTTP 엔드포인트
+
+| 엔드포인트 | 메서드 | 용도 |
+|-----------|--------|------|
+| `POST /` | POST | CLI 하위 호환 (기존) |
+| `POST /api` | POST | 커맨드 실행 (Web UI) |
+| `GET /api/health` | GET | 서비스 헬스체크 (version, uptime, claude) |
+| `GET /*` | GET | Web UI 정적 파일 서빙 (SPA fallback) |
+
+---
+
+*Claribot v0.2.21*

@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -88,8 +90,13 @@ func planRecursive(localDB *db.DB, projectPath string, t *Task) types.Result {
 		}
 	}
 
-	// Build prompt
-	prompt := BuildPlanPrompt(t, relatedTasks)
+	// Build report path
+	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("task-plan-%d-report.md", t.ID))
+	// Ensure .claribot directory exists
+	os.MkdirAll(filepath.Dir(reportPath), 0755)
+
+	// Build prompt with report path
+	prompt := BuildPlanPrompt(t, relatedTasks, reportPath)
 
 	// Add force leaf instruction if at max depth
 	if forceLeaf {
@@ -100,6 +107,7 @@ func planRecursive(localDB *db.DB, projectPath string, t *Task) types.Result {
 	opts := claude.Options{
 		UserPrompt: prompt,
 		WorkDir:    projectPath,
+		ReportPath: reportPath,
 	}
 
 	result, err := claude.Run(opts)

@@ -1,9 +1,13 @@
 package schedule
 
 import (
+	"bytes"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 	"sync"
+	"text/template"
 	"time"
 
 	"github.com/robfig/cron/v3"
@@ -209,18 +213,25 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 		projectPath = project.DefaultPath
 	}
 
-	// Load system prompt
+	// Build report path
+	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("schedule-%d-report.md", runID))
+	// Ensure .claribot directory exists
+	os.MkdirAll(filepath.Dir(reportPath), 0755)
+
+	// Load system prompt and render with ReportPath
 	systemPrompt, err := prompts.Get(prompts.Common, "schedule")
 	if err != nil {
 		log.Printf("Scheduler: 시스템 프롬프트 로드 실패: %v", err)
 		systemPrompt = ""
 	}
+	systemPrompt = renderSchedulePrompt(systemPrompt, reportPath)
 
 	// Execute Claude Code
 	opts := claude.Options{
 		UserPrompt:   msg,
 		SystemPrompt: systemPrompt,
 		WorkDir:      projectPath,
+		ReportPath:   reportPath,
 	}
 
 	claudeResult, claudeErr := claude.Run(opts)
@@ -331,6 +342,22 @@ func parseTime(s string) time.Time {
 		return time.Now()
 	}
 	return t
+}
+
+// renderSchedulePrompt renders a prompt template with ReportPath
+func renderSchedulePrompt(tmplStr, reportPath string) string {
+	type PromptData struct {
+		ReportPath string
+	}
+	tmpl, err := template.New("schedule").Parse(tmplStr)
+	if err != nil {
+		return tmplStr
+	}
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, PromptData{ReportPath: reportPath}); err != nil {
+		return tmplStr
+	}
+	return buf.String()
 }
 
 // JobCount returns the number of registered jobs

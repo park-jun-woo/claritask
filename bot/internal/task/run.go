@@ -4,6 +4,8 @@ import (
 	"database/sql"
 	"fmt"
 	"log"
+	"os"
+	"path/filepath"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -79,13 +81,19 @@ func Run(projectPath, id string) types.Result {
 		}
 	}
 
-	// Build prompt
-	prompt := BuildExecutePrompt(&t, relatedTasks)
+	// Build report path
+	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("task-run-%d-report.md", t.ID))
+	// Ensure .claribot directory exists
+	os.MkdirAll(filepath.Dir(reportPath), 0755)
+
+	// Build prompt with report path
+	prompt := BuildExecutePrompt(&t, relatedTasks, reportPath)
 
 	// Run Claude Code
 	opts := claude.Options{
 		UserPrompt: prompt,
 		WorkDir:    projectPath,
+		ReportPath: reportPath,
 	}
 
 	result, err := claude.Run(opts)

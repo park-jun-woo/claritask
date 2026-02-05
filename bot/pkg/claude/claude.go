@@ -8,8 +8,10 @@ import (
 	"os"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/creack/pty"
 )
@@ -19,15 +21,17 @@ var ansiEscapePattern = regexp.MustCompile(`\x1b\[[0-9;?]*[a-zA-Z]|\x1b\][^\x07]
 
 // Config holds global Claude Code execution settings
 type Config struct {
-	Timeout time.Duration // idle timeout (no output)
-	Max     int           // max concurrent instances
+	Timeout    time.Duration // idle timeout (no output)
+	MaxTimeout time.Duration // absolute timeout (total execution time)
+	Max        int           // max concurrent instances
 }
 
 // DefaultConfig returns default configuration
 func DefaultConfig() Config {
 	return Config{
-		Timeout: 1200 * time.Second, // 20 minutes
-		Max:     3,
+		Timeout:    1200 * time.Second, // 20 minutes idle
+		MaxTimeout: 1800 * time.Second, // 30 minutes absolute
+		Max:        3,
 	}
 }
 
@@ -117,6 +121,7 @@ type Options struct {
 	WorkDir      string        // working directory
 	Timeout      time.Duration // override idle timeout (0 = use config)
 	AllowedTools []string      // optional: limit available tools
+	ReportPath   string        // optional: report file path for completion detection
 }
 
 // Run executes Claude Code with PTY and returns the result
@@ -150,9 +155,18 @@ func (m *Manager) Run(ctx context.Context, opts Options) (*Result, error) {
 	return m.execute(ctx, opts)
 }
 
-// execute runs Claude Code with PTY and idle timeout
+// execute runs Claude Code with PTY and idle timeout + absolute timeout
 func (m *Manager) execute(ctx context.Context, opts Options) (*Result, error) {
 	args := buildArgs(opts)
+
+	// Apply absolute timeout to prevent infinite execution
+	absTimeout := m.config.MaxTimeout
+	if absTimeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, absTimeout)
+		defer cancel()
+		log.Printf("[Claude] Absolute timeout set: %v", absTimeout)
+	}
 
 	cmd := exec.CommandContext(ctx, "claude", args...)
 	if opts.WorkDir != "" {
@@ -170,6 +184,11 @@ func (m *Manager) execute(ctx context.Context, opts Options) (*Result, error) {
 	idleTimeout := m.config.Timeout
 	if opts.Timeout > 0 {
 		idleTimeout = opts.Timeout
+	}
+
+	// If ReportPath is set, watch for the report file
+	if opts.ReportPath != "" {
+		return m.executeWithReportWatch(ctx, ptmx, cmd, opts.ReportPath, idleTimeout)
 	}
 
 	// Read output with idle timeout
@@ -212,6 +231,121 @@ func (m *Manager) execute(ctx context.Context, opts Options) (*Result, error) {
 		Output:   stripANSI(output),
 		ExitCode: exitCode,
 	}, nil
+}
+
+// executeWithReportWatch runs Claude and watches for a report file to detect completion.
+// When the report file is created, it reads the file content, kills the Claude process, and returns.
+func (m *Manager) executeWithReportWatch(ctx context.Context, ptmx *os.File, cmd *exec.Cmd, reportPath string, idleTimeout time.Duration) (*Result, error) {
+	log.Printf("[Claude] Watching for report file: %s", reportPath)
+
+	// Remove report file if it exists from previous run
+	os.Remove(reportPath)
+
+	// Start reading PTY output in background (to keep PTY alive)
+	var output bytes.Buffer
+	ptyDone := make(chan error, 1)
+	go func() {
+		buf := make([]byte, 4096)
+		for {
+			ptmx.SetReadDeadline(time.Now().Add(idleTimeout))
+			n, err := ptmx.Read(buf)
+			if n > 0 {
+				output.Write(buf[:n])
+			}
+			if err != nil {
+				if os.IsTimeout(err) {
+					cmd.Process.Kill()
+					ptyDone <- fmt.Errorf("idle timeout: no output for %v", idleTimeout)
+					return
+				}
+				ptyDone <- nil
+				return
+			}
+		}
+	}()
+
+	// Watch for report file
+	reportCh := make(chan string, 1)
+	stopWatch := make(chan struct{})
+	go func() {
+		ticker := time.NewTicker(1 * time.Second)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ticker.C:
+				if data, err := os.ReadFile(reportPath); err == nil && len(data) > 0 {
+					reportCh <- string(data)
+					return
+				}
+			case <-stopWatch:
+				return
+			}
+		}
+	}()
+
+	// Wait for: report file, process exit, or context cancellation
+	select {
+	case reportContent := <-reportCh:
+		close(stopWatch)
+		log.Printf("[Claude] Report file detected: %s (%d bytes)", reportPath, len(reportContent))
+		// Give Claude a moment to finish writing
+		time.Sleep(500 * time.Millisecond)
+		// Re-read to ensure complete content
+		if data, err := os.ReadFile(reportPath); err == nil && len(data) > 0 {
+			reportContent = string(data)
+		}
+		// Kill the process
+		cmd.Process.Kill()
+		cmd.Wait()
+		return &Result{
+			Output:   reportContent,
+			ExitCode: 0,
+		}, nil
+
+	case err := <-ptyDone:
+		close(stopWatch)
+		if err != nil {
+			return nil, err
+		}
+		// Process ended - check if report file was created
+		if data, readErr := os.ReadFile(reportPath); readErr == nil && len(data) > 0 {
+			log.Printf("[Claude] Report file found after process exit: %s", reportPath)
+			return &Result{
+				Output:   string(data),
+				ExitCode: 0,
+			}, nil
+		}
+		// No report file - fall back to PTY output
+		log.Printf("[Claude] No report file, using PTY output")
+
+		// Wait for cmd exit
+		waitDone := make(chan error, 1)
+		go func() { waitDone <- cmd.Wait() }()
+		var waitErr error
+		select {
+		case waitErr = <-waitDone:
+		case <-time.After(10 * time.Second):
+			cmd.Process.Kill()
+			<-waitDone
+			waitErr = fmt.Errorf("wait timeout")
+		}
+		exitCode := 0
+		if waitErr != nil {
+			if exitErr, ok := waitErr.(*exec.ExitError); ok {
+				exitCode = exitErr.ExitCode()
+			}
+		}
+		return &Result{
+			Output:   stripANSI(output.String()),
+			ExitCode: exitCode,
+		}, nil
+
+	case <-ctx.Done():
+		close(stopWatch)
+		cmd.Process.Kill()
+		cmd.Wait()
+		return nil, fmt.Errorf("execution cancelled: %w", ctx.Err())
+	}
 }
 
 // readWithIdleTimeout reads from PTY with idle timeout
@@ -424,9 +558,29 @@ func (s *Session) Close() error {
 	return err
 }
 
-// stripANSI removes ANSI escape sequences from output
+// stripANSI removes ANSI escape sequences and ensures valid UTF-8 output
 func stripANSI(s string) string {
-	return ansiEscapePattern.ReplaceAllString(s, "")
+	// Remove ANSI escape sequences
+	s = ansiEscapePattern.ReplaceAllString(s, "")
+
+	// Remove other common PTY control characters (ESC, BEL, etc.)
+	s = strings.Map(func(r rune) rune {
+		if r == '\n' || r == '\r' || r == '\t' {
+			return r // keep standard whitespace
+		}
+		if r < 0x20 && r != '\n' && r != '\r' && r != '\t' {
+			return -1 // remove control characters
+		}
+		if r == utf8.RuneError {
+			return -1 // remove invalid runes
+		}
+		return r
+	}, s)
+
+	// Force valid UTF-8 encoding (remove any remaining invalid bytes)
+	s = strings.ToValidUTF8(s, "")
+
+	return s
 }
 
 // buildArgs constructs command line arguments for print mode

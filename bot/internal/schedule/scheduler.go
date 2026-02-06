@@ -269,7 +269,7 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 			return
 		}
 
-		systemPrompt, err := prompts.Get(prompts.Common, "schedule")
+		systemPrompt, err := prompts.Get("schedule")
 		if err != nil {
 			log.Printf("Scheduler: 시스템 프롬프트 로드 실패: %v", err)
 			systemPrompt = ""

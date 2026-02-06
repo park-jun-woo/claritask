@@ -1,8 +1,9 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules } from '@/hooks/useClaribot'
+import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules, useTaskCycle } from '@/hooks/useClaribot'
 import { useNavigate } from 'react-router-dom'
-import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw } from 'lucide-react'
+import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw, Pencil, ListTodo, Play } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import type { ProjectStats, StatusResponse } from '@/types'
 
 export default function Dashboard() {
@@ -11,6 +12,7 @@ export default function Dashboard() {
   const { data: messagesData } = useMessages()
   const { data: schedulesData } = useSchedules()
   const switchProject = useSwitchProject()
+  const taskCycle = useTaskCycle()
   const navigate = useNavigate()
 
   // Parse status
@@ -147,6 +149,9 @@ export default function Dashboard() {
                         {s.total} tasks
                       </Badge>
                     </CardTitle>
+                    {p.project_description && (
+                      <p className="text-xs text-muted-foreground truncate">{p.project_description}</p>
+                    )}
                   </CardHeader>
                   <CardContent className="space-y-3">
                     {/* Status counts */}
@@ -158,21 +163,72 @@ export default function Dashboard() {
                       {s.failed > 0 && <Badge variant="destructive">{s.failed} failed</Badge>}
                     </div>
 
-                    {/* Stacked status bar */}
-                    {s.total > 0 && (
+                    {/* Stacked status bar (leaf tasks only) */}
+                    {leafTotal > 0 && (
                       <div className="h-2 rounded-full bg-secondary flex overflow-hidden">
-                        {s.done > 0 && <div className="bg-green-400 h-full" style={{ width: `${(s.done / s.total) * 100}%` }} />}
-                        {s.planned > 0 && <div className="bg-yellow-400 h-full" style={{ width: `${(s.planned / s.total) * 100}%` }} />}
-                        {s.todo > 0 && <div className="bg-gray-400 h-full" style={{ width: `${(s.todo / s.total) * 100}%` }} />}
-                        {s.split > 0 && <div className="bg-blue-400 h-full" style={{ width: `${(s.split / s.total) * 100}%` }} />}
-                        {s.failed > 0 && <div className="bg-red-400 h-full" style={{ width: `${(s.failed / s.total) * 100}%` }} />}
+                        {s.done > 0 && <div className="bg-green-400 h-full" style={{ width: `${(s.done / leafTotal) * 100}%` }} />}
+                        {s.planned > 0 && <div className="bg-yellow-400 h-full" style={{ width: `${(s.planned / leafTotal) * 100}%` }} />}
+                        {s.todo > 0 && <div className="bg-gray-400 h-full" style={{ width: `${(s.todo / leafTotal) * 100}%` }} />}
+                        {s.failed > 0 && <div className="bg-red-400 h-full" style={{ width: `${(s.failed / leafTotal) * 100}%` }} />}
                       </div>
                     )}
 
-                    {/* Progress */}
-                    <div className="flex justify-between text-xs text-muted-foreground">
-                      <span>done/leaf: {leafDone}/{leafTotal}</span>
-                      <span>{progress}%</span>
+                    {/* Progress bar (leaf-based) */}
+                    <div className="space-y-1">
+                      <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
+                        <div
+                          className="h-full bg-primary transition-all"
+                          style={{ width: `${progress}%` }}
+                        />
+                      </div>
+                      <div className="flex justify-between text-xs text-muted-foreground">
+                        <span>Done/Task: {leafDone}/{leafTotal}</span>
+                        <span>{progress}%</span>
+                      </div>
+                    </div>
+
+                    {/* Action buttons */}
+                    <div className="flex gap-2 pt-1">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-8 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          switchProject.mutate(p.project_id, {
+                            onSuccess: () => navigate('/tasks'),
+                          })
+                        }}
+                      >
+                        <ListTodo className="h-3 w-3 mr-1" />
+                        Tasks
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-8 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          switchProject.mutate(p.project_id, {
+                            onSuccess: () => taskCycle.mutate(),
+                          })
+                        }}
+                      >
+                        <Play className="h-3 w-3 mr-1" />
+                        Cycle
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-8 text-xs"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          navigate(`/projects/${p.project_id}/edit`)
+                        }}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" />
+                        Edit
+                      </Button>
                     </div>
                   </CardContent>
                 </Card>

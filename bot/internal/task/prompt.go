@@ -24,7 +24,7 @@ type PlanPromptData struct {
 // BuildPlanPrompt builds prompt for Plan generation (1회차 순회)
 func BuildPlanPrompt(t *Task, contextMap string, reportPath string) string {
 	// Load template from prompts
-	tmplContent, err := prompts.Get(prompts.Common, "task")
+	tmplContent, err := prompts.Get("task")
 	if err != nil {
 		// Fallback to simple prompt if template not found
 		return buildSimplePlanPrompt(t, contextMap)
@@ -91,7 +91,7 @@ type ExecutePromptData struct {
 // BuildExecutePrompt builds prompt for execution (2회차 순회)
 func BuildExecutePrompt(t *Task, contextMap string, reportPath string) string {
 	// Load template from prompts
-	tmplContent, err := prompts.Get(prompts.Common, "task_run")
+	tmplContent, err := prompts.Get("task_run")
 	if err != nil {
 		// Fallback to simple prompt if template not found
 		return buildSimpleExecutePrompt(t, contextMap, reportPath)

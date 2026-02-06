@@ -98,6 +98,7 @@ export interface TaskStats {
 export interface ProjectStats {
   project_id: string
   project_name: string
+  project_description: string
   stats: TaskStats & { in_progress: number }
 }
 

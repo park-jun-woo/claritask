@@ -191,3 +191,43 @@ func (c *Config) GetLogFilePath() string {
 	}
 	return c.Log.File
 }
+
+// ReadRaw reads the raw config.yaml content
+func ReadRaw() (string, error) {
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return "", fmt.Errorf("get home directory: %w", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".claribot", "config.yaml")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", nil
+		}
+		return "", fmt.Errorf("read config file: %w", err)
+	}
+
+	return string(data), nil
+}
+
+// WriteRaw writes raw content to config.yaml
+func WriteRaw(content string) error {
+	// Validate YAML syntax first
+	var test map[string]interface{}
+	if err := yaml.Unmarshal([]byte(content), &test); err != nil {
+		return fmt.Errorf("invalid YAML syntax: %w", err)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		return fmt.Errorf("get home directory: %w", err)
+	}
+
+	configPath := filepath.Join(homeDir, ".claribot", "config.yaml")
+	if err := os.WriteFile(configPath, []byte(content), 0644); err != nil {
+		return fmt.Errorf("write config file: %w", err)
+	}
+
+	return nil
+}

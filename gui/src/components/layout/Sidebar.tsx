@@ -19,9 +19,9 @@ interface SidebarProps {
 
 export const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
+  { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
-  { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/schedules', icon: Clock, label: 'Schedules' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]

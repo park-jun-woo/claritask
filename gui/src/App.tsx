@@ -3,6 +3,7 @@ import { Layout } from '@/components/layout/Layout'
 import { useAuthStatus } from '@/hooks/useAuth'
 import Dashboard from '@/pages/Dashboard'
 import Projects from '@/pages/Projects'
+import ProjectEdit from '@/pages/ProjectEdit'
 import Tasks from '@/pages/Tasks'
 import Messages from '@/pages/Messages'
 import Schedules from '@/pages/Schedules'
@@ -59,6 +60,7 @@ export default function App() {
       >
         <Route index element={<Dashboard />} />
         <Route path="projects" element={<Projects />} />
+        <Route path="projects/:id/edit" element={<ProjectEdit />} />
         <Route path="tasks" element={<Tasks />} />
         <Route path="messages" element={<Messages />} />
         <Route path="schedules" element={<Schedules />} />

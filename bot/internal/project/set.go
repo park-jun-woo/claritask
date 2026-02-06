@@ -22,8 +22,38 @@ func Set(id, field, value string) types.Result {
 	switch field {
 	case "parallel":
 		return setParallel(id, value)
+	case "description":
+		return setDescription(id, value)
 	default:
-		return types.Result{Success: false, Message: fmt.Sprintf("알 수 없는 필드: %s (지원: parallel)", field)}
+		return types.Result{Success: false, Message: fmt.Sprintf("알 수 없는 필드: %s (지원: parallel, description)", field)}
+	}
+}
+
+// setDescription sets the description of a project
+func setDescription(id, value string) types.Result {
+	globalDB, err := db.OpenGlobal()
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("전역 DB 열기 실패: %v", err)}
+	}
+	defer globalDB.Close()
+
+	now := db.TimeNow()
+	result, err := globalDB.Exec(
+		"UPDATE projects SET description = ?, updated_at = ? WHERE id = ?",
+		value, now, id,
+	)
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("설명 저장 실패: %v", err)}
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return types.Result{Success: false, Message: fmt.Sprintf("프로젝트를 찾을 수 없습니다: %s", id)}
+	}
+
+	return types.Result{
+		Success: true,
+		Message: fmt.Sprintf("✅ 프로젝트 '%s' description 업데이트됨", id),
 	}
 }
 

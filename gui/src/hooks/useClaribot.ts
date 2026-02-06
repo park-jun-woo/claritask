@@ -72,6 +72,19 @@ export function useDeleteProject() {
   })
 }
 
+export function useUpdateProject() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: ({ id, data }: { id: string; data: { description?: string; parallel?: number } }) =>
+      projectAPI.update(id, data),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['projects'] })
+      qc.invalidateQueries({ queryKey: ['project'] })
+      qc.invalidateQueries({ queryKey: ['projectStats'] })
+    },
+  })
+}
+
 // --- Tasks ---
 export function useTasks(all = true) {
   return useQuery({

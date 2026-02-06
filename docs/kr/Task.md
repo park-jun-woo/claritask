@@ -182,7 +182,7 @@ CREATE INDEX idx_tasks_leaf ON tasks(is_leaf);
 
 1회차 순회 시 Claude에게 주입되는 프롬프트:
 
-`bot/internal/prompts/dev.platform/task.md`
+`bot/internal/prompts/common/task.md`
 
 ---
 

@@ -74,7 +74,7 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 	contextMap := BuildContextMap(globalDB, projectPath, projectID)
 
 	// Get system prompt template and render with ReportPath and ContextMap
-	systemPrompt, err := prompts.Get(prompts.Common, "message")
+	systemPrompt, err := prompts.Get("message")
 	if err != nil {
 		systemPrompt = defaultSystemPrompt()
 	}

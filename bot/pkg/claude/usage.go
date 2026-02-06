@@ -1,11 +1,16 @@
 package claude
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
+	"time"
 )
 
 // StatsCache represents the structure of ~/.claude/stats-cache.json
@@ -152,3 +157,135 @@ func formatTokenCount(count int) string {
 	}
 	return fmt.Sprintf("%d", count)
 }
+
+// usageCachePath returns the path to the usage cache file
+func usageCachePath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claribot", "claude-usage.txt")
+}
+
+// usageRefreshMu prevents concurrent refresh operations
+var usageRefreshMu sync.Mutex
+var usageRefreshInProgress bool
+
+// GetUsageLive reads the cached usage from ~/.claribot/claude-usage.txt
+// Returns the content and the file modification time
+func GetUsageLive() (content string, updatedAt time.Time, err error) {
+	path := usageCachePath()
+	info, err := os.Stat(path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return "", time.Time{}, nil // No cache yet
+		}
+		return "", time.Time{}, err
+	}
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", time.Time{}, err
+	}
+
+	return string(data), info.ModTime(), nil
+}
+
+// RefreshUsageLive runs /usage via PTY and caches the result
+// Returns immediately if refresh is already in progress
+func RefreshUsageLive() error {
+	usageRefreshMu.Lock()
+	if usageRefreshInProgress {
+		usageRefreshMu.Unlock()
+		return fmt.Errorf("refresh already in progress")
+	}
+	usageRefreshInProgress = true
+	usageRefreshMu.Unlock()
+
+	defer func() {
+		usageRefreshMu.Lock()
+		usageRefreshInProgress = false
+		usageRefreshMu.Unlock()
+	}()
+
+	log.Printf("[Claude] Starting /usage refresh via PTY")
+
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+
+	// Start interactive session
+	session, err := StartSessionContext(ctx, Options{})
+	if err != nil {
+		return fmt.Errorf("failed to start session: %w", err)
+	}
+	defer session.Close()
+
+	buf := make([]byte, 8192)
+
+	// Wait for Claude to initialize and read initial output
+	log.Printf("[Claude] Waiting for session initialization...")
+	time.Sleep(3 * time.Second)
+
+	// Drain initial output
+	for i := 0; i < 5; i++ {
+		session.pty.SetReadDeadline(time.Now().Add(500 * time.Millisecond))
+		session.pty.Read(buf)
+	}
+
+	// Send /usage command
+	log.Printf("[Claude] Sending /usage command")
+	_, err = session.pty.Write([]byte("/usage\n"))
+	if err != nil {
+		return fmt.Errorf("failed to send /usage: %w", err)
+	}
+
+	// Read response - wait for output then continue until idle
+	var output bytes.Buffer
+	consecutiveTimeouts := 0
+	maxTimeouts := 3
+
+	for consecutiveTimeouts < maxTimeouts {
+		session.pty.SetReadDeadline(time.Now().Add(3 * time.Second))
+		n, err := session.pty.Read(buf)
+		if n > 0 {
+			output.Write(buf[:n])
+			consecutiveTimeouts = 0 // Reset on data received
+			log.Printf("[Claude] Read %d bytes, total %d", n, output.Len())
+		}
+		if err != nil {
+			consecutiveTimeouts++
+			log.Printf("[Claude] Read timeout %d/%d", consecutiveTimeouts, maxTimeouts)
+		}
+	}
+
+	result := stripANSI(output.String())
+
+	// Clean up the output - remove echo of command if present
+	if idx := strings.Index(result, "/usage"); idx >= 0 {
+		result = result[idx+6:] // Skip "/usage"
+	}
+	result = strings.TrimSpace(result)
+
+	if result == "" {
+		return fmt.Errorf("empty response from /usage")
+	}
+
+	// Save to cache file
+	path := usageCachePath()
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		return fmt.Errorf("failed to create cache dir: %w", err)
+	}
+	if err := os.WriteFile(path, []byte(result), 0644); err != nil {
+		return fmt.Errorf("failed to write cache: %w", err)
+	}
+
+	log.Printf("[Claude] /usage refresh completed (%d bytes)", len(result))
+	return nil
+}
+
+// RefreshUsageLiveAsync runs RefreshUsageLive in background
+func RefreshUsageLiveAsync() {
+	go func() {
+		if err := RefreshUsageLive(); err != nil {
+			log.Printf("[Claude] /usage refresh failed: %v", err)
+		}
+	}()
+}
+

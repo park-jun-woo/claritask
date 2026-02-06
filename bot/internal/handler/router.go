@@ -616,7 +616,6 @@ func (r *Router) handleUsage() types.Result {
 	return types.Result{
 		Success: true,
 		Message: claude.FormatUsage(stats),
-		Data:    stats,
 	}
 }
 

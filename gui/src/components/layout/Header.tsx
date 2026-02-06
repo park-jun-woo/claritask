@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, useLocation } from 'react-router-dom'
+import { NavLink, Link, useLocation } from 'react-router-dom'
 import { Layers, ChevronDown, Wifi, WifiOff, Menu, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
@@ -25,7 +25,7 @@ export function Header() {
   const logout = useLogout()
 
   // Parse current project from status message (📌 project-id — ...)
-  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || '(none)'
+  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
   const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
   const claudeUsed = claudeInfo?.[1] || '0'
   const claudeMax = claudeInfo?.[2] || '3'
@@ -92,10 +92,10 @@ export function Header() {
         </Sheet>
 
         {/* Logo */}
-        <div className="flex items-center gap-2 font-bold text-lg">
+        <Link to="/" className="flex items-center gap-2 font-bold text-lg hover:opacity-80 transition-opacity">
           <Layers className="h-6 w-6 text-primary" />
           <span className="hidden sm:inline">Claribot</span>
-        </div>
+        </Link>
 
         {/* Project Selector */}
         <div className="relative ml-2 md:ml-4" onClick={e => e.stopPropagation()}>
@@ -114,7 +114,7 @@ export function Header() {
                 className="w-full text-left px-2 py-2.5 text-sm rounded-sm hover:bg-accent"
                 onClick={() => handleSwitch('none')}
               >
-                (global)
+                GLOBAL
               </button>
               {projectList.map(p => (
                 <button

@@ -68,6 +68,27 @@ export async function health(): Promise<{ version: string; uptime: number }> {
   return apiGet<{ version: string; uptime: number }>('/health')
 }
 
+// --- Config YAML API ---
+
+export const configYamlAPI = {
+  get: () => apiGet('/config-yaml'),
+  set: (content: string) => apiPut('/config-yaml', { content }),
+}
+
+// --- Usage API ---
+
+export interface UsageData {
+  success: boolean
+  message: string      // stats-cache.json 기반 통계
+  live?: string        // PTY /usage 결과 (rate limit)
+  updated_at?: string  // live 데이터 마지막 업데이트 시간
+}
+
+export const usageAPI = {
+  get: () => apiGet<UsageData>('/usage'),
+  refresh: () => apiPost('/usage/refresh'),
+}
+
 // --- Project API ---
 
 export const projectAPI = {
@@ -87,6 +108,8 @@ export const projectAPI = {
     apiPost('/projects/none/switch'),
   set: (id: string, field: string, value: string) =>
     apiPatch(`/projects/${id}`, { field, value }),
+  update: (id: string, data: { description?: string; parallel?: number }) =>
+    apiPatch(`/projects/${id}`, data),
   stats: () =>
     apiGet('/projects/stats'),
 }

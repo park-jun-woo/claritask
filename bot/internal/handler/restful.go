@@ -66,9 +66,10 @@ func (r *Router) parsePage(req *http.Request) (int, int) {
 
 // ProjectStats represents task statistics for a single project
 type ProjectStats struct {
-	ProjectID   string     `json:"project_id"`
-	ProjectName string     `json:"project_name"`
-	Stats       *task.Stats `json:"stats"`
+	ProjectID          string      `json:"project_id"`
+	ProjectName        string      `json:"project_name"`
+	ProjectDescription string      `json:"project_description"`
+	Stats              *task.Stats `json:"stats"`
 }
 
 // HandleProjectsStats handles GET /api/projects/stats
@@ -87,9 +88,10 @@ func (r *Router) HandleProjectsStats(w http.ResponseWriter, req *http.Request) {
 			stats = &task.Stats{}
 		}
 		result = append(result, ProjectStats{
-			ProjectID:   p.ID,
-			ProjectName: p.Name,
-			Stats:       stats,
+			ProjectID:          p.ID,
+			ProjectName:        p.Name,
+			ProjectDescription: p.Description,
+			Stats:              stats,
 		})
 	}
 
@@ -189,6 +191,9 @@ func (r *Router) HandleSwitchProject(w http.ResponseWriter, req *http.Request) {
 }
 
 // HandleSetProject handles PATCH /api/projects/{id}
+// Supports two formats:
+// 1. Single field: {"field": "parallel", "value": "2"}
+// 2. Multiple fields: {"description": "...", "parallel": 2}
 func (r *Router) HandleSetProject(w http.ResponseWriter, req *http.Request) {
 	id := req.PathValue("id")
 	if id == "" {
@@ -196,18 +201,63 @@ func (r *Router) HandleSetProject(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 	var body struct {
+		// Single field format
 		Field string `json:"field"`
 		Value string `json:"value"`
+		// Multiple fields format
+		Description *string `json:"description"`
+		Parallel    *int    `json:"parallel"`
 	}
 	if err := decodeBody(req, &body); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if body.Field == "" {
-		writeError(w, http.StatusBadRequest, "field required")
+
+	// Handle single field format
+	if body.Field != "" {
+		writeResult(w, project.Set(id, body.Field, body.Value))
 		return
 	}
-	writeResult(w, project.Set(id, body.Field, body.Value))
+
+	// Handle multiple fields format
+	var results []string
+	var lastErr error
+
+	if body.Description != nil {
+		result := project.Set(id, "description", *body.Description)
+		if !result.Success {
+			lastErr = fmt.Errorf("%s", result.Message)
+		} else {
+			results = append(results, "description")
+		}
+	}
+
+	if body.Parallel != nil {
+		result := project.Set(id, "parallel", fmt.Sprintf("%d", *body.Parallel))
+		if !result.Success {
+			lastErr = fmt.Errorf("%s", result.Message)
+		} else {
+			results = append(results, "parallel")
+		}
+	}
+
+	if len(results) == 0 && lastErr == nil {
+		writeError(w, http.StatusBadRequest, "no fields to update")
+		return
+	}
+
+	if lastErr != nil {
+		writeJSON(w, http.StatusBadRequest, types.Result{
+			Success: false,
+			Message: lastErr.Error(),
+		})
+		return
+	}
+
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Message: fmt.Sprintf("Updated: %v", results),
+	})
 }
 
 // --- Task handlers ---
@@ -521,6 +571,38 @@ func (r *Router) HandleDeleteConfig(w http.ResponseWriter, req *http.Request) {
 	writeResult(w, config.DeleteDBConfig(key, true))
 }
 
+// HandleGetConfigYaml handles GET /api/config-yaml
+func (r *Router) HandleGetConfigYaml(w http.ResponseWriter, req *http.Request) {
+	content, err := config.ReadRaw()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Data:    content,
+	})
+}
+
+// HandleSetConfigYaml handles PUT /api/config-yaml
+func (r *Router) HandleSetConfigYaml(w http.ResponseWriter, req *http.Request) {
+	var body struct {
+		Content string `json:"content"`
+	}
+	if err := decodeBody(req, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := config.WriteRaw(body.Content); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Message: "Config saved. Restart claribot to apply changes.",
+	})
+}
+
 // --- Schedule handlers ---
 
 // HandleListSchedules handles GET /api/schedules
@@ -662,17 +744,45 @@ func (r *Router) HandleScheduleRunDetail(w http.ResponseWriter, req *http.Reques
 
 // --- Usage handler ---
 
+// UsageResponse represents the usage API response
+type UsageResponse struct {
+	Success   bool   `json:"success"`
+	Message   string `json:"message"`
+	Live      string `json:"live,omitempty"`       // Real-time rate limit from /usage
+	UpdatedAt string `json:"updated_at,omitempty"` // When live data was last fetched
+}
+
 // HandleGetUsage handles GET /api/usage
 func (r *Router) HandleGetUsage(w http.ResponseWriter, req *http.Request) {
+	// Get stats from stats-cache.json
 	stats, err := claude.GetUsage()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, fmt.Sprintf("사용량 조회 실패: %v", err))
-		return
+	var statsOutput string
+	if err == nil {
+		statsOutput = claude.FormatUsage(stats)
 	}
-	writeJSON(w, http.StatusOK, types.Result{
+
+	// Get cached live usage from ~/.claribot/claude-usage.txt
+	liveOutput, updatedAt, _ := claude.GetUsageLive()
+
+	resp := UsageResponse{
 		Success: true,
-		Message: claude.FormatUsage(stats),
-		Data:    stats,
+		Message: statsOutput,
+		Live:    liveOutput,
+	}
+	if !updatedAt.IsZero() {
+		resp.UpdatedAt = updatedAt.Format(time.RFC3339)
+	}
+
+	writeJSON(w, http.StatusOK, resp)
+}
+
+// HandleRefreshUsage handles POST /api/usage/refresh
+func (r *Router) HandleRefreshUsage(w http.ResponseWriter, req *http.Request) {
+	// Trigger async refresh
+	claude.RefreshUsageLiveAsync()
+	writeJSON(w, http.StatusAccepted, types.Result{
+		Success: true,
+		Message: "Usage refresh started",
 	})
 }
 
@@ -766,6 +876,7 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	// Status & Usage
 	mux.HandleFunc("GET /api/status", r.HandleStatus)
 	mux.HandleFunc("GET /api/usage", r.HandleGetUsage)
+	mux.HandleFunc("POST /api/usage/refresh", r.HandleRefreshUsage)
 
 	// Projects - specific routes before parameterized
 	mux.HandleFunc("GET /api/projects/stats", r.HandleProjectsStats)
@@ -801,6 +912,10 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/configs/{key}", r.HandleGetConfig)
 	mux.HandleFunc("PUT /api/configs/{key}", r.HandleSetConfig)
 	mux.HandleFunc("DELETE /api/configs/{key}", r.HandleDeleteConfig)
+
+	// Config YAML (raw file)
+	mux.HandleFunc("GET /api/config-yaml", r.HandleGetConfigYaml)
+	mux.HandleFunc("PUT /api/config-yaml", r.HandleSetConfigYaml)
 
 	// Schedules
 	mux.HandleFunc("GET /api/schedules", r.HandleListSchedules)

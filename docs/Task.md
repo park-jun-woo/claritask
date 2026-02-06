@@ -182,7 +182,7 @@ CREATE INDEX idx_tasks_leaf ON tasks(is_leaf);
 
 Prompt injected to Claude during the 1st pass:
 
-`bot/internal/prompts/dev.platform/task.md`
+`bot/internal/prompts/common/task.md`
 
 ---
 

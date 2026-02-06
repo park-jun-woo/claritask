@@ -289,6 +289,30 @@ func (b *Bot) Send(chatID int64, text string) error {
 	})
 }
 
+// SendAndGetID sends a text message and returns the sent message ID
+func (b *Bot) SendAndGetID(chatID int64, text string) (int, error) {
+	text = sanitizeUTF8(text)
+	var messageID int
+	err := b.sendWithRetry(func() error {
+		msg := tgbotapi.NewMessage(chatID, text)
+		sent, err := b.api.Send(msg)
+		if err != nil {
+			return fmt.Errorf("send message: %w", err)
+		}
+		messageID = sent.MessageID
+		return nil
+	})
+	return messageID, err
+}
+
+// DeleteMessage deletes a message from a chat
+func (b *Bot) DeleteMessage(chatID int64, messageID int) {
+	del := tgbotapi.NewDeleteMessage(chatID, messageID)
+	if _, err := b.api.Request(del); err != nil {
+		log.Printf("[Telegram] 메시지 삭제 실패 (chatID: %d, msgID: %d): %v", chatID, messageID, err)
+	}
+}
+
 // SendWithButtons sends a message with inline buttons
 func (b *Bot) SendWithButtons(chatID int64, text string, buttons [][]Button) error {
 	rows := make([][]tgbotapi.InlineKeyboardButton, len(buttons))
@@ -366,8 +390,8 @@ func sanitizeUTF8(s string) string {
 }
 
 // SendReport sends markdown content as HTML message or HTML file based on length
-// < 500 chars: inline HTML message
-// >= 500 chars or has code blocks: HTML file attachment
+// < 2000 chars: inline HTML message
+// >= 2000 chars: HTML file attachment
 func (b *Bot) SendReport(chatID int64, markdown string) error {
 	// Ensure valid UTF-8 before any telegram API call
 	markdown = sanitizeUTF8(markdown)

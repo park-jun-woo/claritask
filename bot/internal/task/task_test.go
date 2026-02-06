@@ -57,8 +57,8 @@ func TestTaskAdd(t *testing.T) {
 		t.Errorf("Expected title 'Test Task', got '%s'", task.Title)
 	}
 
-	if task.Status != "spec_ready" {
-		t.Errorf("Expected status 'spec_ready', got '%s'", task.Status)
+	if task.Status != "todo" {
+		t.Errorf("Expected status 'todo', got '%s'", task.Status)
 	}
 
 	if task.Spec != "Test spec" {
@@ -153,7 +153,7 @@ func TestTaskSetStatus(t *testing.T) {
 	}
 
 	// Set valid status
-	result = Set(projectPath, "1", "status", "plan_ready")
+	result = Set(projectPath, "1", "status", "planned")
 	if !result.Success {
 		t.Errorf("Set status failed: %s", result.Message)
 	}
@@ -166,11 +166,9 @@ func TestBuildPlanPrompt(t *testing.T) {
 		Spec:  "Test specification",
 	}
 
-	related := []Task{
-		{ID: 2, Title: "Related Task", Spec: "Related spec"},
-	}
+	contextMap := "#1 [todo] Test Task\n#2 [todo] Related Task\n"
 
-	prompt := BuildPlanPrompt(task, related, "/tmp/test-report.md")
+	prompt := BuildPlanPrompt(task, contextMap, "/tmp/test-report.md")
 
 	if prompt == "" {
 		t.Error("Expected non-empty prompt")
@@ -185,9 +183,9 @@ func TestBuildPlanPrompt(t *testing.T) {
 		t.Error("Prompt should contain task spec")
 	}
 
-	// Check contains related info
-	if !contains(prompt, "Related Task") {
-		t.Error("Prompt should contain related task title")
+	// Check contains context map
+	if !contains(prompt, "Context Map") {
+		t.Error("Prompt should contain Context Map section")
 	}
 }
 
@@ -198,11 +196,9 @@ func TestBuildExecutePrompt(t *testing.T) {
 		Plan:  "Test plan",
 	}
 
-	related := []Task{
-		{ID: 2, Title: "Related Task", Plan: "Related plan"},
-	}
+	contextMap := "#1 [planned] Test Task\n#2 [done] Related Task\n"
 
-	prompt := BuildExecutePrompt(task, related, "/tmp/test-report.md")
+	prompt := BuildExecutePrompt(task, contextMap, "/tmp/test-report.md")
 
 	if prompt == "" {
 		t.Error("Expected non-empty prompt")
@@ -212,8 +208,8 @@ func TestBuildExecutePrompt(t *testing.T) {
 		t.Error("Prompt should contain task plan")
 	}
 
-	if !contains(prompt, "Related plan") {
-		t.Error("Prompt should contain related task plan")
+	if !contains(prompt, "Context Map") {
+		t.Error("Prompt should contain Context Map section")
 	}
 }
 

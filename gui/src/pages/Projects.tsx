@@ -34,8 +34,8 @@ export default function Projects() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Projects</h1>
-        <Button onClick={() => setShowAdd(!showAdd)} size="sm">
+        <h1 className="text-2xl md:text-3xl font-bold">Projects</h1>
+        <Button onClick={() => setShowAdd(!showAdd)} size="sm" className="min-h-[44px]">
           <Plus className="h-4 w-4 mr-1" /> Add Project
         </Button>
       </div>
@@ -65,8 +65,8 @@ export default function Projects() {
             />
           </CardContent>
           <CardFooter className="gap-2">
-            <Button size="sm" onClick={handleAdd}>Add</Button>
-            <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button size="sm" className="min-h-[44px]" onClick={handleAdd}>Add</Button>
+            <Button size="sm" variant="ghost" className="min-h-[44px]" onClick={() => setShowAdd(false)}>Cancel</Button>
           </CardFooter>
         </Card>
       )}
@@ -100,7 +100,7 @@ export default function Projects() {
                   size="sm"
                   variant="outline"
                   onClick={() => switchProject.mutate(id)}
-                  className="flex-1"
+                  className="flex-1 min-h-[44px]"
                 >
                   <ArrowRight className="h-4 w-4 mr-1" /> Select
                 </Button>
@@ -108,7 +108,7 @@ export default function Projects() {
                   size="sm"
                   variant="ghost"
                   onClick={() => handleDelete(id)}
-                  className="text-destructive hover:text-destructive"
+                  className="text-destructive hover:text-destructive min-h-[44px] min-w-[44px]"
                 >
                   <Trash2 className="h-4 w-4" />
                 </Button>

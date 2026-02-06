@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"net"
 	"net/http"
 	"os"
 	"os/signal"
@@ -10,12 +11,14 @@ import (
 	"syscall"
 	"time"
 
+	"parkjunwoo.com/claribot/internal/auth"
 	"parkjunwoo.com/claribot/internal/config"
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/handler"
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
+	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/tghandler"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/internal/webui"
@@ -29,6 +32,7 @@ const Version = "0.2.21"
 // Router for command handling
 var router *handler.Router
 var bot *telegram.Bot
+var authService *auth.Auth
 var startTime = time.Now()
 
 func main() {
@@ -65,8 +69,11 @@ func main() {
 		logger.Error("Failed to migrate global DB: %v", err)
 		os.Exit(1)
 	}
-	globalDB.Close()
 	logger.Info("Global DB initialized")
+
+	// Initialize auth service (keeps globalDB open for JWT/TOTP operations)
+	authService = auth.New(globalDB)
+	logger.Info("Auth service initialized")
 
 	// Recover stuck messages from previous run
 	if recovered, err := message.RecoverStuckMessages(1 * time.Hour); err != nil {
@@ -77,10 +84,11 @@ func main() {
 
 	// Initialize Claude manager
 	claude.Init(claude.Config{
-		Timeout: time.Duration(cfg.Claude.Timeout) * time.Second,
-		Max:     cfg.Claude.Max,
+		Timeout:    time.Duration(cfg.Claude.Timeout) * time.Second,
+		MaxTimeout: time.Duration(cfg.Claude.MaxTimeout) * time.Second,
+		Max:        cfg.Claude.Max,
 	})
-	logger.Info("Claude manager initialized (max=%d, timeout=%ds)", cfg.Claude.Max, cfg.Claude.Timeout)
+	logger.Info("Claude manager initialized (max=%d, timeout=%ds, max_timeout=%ds)", cfg.Claude.Max, cfg.Claude.Timeout, cfg.Claude.MaxTimeout)
 
 	// Initialize router
 	router = handler.NewRouter()
@@ -95,6 +103,12 @@ func main() {
 	if cfg.Project.Path != "" {
 		project.SetDefaultPath(cfg.Project.Path)
 		logger.Info("Project path: %s", project.DefaultPath)
+	}
+
+	// Restore last selected project
+	router.RestoreProject()
+	if id, _ := router.GetProject(); id != "" {
+		logger.Info("Restored project: %s", id)
 	}
 
 	// Initialize Telegram bot
@@ -113,7 +127,7 @@ func main() {
 		}
 
 		// Setup handler (also registers menu commands)
-		tgHandler := tghandler.New(bot, router)
+		tgHandler := tghandler.New(bot, router, cfg.Telegram.AllowedUsers)
 		bot.SetHandler(tgHandler.HandleMessage)
 		bot.SetCallbackHandler(tgHandler.HandleCallback)
 
@@ -140,10 +154,23 @@ func main() {
 		logger.Info("Scheduler initialized (jobs: %d)", schedule.JobCount())
 	}
 
+	// Initialize task notifier (reuse same notifier callback)
+	task.Init(notifier)
+
 	// Setup HTTP mux
 	mux := http.NewServeMux()
 
-	// API endpoints
+	// Auth endpoints (bypass authMiddleware by path check)
+	mux.HandleFunc("/api/auth/setup", handleAuthSetup)
+	mux.HandleFunc("/api/auth/login", handleAuthLogin)
+	mux.HandleFunc("/api/auth/status", handleAuthStatus)
+	mux.HandleFunc("/api/auth/logout", handleAuthLogout)
+	mux.HandleFunc("/api/auth/totp-setup", handleAuthTOTPSetup)
+
+	// RESTful API endpoints
+	router.RegisterRESTfulRoutes(mux)
+
+	// Legacy API endpoints (backward compatibility for CLI/Telegram)
 	mux.HandleFunc("/api/health", handleHealth)
 	mux.HandleFunc("/api", handleAPIRequest)
 
@@ -161,8 +188,8 @@ func main() {
 		webuiHandler.ServeHTTP(w, r)
 	})
 
-	// CORS middleware for development
-	handler := corsMiddleware(mux)
+	// Middleware chain: CORS → Auth → mux
+	handler := corsMiddleware(authMiddleware(mux))
 
 	// Start HTTP server in goroutine with timeout settings
 	addr := fmt.Sprintf("%s:%d", cfg.Service.Host, cfg.Service.Port)
@@ -206,6 +233,7 @@ func main() {
 		logger.Info("Claude sessions closed")
 	}
 
+	globalDB.Close()
 	logger.Info("Goodbye!")
 }
 
@@ -282,8 +310,9 @@ func corsMiddleware(next http.Handler) http.Handler {
 		origin := r.Header.Get("Origin")
 		if origin != "" && strings.HasPrefix(origin, "http://localhost") {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
-			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
 			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
@@ -291,4 +320,158 @@ func corsMiddleware(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// authMiddleware checks authentication for non-local requests.
+func authMiddleware(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// 1. Localhost bypass
+		remoteIP := r.RemoteAddr
+		if host, _, err := net.SplitHostPort(remoteIP); err == nil {
+			remoteIP = host
+		}
+		if remoteIP == "127.0.0.1" || remoteIP == "::1" {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 2. Auth endpoints pass through
+		if strings.HasPrefix(r.URL.Path, "/api/auth/") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 3. Allow non-API requests (Web UI static files) to pass through
+		if !strings.HasPrefix(r.URL.Path, "/api") {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		// 4. If setup not completed, block API requests
+		if !authService.IsSetupCompleted() {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "setup not completed"})
+			return
+		}
+
+		// 5. Validate JWT cookie for API requests
+		if !authService.IsAuthenticated(r) {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": "authentication required"})
+			return
+		}
+
+		next.ServeHTTP(w, r)
+	})
+}
+
+// handleAuthSetup handles POST /api/auth/setup
+func handleAuthSetup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	result, err := authService.Setup(req.Password, req.TOTPCode)
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	resp := map[string]interface{}{}
+	if result.TOTPURI != "" {
+		resp["totp_uri"] = result.TOTPURI
+	}
+	if result.Token != "" {
+		auth.SetTokenCookie(w, result.Token)
+		resp["success"] = true
+	}
+	json.NewEncoder(w).Encode(resp)
+}
+
+// handleAuthLogin handles POST /api/auth/login
+func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	var req struct {
+		Password string `json:"password"`
+		TOTPCode string `json:"totp_code"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": "invalid JSON: " + err.Error()})
+		return
+	}
+
+	token, err := authService.Login(req.Password, req.TOTPCode)
+	if err != nil {
+		w.WriteHeader(http.StatusUnauthorized)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	auth.SetTokenCookie(w, token)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleAuthStatus handles GET /api/auth/status
+func handleAuthStatus(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	json.NewEncoder(w).Encode(authService.Status(r))
+}
+
+// handleAuthLogout handles POST /api/auth/logout
+func handleAuthLogout(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodPost {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	auth.ClearTokenCookie(w)
+	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+}
+
+// handleAuthTOTPSetup handles GET /api/auth/totp-setup
+func handleAuthTOTPSetup(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+
+	if r.Method != http.MethodGet {
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		json.NewEncoder(w).Encode(map[string]string{"error": "method not allowed"})
+		return
+	}
+
+	uri, err := authService.GetTOTPSetupURI()
+	if err != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
+		return
+	}
+
+	json.NewEncoder(w).Encode(map[string]string{"totp_uri": uri})
 }

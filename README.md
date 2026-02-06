@@ -260,7 +260,7 @@ tasks (
     spec TEXT,                -- 요구사항 명세서
     plan TEXT,                -- 실행 계획서
     report TEXT,              -- 완료 보고서
-    status TEXT,              -- 'spec_ready', 'plan_ready', 'done', 'failed'
+    status TEXT,              -- 'todo', 'planned', 'split', 'done', 'failed'
     error TEXT,
     created_at, updated_at
 )

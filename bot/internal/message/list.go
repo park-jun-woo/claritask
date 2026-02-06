@@ -3,6 +3,7 @@ package message
 import (
 	"fmt"
 	"strings"
+	"unicode/utf8"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -61,6 +62,12 @@ func List(projectPath string, req pagination.PageRequest) types.Result {
 		}
 		messages = append(messages, m)
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	pageResp := pagination.NewPageResponse(messages, req.Page, req.PageSize, total)
 
@@ -70,8 +77,8 @@ func List(projectPath string, req pagination.PageRequest) types.Result {
 		statusIcon := statusToIcon(m.Status)
 		// Truncate content for display
 		content := m.Content
-		if len(content) > 30 {
-			content = content[:30] + "..."
+		if utf8.RuneCountInString(content) > 30 {
+			content = string([]rune(content)[:30]) + "..."
 		}
 		sb.WriteString(fmt.Sprintf("  %s [#%d:message get %d] %s\n", statusIcon, m.ID, m.ID, content))
 	}

@@ -78,6 +78,12 @@ func Init(cfg Config) error {
 
 		multiWriter := io.MultiWriter(writers...)
 		global.logger = log.New(multiWriter, "", 0)
+
+		// Redirect standard log package to the same output
+		// so log.Printf() in all packages also goes to the log file
+		log.SetOutput(multiWriter)
+		log.SetFlags(0)
+		log.SetPrefix("")
 	})
 	return initErr
 }

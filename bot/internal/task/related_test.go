@@ -117,52 +117,12 @@ func TestGetRelatedParentChild(t *testing.T) {
 	}
 }
 
-func TestGetRelatedSpecs(t *testing.T) {
+func TestBuildContextMap(t *testing.T) {
 	projectPath, cleanup := setupTestDB(t)
 	defer cleanup()
 
 	Add(projectPath, "Task 1", nil, "")
 	Add(projectPath, "Task 2", nil, "")
-	Add(projectPath, "Task 3", nil, "")
-
-	// Only set spec for task 2
-	Set(projectPath, "2", "spec", "Spec for task 2")
-
-	localDB, err := db.OpenLocal(projectPath)
-	if err != nil {
-		t.Fatalf("Failed to open DB: %v", err)
-	}
-	defer localDB.Close()
-
-	// Add edges
-	now := db.TimeNow()
-	localDB.Exec(`INSERT INTO task_edges (from_task_id, to_task_id, created_at) VALUES (?, ?, ?)`, 1, 2, now)
-	localDB.Exec(`INSERT INTO task_edges (from_task_id, to_task_id, created_at) VALUES (?, ?, ?)`, 1, 3, now)
-
-	// Get related specs (should only return task 2 which has spec)
-	relatedSpecs, err := GetRelatedSpecs(localDB, 1)
-	if err != nil {
-		t.Fatalf("GetRelatedSpecs failed: %v", err)
-	}
-
-	if len(relatedSpecs) != 1 {
-		t.Errorf("Expected 1 task with spec, got %d", len(relatedSpecs))
-	}
-
-	if relatedSpecs[0].ID != 2 {
-		t.Errorf("Expected task ID 2, got %d", relatedSpecs[0].ID)
-	}
-}
-
-func TestGetRelatedPlans(t *testing.T) {
-	projectPath, cleanup := setupTestDB(t)
-	defer cleanup()
-
-	Add(projectPath, "Task 1", nil, "")
-	Add(projectPath, "Task 2", nil, "")
-
-	// Set plan for task 2
-	Set(projectPath, "2", "plan", "Plan for task 2")
 
 	localDB, err := db.OpenLocal(projectPath)
 	if err != nil {
@@ -174,13 +134,25 @@ func TestGetRelatedPlans(t *testing.T) {
 	now := db.TimeNow()
 	localDB.Exec(`INSERT INTO task_edges (from_task_id, to_task_id, created_at) VALUES (?, ?, ?)`, 1, 2, now)
 
-	// Get related plans
-	relatedPlans, err := GetRelatedPlans(localDB, 1)
+	contextMap, err := BuildContextMap(localDB)
 	if err != nil {
-		t.Fatalf("GetRelatedPlans failed: %v", err)
+		t.Fatalf("BuildContextMap failed: %v", err)
 	}
 
-	if len(relatedPlans) != 1 {
-		t.Errorf("Expected 1 task with plan, got %d", len(relatedPlans))
+	if contextMap == "" {
+		t.Error("Expected non-empty context map")
+	}
+
+	// Should contain task IDs
+	if !contains(contextMap, "#1") {
+		t.Error("Context map should contain #1")
+	}
+	if !contains(contextMap, "#2") {
+		t.Error("Context map should contain #2")
+	}
+	// Should contain edge info
+	if !contains(contextMap, "depends on") {
+		t.Error("Context map should contain edge info")
 	}
 }
+

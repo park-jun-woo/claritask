@@ -39,7 +39,7 @@ clari task add "<title>" --parent {{.TaskID}} --spec "<요구사항>"
 ### 출력 형식
 
 ```
-[SUBDIVIDED]
+[SPLIT]
 - Task #<id>: <title>
 - Task #<id>: <title>
 ```
@@ -70,7 +70,7 @@ clari task add "<title>" --parent {{.TaskID}} --spec "<요구사항>"
 
 ## 출력 규칙
 
-⚠️ **중요**: 출력은 반드시 `[SUBDIVIDED]` 또는 `[PLANNED]`로 **시작**해야 합니다.
+⚠️ **중요**: 출력은 반드시 `[SPLIT]` 또는 `[PLANNED]`로 **시작**해야 합니다.
 - 코드블록(```)으로 감싸지 마세요
 - 설명이나 서두 없이 바로 마커로 시작하세요
 - 마커 앞에 어떤 텍스트도 넣지 마세요
@@ -84,7 +84,7 @@ clari task add "<title>" --parent {{.TaskID}} --spec "<요구사항>"
 ```
 
 - 이 파일이 생성되어야 작업 완료로 인식됩니다
-- [SUBDIVIDED] 또는 [PLANNED] 출력 내용을 그대로 파일에 저장하세요
+- [SPLIT] 또는 [PLANNED] 출력 내용을 그대로 파일에 저장하세요
 - 파일이 없으면 작업이 완료되지 않은 것으로 간주합니다
 
 ## 금지 사항
@@ -127,11 +127,15 @@ clari task add "<title>" --parent {{.TaskID}} --spec "<요구사항>"
 - **Depth**: {{.Depth}}
 - **Max Depth**: {{.MaxDepth}}
 
-{{if .RelatedTasks}}
-## 연관 Task
+{{if .ContextMap}}
+## Context Map
 
-{{range .RelatedTasks}}
-### Task #{{.ID}}: {{.Title}}
-{{.Spec}}
-{{end}}
+```
+{{.ContextMap}}```
+
+## 조회 명령어
+
+- `clari task get <id>` - 특정 Task 상세 조회 (spec, plan, report)
+- `clari task list [parent_id]` - Task 목록 조회
+- `clari edge list [task_id]` - Task 간 의존 관계 조회
 {{end}}

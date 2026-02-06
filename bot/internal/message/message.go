@@ -2,12 +2,12 @@ package message
 
 // Message represents a user message
 type Message struct {
-	ID          int
-	Content     string
-	Source      string
-	Status      string
-	Result      string
-	Error       string
-	CreatedAt   string
-	CompletedAt *string
+	ID          int     `json:"id"`
+	Content     string  `json:"content"`
+	Source      string  `json:"source"`
+	Status      string  `json:"status"`
+	Result      string  `json:"result"`
+	Error       string  `json:"error,omitempty"`
+	CreatedAt   string  `json:"created_at"`
+	CompletedAt *string `json:"completed_at,omitempty"`
 }

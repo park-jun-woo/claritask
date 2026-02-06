@@ -69,5 +69,16 @@ claribot/
 - **Project**: 영문 소문자, 숫자, 하이픈(-), 언더스코어(_) - 예: `blog`, `api-server`
 - **Feature/Task**: 정수 (auto increment)
 
+## 배포
+
+### 배포 Trigger
+- 명확하게 Claribot을 배포하라고 말하면 배포한다.
+
+```bash
+# 빌드 + 재설치 + 재시작 (서비스 실행 중일 때)
+# sudoers NOPASSWD 설정에 맞춰 전체 경로 + .service 확장자 사용
+make build && sudo /usr/bin/systemctl stop claribot.service && sudo /usr/bin/cp bin/claribot /usr/local/bin/claribot && sudo /usr/bin/cp bin/clari /usr/local/bin/clari && sudo /usr/bin/systemctl start claribot.service
+```
+
 ## 버전 표기 규칙
 - vX.X.N 형식이며 테스트하며 수정할때 N 숫자만 올려라. 10이 넘어도 vX.X.11로 표기하라.

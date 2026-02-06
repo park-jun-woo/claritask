@@ -51,7 +51,7 @@ export function useSwitchProject() {
 export function useDeleteProject() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: string) => projectAPI.delete(id, true),
+    mutationFn: (id: string) => projectAPI.delete(id),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['projects'] })
       qc.invalidateQueries({ queryKey: ['status'] })
@@ -62,8 +62,8 @@ export function useDeleteProject() {
 // --- Tasks ---
 export function useTasks(all = true) {
   return useQuery({
-    queryKey: ['tasks', { all }],
-    queryFn: () => taskAPI.list(undefined, all),
+    queryKey: ['tasks', { all, tree: true }],
+    queryFn: () => taskAPI.list(undefined, false, true),
     refetchInterval: 15_000,
   })
 }
@@ -100,7 +100,7 @@ export function useSetTask() {
 export function useDeleteTask() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number | string) => taskAPI.delete(id, true),
+    mutationFn: (id: number | string) => taskAPI.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['tasks'] }),
   })
 }
@@ -150,7 +150,7 @@ export function useDeleteEdge() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (params: { fromId: number | string; toId: number | string }) =>
-      edgeAPI.delete(params.fromId, params.toId, true),
+      edgeAPI.delete(params.fromId, params.toId),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['edges'] }),
   })
 }
@@ -161,6 +161,15 @@ export function useMessages(all = true) {
     queryKey: ['messages', { all }],
     queryFn: () => messageAPI.list(all),
     refetchInterval: 10_000,
+  })
+}
+
+export function useMessage(id?: number | string) {
+  return useQuery({
+    queryKey: ['message', id],
+    queryFn: () => messageAPI.get(id!),
+    enabled: id !== undefined,
+    refetchInterval: 5_000,
   })
 }
 
@@ -211,7 +220,7 @@ export function useAddSchedule() {
 export function useDeleteSchedule() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (id: number | string) => scheduleAPI.delete(id, true),
+    mutationFn: (id: number | string) => scheduleAPI.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
   })
 }

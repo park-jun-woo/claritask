@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -117,6 +118,12 @@ func List(projectPath, taskID string, req pagination.PageRequest) types.Result {
 		}
 		edges = append(edges, e)
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	pageResp := pagination.NewPageResponse(edges, req.Page, req.PageSize, total)
 
@@ -153,8 +160,8 @@ func List(projectPath, taskID string, req pagination.PageRequest) types.Result {
 }
 
 func truncate(s string, max int) string {
-	if len(s) <= max {
+	if utf8.RuneCountInString(s) <= max {
 		return s
 	}
-	return s[:max-2] + ".."
+	return string([]rune(s)[:max-2]) + ".."
 }

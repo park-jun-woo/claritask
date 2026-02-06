@@ -35,7 +35,7 @@ func Add(projectPath, title string, parentID *int, spec string) types.Result {
 	now := db.TimeNow()
 	result, err := localDB.Exec(`
 		INSERT INTO tasks (parent_id, title, spec, status, is_leaf, depth, created_at, updated_at)
-		VALUES (?, ?, ?, 'spec_ready', 1, ?, ?, ?)
+		VALUES (?, ?, ?, 'todo', 1, ?, ?, ?)
 	`, parentID, title, spec, depth, now, now)
 	if err != nil {
 		return types.Result{
@@ -44,7 +44,13 @@ func Add(projectPath, title string, parentID *int, spec string) types.Result {
 		}
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("작업 ID 획득 실패: %v", err),
+		}
+	}
 
 	msg := fmt.Sprintf("작업 추가됨: #%d %s", id, title)
 	if parentID != nil {
@@ -59,7 +65,7 @@ func Add(projectPath, title string, parentID *int, spec string) types.Result {
 			ParentID:  parentID,
 			Title:     title,
 			Spec:      spec,
-			Status:    "spec_ready",
+			Status:    "todo",
 			IsLeaf:    true,
 			Depth:     depth,
 			CreatedAt: now,

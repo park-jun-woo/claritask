@@ -6,6 +6,7 @@ import (
 	htmlpkg "html"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
 	"github.com/yuin/goldmark/extension"
@@ -13,15 +14,21 @@ import (
 	gmhtml "github.com/yuin/goldmark/renderer/html"
 )
 
-// codeBlockPattern matches markdown code blocks
-var codeBlockPattern = regexp.MustCompile("```[\\s\\S]*?```")
+// truncateRunes truncates a string to maxRunes runes (not bytes) to avoid breaking multi-byte characters
+func truncateRunes(s string, maxRunes int) string {
+	if utf8.RuneCountInString(s) <= maxRunes {
+		return s
+	}
+	runes := []rune(s)
+	return string(runes[:maxRunes]) + "..."
+}
 
 // Threshold is the character limit for inline messages vs file
-const Threshold = 1000
+const Threshold = 2000
 
 // ShouldRenderAsFile returns true if content should be sent as HTML file
 func ShouldRenderAsFile(markdown string) bool {
-	return len(markdown) >= Threshold || codeBlockPattern.MatchString(markdown)
+	return len(markdown) >= Threshold
 }
 
 // ToTelegramHTML converts markdown to Telegram-compatible HTML (limited tags)
@@ -212,10 +219,7 @@ func ExtractTitle(markdown string) string {
 				} else if strings.HasPrefix(nextLine, "* ") {
 					nextLine = strings.TrimPrefix(nextLine, "* ")
 				}
-				if len(nextLine) > 80 {
-					return nextLine[:80] + "..."
-				}
-				return nextLine
+				return truncateRunes(nextLine, 80)
 			}
 		}
 	}
@@ -233,10 +237,7 @@ func ExtractTitle(markdown string) string {
 		}
 
 		if title != "" && !isSummaryHeading(title) {
-			if len(title) > 80 {
-				return title[:80] + "..."
-			}
-			return title
+			return truncateRunes(title, 80)
 		}
 	}
 
@@ -252,10 +253,7 @@ func ExtractTitle(markdown string) string {
 			line = strings.TrimPrefix(line, "* ")
 		}
 		if line != "" {
-			if len(line) > 80 {
-				return line[:80] + "..."
-			}
-			return line
+			return truncateRunes(line, 80)
 		}
 	}
 

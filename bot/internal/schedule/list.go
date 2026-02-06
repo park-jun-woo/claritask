@@ -111,6 +111,12 @@ func List(projectID *string, showAll bool, req pagination.PageRequest) types.Res
 		s.RunOnce = runOnce == 1
 		schedules = append(schedules, s)
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	pageResp := pagination.NewPageResponse(schedules, req.Page, req.PageSize, total)
 

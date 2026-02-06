@@ -33,8 +33,9 @@ type TelegramConfig struct {
 
 // ClaudeConfig for Claude Code execution
 type ClaudeConfig struct {
-	Timeout int `yaml:"timeout"` // seconds, default: 1200 (20 min)
-	Max     int `yaml:"max"`     // max concurrent, default: 3
+	Timeout    int `yaml:"timeout"`     // idle timeout seconds, default: 1200 (20 min)
+	MaxTimeout int `yaml:"max_timeout"` // absolute timeout seconds, default: 1800 (30 min)
+	Max        int `yaml:"max"`         // max concurrent, default: 3
 }
 
 // ProjectConfig for project management
@@ -58,7 +59,8 @@ const (
 	DefaultHost        = "127.0.0.1"
 	DefaultPort        = 9847
 	DefaultTimeout     = 1200 // 20 minutes
-	DefaultMaxClaude   = 3
+	DefaultMaxTimeout  = 1800 // 30 minutes
+	DefaultMaxClaude   = 10
 	DefaultPageSize    = 10
 	DefaultLogLevel    = "info"
 )
@@ -96,6 +98,7 @@ func (c *Config) setDefaults() {
 	c.Service.Host = DefaultHost
 	c.Service.Port = DefaultPort
 	c.Claude.Timeout = DefaultTimeout
+	c.Claude.MaxTimeout = DefaultMaxTimeout
 	c.Claude.Max = DefaultMaxClaude
 	c.Pagination.PageSize = DefaultPageSize
 	c.Log.Level = DefaultLogLevel
@@ -110,6 +113,9 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Claude.Timeout == 0 {
 		c.Claude.Timeout = DefaultTimeout
+	}
+	if c.Claude.MaxTimeout == 0 {
+		c.Claude.MaxTimeout = DefaultMaxTimeout
 	}
 	if c.Claude.Max == 0 {
 		c.Claude.Max = DefaultMaxClaude
@@ -134,6 +140,15 @@ func (c *Config) Validate() []string {
 	if c.Claude.Timeout < 60 {
 		warnings = append(warnings, fmt.Sprintf("timeout %d too low, using minimum 60", c.Claude.Timeout))
 		c.Claude.Timeout = 60
+	}
+
+	if c.Claude.MaxTimeout < 60 {
+		warnings = append(warnings, fmt.Sprintf("max_timeout %d too low, using minimum 60", c.Claude.MaxTimeout))
+		c.Claude.MaxTimeout = 60
+	}
+	if c.Claude.MaxTimeout > 7200 {
+		warnings = append(warnings, fmt.Sprintf("max_timeout %d too high, using maximum 7200", c.Claude.MaxTimeout))
+		c.Claude.MaxTimeout = 7200
 	}
 
 	if c.Claude.Max < 1 {

@@ -6,11 +6,49 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"time"
 
 	"parkjunwoo.com/claribot/internal/handler"
+	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/telegram"
 )
+
+const (
+	maxConcurrentGoroutines = 5
+	pendingContextTTL       = 5 * time.Minute
+)
+
+// pendingEntry stores a pending context with its creation timestamp
+type pendingEntry struct {
+	context   string
+	createdAt time.Time
+}
+
+// safeGo runs a function in a goroutine with panic recovery, error notification, and concurrency limiting
+func (h *Handler) safeGo(chatID int64, fn func()) {
+	go func() {
+		// Acquire semaphore
+		select {
+		case h.sem <- struct{}{}:
+			// acquired
+		default:
+			log.Printf("[Telegram] goroutine 제한 초과, 대기 중 (chatID: %d)", chatID)
+			h.sem <- struct{}{} // block until slot available
+		}
+		defer func() {
+			<-h.sem // release semaphore
+		}()
+
+		defer func() {
+			if r := recover(); r != nil {
+				log.Printf("[Telegram] PANIC in goroutine: %v", r)
+				h.bot.Send(chatID, fmt.Sprintf("내부 오류 발생: %v", r))
+			}
+		}()
+		fn()
+	}()
+}
 
 // buttonPattern matches [name:value] format
 var buttonPattern = regexp.MustCompile(`\[([^:\]]+):([^\]]+)\]`)
@@ -24,16 +62,20 @@ var cliOnlyCommands = []string{
 type Handler struct {
 	bot            *telegram.Bot
 	router         *handler.Router
-	pendingContext map[int64]string
+	allowedUsers   []int64
+	pendingContext map[int64]pendingEntry
 	mu             sync.RWMutex // protects pendingContext
+	sem            chan struct{}
 }
 
 // New creates a new Telegram handler
-func New(bot *telegram.Bot, router *handler.Router) *Handler {
+func New(bot *telegram.Bot, router *handler.Router, allowedUsers []int64) *Handler {
 	h := &Handler{
 		bot:            bot,
 		router:         router,
-		pendingContext: make(map[int64]string),
+		allowedUsers:   allowedUsers,
+		pendingContext: make(map[int64]pendingEntry),
+		sem:            make(chan struct{}, maxConcurrentGoroutines),
 	}
 
 	// Register menu commands
@@ -42,11 +84,24 @@ func New(bot *telegram.Bot, router *handler.Router) *Handler {
 		{Command: "status", Description: "현재 상태"},
 		{Command: "project", Description: "프로젝트 관리"},
 		{Command: "task", Description: "작업 관리"},
-		{Command: "edge", Description: "의존성 관리"},
 		{Command: "message", Description: "메시지 관리"},
 	})
 
 	return h
+}
+
+// isAllowed checks if a chat ID is in the allowed users list.
+// Returns true if allowedUsers is empty (allow all) or chatID is in the list.
+func (h *Handler) isAllowed(chatID int64) bool {
+	if len(h.allowedUsers) == 0 {
+		return true
+	}
+	for _, id := range h.allowedUsers {
+		if id == chatID {
+			return true
+		}
+	}
+	return false
 }
 
 // parseButtons extracts [name:value] patterns and returns clean message + buttons
@@ -75,7 +130,12 @@ func parseButtons(msg string) (string, [][]telegram.Button) {
 		for _, match := range matches {
 			name := match[1]
 			value := match[2]
-			row = append(row, telegram.Button{Text: name, Data: "input:" + value})
+			// Use value directly if it already has a known callback prefix
+			data := value
+			if !strings.HasPrefix(value, "resume:") && !strings.HasPrefix(value, "switch:") {
+				data = "input:" + value
+			}
+			row = append(row, telegram.Button{Text: name, Data: data})
 		}
 		if len(row) > 0 {
 			buttons = append(buttons, row)
@@ -86,15 +146,25 @@ func parseButtons(msg string) (string, [][]telegram.Button) {
 	return cleanMsg, buttons
 }
 
+// projectStatusHeader returns the current project status header line
+func (h *Handler) projectStatusHeader() string {
+	projectID, _ := h.router.GetProject()
+	if projectID != "" {
+		return "📌 " + projectID
+	}
+	return "📌 글로벌 모드"
+}
+
 // sendResult sends a result message, converting [name:value] to buttons
 func (h *Handler) sendResult(chatID int64, result types.Result) {
 	cleanMsg, buttons := parseButtons(result.Message)
+	cleanMsg = h.projectStatusHeader() + "\n\n" + cleanMsg
 
 	var err error
 	if len(buttons) > 0 {
 		err = h.bot.SendWithButtons(chatID, cleanMsg, buttons)
 	} else {
-		err = h.bot.Send(chatID, result.Message)
+		err = h.bot.SendReport(chatID, cleanMsg)
 	}
 	if err != nil {
 		log.Printf("[Telegram] 메시지 전송 실패: %v", err)
@@ -103,7 +173,7 @@ func (h *Handler) sendResult(chatID int64, result types.Result) {
 	// Store context if needs input
 	if result.NeedsInput && result.Context != "" {
 		h.mu.Lock()
-		h.pendingContext[chatID] = result.Context
+		h.pendingContext[chatID] = pendingEntry{context: result.Context, createdAt: time.Now()}
 		h.mu.Unlock()
 	}
 }
@@ -111,6 +181,7 @@ func (h *Handler) sendResult(chatID int64, result types.Result) {
 // sendReport sends Claude response as rendered HTML (inline or file)
 func (h *Handler) sendReport(chatID int64, result types.Result) {
 	cleanMsg, buttons := parseButtons(result.Message)
+	cleanMsg = h.projectStatusHeader() + "\n\n" + cleanMsg
 
 	var err error
 	if len(buttons) > 0 {
@@ -125,14 +196,24 @@ func (h *Handler) sendReport(chatID int64, result types.Result) {
 	// Store context if needs input
 	if result.NeedsInput && result.Context != "" {
 		h.mu.Lock()
-		h.pendingContext[chatID] = result.Context
+		h.pendingContext[chatID] = pendingEntry{context: result.Context, createdAt: time.Now()}
 		h.mu.Unlock()
+	}
+}
+
+// cleanExpiredContexts removes expired pending contexts. Must be called with h.mu held.
+func (h *Handler) cleanExpiredContexts() {
+	now := time.Now()
+	for chatID, entry := range h.pendingContext {
+		if now.Sub(entry.createdAt) > pendingContextTTL {
+			delete(h.pendingContext, chatID)
+		}
 	}
 }
 
 // quickCommands are commands that don't require Claude execution (fast response)
 var quickCommands = []string{
-	"project", "task list", "task get", "edge list", "edge get",
+	"project", "task list", "task get", "task stop",
 	"message list", "message get", "message status",
 	"schedule list", "schedule get", "schedule runs", "schedule run",
 	"status",
@@ -163,11 +244,22 @@ func needsClaudeExecution(cmd string) bool {
 func (h *Handler) HandleMessage(msg telegram.Message) {
 	log.Printf("[Telegram] %s: %s", msg.Username, msg.Text)
 
+	if !h.isAllowed(msg.ChatID) {
+		log.Printf("[Telegram] Unauthorized access from chat ID %d (%s)", msg.ChatID, msg.Username)
+		h.bot.Send(msg.ChatID, "인증되지 않은 사용자입니다.")
+		return
+	}
+
 	// Handle /start specially (welcome message)
 	if msg.Text == "/start" {
 		h.sendResult(msg.ChatID, types.Result{
 			Success: true,
 			Message: "Claribot 시작!\n[프로젝트:project list][상태:status]",
+		})
+		// Set persistent reply keyboard with frequently used commands
+		h.bot.SetKeyboard(msg.ChatID, "자주 쓰는 명령어:", [][]string{
+			{"/status", "/task_list"},
+			{"/task_plan_--all", "/task_run_--all", "/task_cycle"},
 		})
 		return
 	}
@@ -193,24 +285,32 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		}
 
 		// Claude commands: async processing
-		h.bot.Send(msg.ChatID, "처리 중...")
-		go func() {
+		procMsgID, _ := h.bot.SendAndGetID(msg.ChatID, "처리 중...")
+		h.safeGo(msg.ChatID, func() {
 			result := h.router.Execute(snapshot, cmd)
+			if procMsgID != 0 {
+				h.bot.DeleteMessage(msg.ChatID, procMsgID)
+			}
 			h.sendReport(msg.ChatID, result)
-		}()
+		})
 		return
 	}
 
 	// Check for pending context (tikitaka continuation)
 	h.mu.Lock()
-	ctx, ok := h.pendingContext[msg.ChatID]
+	entry, ok := h.pendingContext[msg.ChatID]
 	if ok {
 		delete(h.pendingContext, msg.ChatID)
+		// Expire if TTL exceeded
+		if time.Since(entry.createdAt) > pendingContextTTL {
+			ok = false
+		}
 	}
+	h.cleanExpiredContexts()
 	h.mu.Unlock()
 
 	if ok {
-		cmd := ctx + " " + msg.Text
+		cmd := entry.context + " " + msg.Text
 		snapshot := h.router.SnapshotContext()
 
 		// Quick commands: synchronous
@@ -221,11 +321,14 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		}
 
 		// Claude commands: async
-		h.bot.Send(msg.ChatID, "처리 중...")
-		go func() {
+		procMsgID, _ := h.bot.SendAndGetID(msg.ChatID, "처리 중...")
+		h.safeGo(msg.ChatID, func() {
 			result := h.router.Execute(snapshot, cmd)
+			if procMsgID != 0 {
+				h.bot.DeleteMessage(msg.ChatID, procMsgID)
+			}
 			h.sendReport(msg.ChatID, result)
-		}()
+		})
 		return
 	}
 
@@ -238,11 +341,14 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 
 	// Route plain text to "message send" command with telegram source (async)
 	snapshot := h.router.SnapshotContext()
-	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", label))
-	go func() {
+	procMsgID, _ := h.bot.SendAndGetID(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", label))
+	h.safeGo(msg.ChatID, func() {
 		result := h.router.Execute(snapshot, "message send telegram "+msg.Text)
+		if procMsgID != 0 {
+			h.bot.DeleteMessage(msg.ChatID, procMsgID)
+		}
 		h.sendReport(msg.ChatID, result)
-	}()
+	})
 }
 
 // isCLIOnly checks if a command is CLI-only
@@ -259,6 +365,12 @@ func isCLIOnly(cmd string) bool {
 func (h *Handler) HandleCallback(cb telegram.Callback) {
 	log.Printf("[Callback] %s: %s", cb.Username, cb.Data)
 
+	if !h.isAllowed(cb.ChatID) {
+		log.Printf("[Telegram] Unauthorized callback from chat ID %d (%s)", cb.ChatID, cb.Username)
+		h.bot.AnswerCallback(cb.ID, "인증되지 않은 사용자입니다.")
+		return
+	}
+
 	// Handle input buttons (from [name:value] pattern)
 	if strings.HasPrefix(cb.Data, "input:") {
 		value := strings.TrimPrefix(cb.Data, "input:")
@@ -266,15 +378,19 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 
 		// Check for pending context
 		h.mu.Lock()
-		ctx, ok := h.pendingContext[cb.ChatID]
+		entry, ok := h.pendingContext[cb.ChatID]
 		if ok {
 			delete(h.pendingContext, cb.ChatID)
+			if time.Since(entry.createdAt) > pendingContextTTL {
+				ok = false
+			}
 		}
+		h.cleanExpiredContexts()
 		h.mu.Unlock()
 
 		var cmd string
 		if ok {
-			cmd = ctx + " " + value
+			cmd = entry.context + " " + value
 		} else {
 			cmd = value
 		}
@@ -294,11 +410,45 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 		}
 
 		// Claude commands: async
-		h.bot.Send(cb.ChatID, "처리 중...")
-		go func() {
+		procMsgID, _ := h.bot.SendAndGetID(cb.ChatID, "처리 중...")
+		h.safeGo(cb.ChatID, func() {
+			result := h.router.Execute(snapshot, cmd)
+			if procMsgID != 0 {
+				h.bot.DeleteMessage(cb.ChatID, procMsgID)
+			}
+			h.sendReport(cb.ChatID, result)
+		})
+		return
+	}
+
+	// Handle cycle resume
+	if strings.HasPrefix(cb.Data, "resume:") {
+		cycleType := strings.TrimPrefix(cb.Data, "resume:")
+		h.bot.AnswerCallback(cb.ID, "순회 재개 중...")
+
+		// Map cycle type to command
+		var cmd string
+		switch cycleType {
+		case "cycle":
+			cmd = "task cycle"
+		case "plan":
+			cmd = "task plan --all"
+		case "run":
+			cmd = "task run --all"
+		default:
+			h.bot.Send(cb.ChatID, fmt.Sprintf("알 수 없는 순회 타입: %s", cycleType))
+			return
+		}
+
+		// Clear interrupted state and re-execute
+		task.ClearCycleState()
+		h.bot.Send(cb.ChatID, fmt.Sprintf("🔄 %s 재개합니다...", cmd))
+
+		snapshot := h.router.SnapshotContext()
+		h.safeGo(cb.ChatID, func() {
 			result := h.router.Execute(snapshot, cmd)
 			h.sendReport(cb.ChatID, result)
-		}()
+		})
 		return
 	}
 

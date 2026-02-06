@@ -11,51 +11,51 @@ import (
 
 // PlanPromptData holds data for plan prompt template
 type PlanPromptData struct {
-	TaskID       int
-	Title        string
-	Spec         string
-	ParentID     *int
-	Depth        int
-	MaxDepth     int
-	RelatedTasks []Task
-	ReportPath   string
+	TaskID     int
+	Title      string
+	Spec       string
+	ParentID   *int
+	Depth      int
+	MaxDepth   int
+	ContextMap string
+	ReportPath string
 }
 
 // BuildPlanPrompt builds prompt for Plan generation (1회차 순회)
-func BuildPlanPrompt(t *Task, relatedTasks []Task, reportPath string) string {
+func BuildPlanPrompt(t *Task, contextMap string, reportPath string) string {
 	// Load template from prompts
 	tmplContent, err := prompts.Get(prompts.DevPlatform, "task")
 	if err != nil {
 		// Fallback to simple prompt if template not found
-		return buildSimplePlanPrompt(t, relatedTasks)
+		return buildSimplePlanPrompt(t, contextMap)
 	}
 
 	tmpl, err := template.New("plan").Parse(tmplContent)
 	if err != nil {
-		return buildSimplePlanPrompt(t, relatedTasks)
+		return buildSimplePlanPrompt(t, contextMap)
 	}
 
 	data := PlanPromptData{
-		TaskID:       t.ID,
-		Title:        t.Title,
-		Spec:         t.Spec,
-		ParentID:     t.ParentID,
-		Depth:        t.Depth,
-		MaxDepth:     MaxDepth,
-		RelatedTasks: relatedTasks,
-		ReportPath:   reportPath,
+		TaskID:     t.ID,
+		Title:      t.Title,
+		Spec:       t.Spec,
+		ParentID:   t.ParentID,
+		Depth:      t.Depth,
+		MaxDepth:   MaxDepth,
+		ContextMap: contextMap,
+		ReportPath: reportPath,
 	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, data); err != nil {
-		return buildSimplePlanPrompt(t, relatedTasks)
+		return buildSimplePlanPrompt(t, contextMap)
 	}
 
 	return buf.String()
 }
 
 // buildSimplePlanPrompt is fallback when template fails
-func buildSimplePlanPrompt(t *Task, relatedTasks []Task) string {
+func buildSimplePlanPrompt(t *Task, contextMap string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("# Task: %s\n\n", t.Title))
@@ -63,22 +63,25 @@ func buildSimplePlanPrompt(t *Task, relatedTasks []Task) string {
 	sb.WriteString(t.Spec)
 	sb.WriteString("\n\n")
 
-	if len(relatedTasks) > 0 {
-		sb.WriteString("## 연관 자료\n\n")
-		for _, rt := range relatedTasks {
-			sb.WriteString(fmt.Sprintf("### Task #%d: %s\n", rt.ID, rt.Title))
-			sb.WriteString(fmt.Sprintf("**명세서**: %s\n\n", rt.Spec))
-		}
+	if contextMap != "" {
+		sb.WriteString("## Context Map\n\n")
+		sb.WriteString("```\n")
+		sb.WriteString(contextMap)
+		sb.WriteString("```\n\n")
+		sb.WriteString("## 조회 명령어\n\n")
+		sb.WriteString("- `clari task get <id>` - 특정 Task 상세 조회 (spec, plan, report)\n")
+		sb.WriteString("- `clari task list [parent_id]` - Task 목록 조회\n")
+		sb.WriteString("- `clari edge list [task_id]` - Task 간 의존 관계 조회\n\n")
 	}
 
 	sb.WriteString("---\n\n")
-	sb.WriteString("위 요구사항과 연관 자료를 참고하여 [SUBDIVIDED] 또는 [PLANNED] 형식으로 응답하세요.\n")
+	sb.WriteString("위 요구사항과 Context Map을 참고하여 [SPLIT] 또는 [PLANNED] 형식으로 응답하세요.\n")
 
 	return sb.String()
 }
 
 // BuildExecutePrompt builds prompt for execution (2회차 순회)
-func BuildExecutePrompt(t *Task, relatedTasks []Task, reportPath string) string {
+func BuildExecutePrompt(t *Task, contextMap string, reportPath string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("# Task: %s\n\n", t.Title))
@@ -86,12 +89,15 @@ func BuildExecutePrompt(t *Task, relatedTasks []Task, reportPath string) string 
 	sb.WriteString(t.Plan)
 	sb.WriteString("\n\n")
 
-	if len(relatedTasks) > 0 {
-		sb.WriteString("## 연관 자료\n\n")
-		for _, rt := range relatedTasks {
-			sb.WriteString(fmt.Sprintf("### Task #%d: %s\n", rt.ID, rt.Title))
-			sb.WriteString(fmt.Sprintf("**계획서**: %s\n\n", rt.Plan))
-		}
+	if contextMap != "" {
+		sb.WriteString("## Context Map\n\n")
+		sb.WriteString("```\n")
+		sb.WriteString(contextMap)
+		sb.WriteString("```\n\n")
+		sb.WriteString("## 조회 명령어\n\n")
+		sb.WriteString("- `clari task get <id>` - 특정 Task 상세 조회 (spec, plan, report)\n")
+		sb.WriteString("- `clari task list [parent_id]` - Task 목록 조회\n")
+		sb.WriteString("- `clari edge list [task_id]` - Task 간 의존 관계 조회\n\n")
 	}
 
 	sb.WriteString("---\n\n")

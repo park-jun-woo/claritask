@@ -64,6 +64,12 @@ func Runs(scheduleID string, req pagination.PageRequest) types.Result {
 		}
 		runs = append(runs, r)
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	pageResp := pagination.NewPageResponse(runs, req.Page, req.PageSize, total)
 

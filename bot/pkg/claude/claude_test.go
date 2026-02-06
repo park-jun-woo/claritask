@@ -30,6 +30,104 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestIsAuthError(t *testing.T) {
+	tests := []struct {
+		name     string
+		result   *Result
+		expected bool
+	}{
+		{
+			name:     "nil result",
+			result:   nil,
+			expected: false,
+		},
+		{
+			name:     "exit code 0",
+			result:   &Result{Output: "does not have access", ExitCode: 0},
+			expected: false,
+		},
+		{
+			name:     "does not have access",
+			result:   &Result{Output: "Error: This account does not have access to Claude", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "please login again",
+			result:   &Result{Output: "Session expired. Please login again.", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "authentication failed",
+			result:   &Result{Output: "Authentication failed for this request", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "unauthorized",
+			result:   &Result{Output: "401 Unauthorized", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "token expired",
+			result:   &Result{Output: "Your token expired, please re-authenticate", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "invalid credentials",
+			result:   &Result{Output: "invalid API credentials provided", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "API key invalid",
+			result:   &Result{Output: "API key is invalid", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "API key expired",
+			result:   &Result{Output: "API key expired", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "not authenticated",
+			result:   &Result{Output: "Error: not authenticated", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "session expired",
+			result:   &Result{Output: "Error: session expired", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "access denied",
+			result:   &Result{Output: "access denied to this resource", ExitCode: 1},
+			expected: true,
+		},
+		{
+			name:     "normal compile error",
+			result:   &Result{Output: "main.go:10: undefined: foo", ExitCode: 1},
+			expected: false,
+		},
+		{
+			name:     "normal runtime error",
+			result:   &Result{Output: "panic: runtime error: index out of range", ExitCode: 2},
+			expected: false,
+		},
+		{
+			name:     "generic error message",
+			result:   &Result{Output: "Error: something went wrong", ExitCode: 1},
+			expected: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			got := IsAuthError(tt.result)
+			if got != tt.expected {
+				t.Errorf("IsAuthError() = %v, want %v (output: %q)", got, tt.expected, tt.result)
+			}
+		})
+	}
+}
+
 func TestConcurrencyLimit(t *testing.T) {
 	// Initialize with max 2
 	globalManager = nil

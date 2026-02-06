@@ -22,7 +22,7 @@ Task {
     Spec        string    // 요구사항 명세서 (불변)
     Plan        string    // 계획서 (leaf만)
     Report      string    // 완료 보고서 (2회차 순회 후)
-    Status      string    // spec_ready → subdivided/plan_ready → done
+    Status      string    // todo → split/planned → done
     Error       string
     IsLeaf      bool      // true: 실행 대상, false: 분할됨
     Depth       int       // 트리 깊이 (root=0)
@@ -34,16 +34,16 @@ Task {
 ### 상태 전이
 
 ```
-spec_ready ─┬─→ subdivided (분할됨, is_leaf=false)
-            │
-            └─→ plan_ready (계획됨, is_leaf=true) → done
+todo ─┬─→ split (분할됨, is_leaf=false)
+      │
+      └─→ planned (계획됨, is_leaf=true) → done
 ```
 
 | 상태 | 설명 | is_leaf |
 |------|------|---------|
-| spec_ready | 등록됨, 아직 처리 안됨 | true (기본값) |
-| subdivided | 분할됨, 하위 Task 있음 | false |
-| plan_ready | 계획 완료, 실행 대기 | true |
+| todo | 등록됨, 아직 처리 안됨 | true (기본값) |
+| split | 분할됨, 하위 Task 있음 | false |
+| planned | 계획 완료, 실행 대기 | true |
 | done | 실행 완료 | true |
 | failed | 실패 | - |
 
@@ -54,18 +54,18 @@ spec_ready ─┬─→ subdivided (분할됨, is_leaf=false)
 ### 흐름
 
 ```
-Task A (spec_ready)
+Task A (todo)
 ├─ Claude 판단: 분할 필요
 ├─ clari task add로 하위 Task B, C 생성
-├─ Task A → subdivided
+├─ Task A → split
 ├─ 즉시 Task B 순회
-│   └─ Claude 판단: 계획 가능 → plan_ready
+│   └─ Claude 판단: 계획 가능 → planned
 └─ 즉시 Task C 순회
     ├─ Claude 판단: 분할 필요
     ├─ Task D, E 생성
-    ├─ Task C → subdivided
-    ├─ Task D 순회 → plan_ready
-    └─ Task E 순회 → plan_ready
+    ├─ Task C → split
+    ├─ Task D 순회 → planned
+    └─ Task E 순회 → planned
 ```
 
 ### Claude 판단 기준
@@ -83,7 +83,7 @@ Task A (spec_ready)
 ### 출력 형식
 
 ```
-[SUBDIVIDED]
+[SPLIT]
 - Task #<id>: <title>
 - Task #<id>: <title>
 ```
@@ -104,13 +104,13 @@ Task A (spec_ready)
 
 ## 2회차 순회 (실행)
 
-**대상**: `is_leaf = true AND status = 'plan_ready'`
+**대상**: `is_leaf = true AND status = 'planned'`
 
 **순서**: 깊이 깊은 것부터 (depth DESC)
 
 ```sql
 SELECT * FROM tasks
-WHERE is_leaf = 1 AND status = 'plan_ready'
+WHERE is_leaf = 1 AND status = 'planned'
 ORDER BY depth DESC, id ASC
 ```
 
@@ -137,7 +137,7 @@ clari task add "제목" --parent 1 --spec "요구사항"
 # 단일 Task (재귀 분할)
 clari task plan [id]
 
-# 전체 spec_ready
+# 전체 todo
 clari task plan --all
 ```
 
@@ -147,7 +147,7 @@ clari task plan --all
 # 단일 leaf Task 실행
 clari task run [id]
 
-# 전체 plan_ready leaf 실행
+# 전체 planned leaf 실행
 clari task run --all
 ```
 
@@ -163,8 +163,8 @@ CREATE TABLE tasks (
     spec TEXT DEFAULT '',
     plan TEXT DEFAULT '',
     report TEXT DEFAULT '',
-    status TEXT DEFAULT 'spec_ready'
-        CHECK(status IN ('spec_ready', 'subdivided', 'plan_ready', 'done', 'failed')),
+    status TEXT DEFAULT 'todo'
+        CHECK(status IN ('todo', 'split', 'planned', 'done', 'failed')),
     error TEXT DEFAULT '',
     is_leaf INTEGER DEFAULT 1,
     depth INTEGER DEFAULT 0,
@@ -192,10 +192,10 @@ CREATE INDEX idx_tasks_leaf ON tasks(is_leaf);
 
 ### Phase 6: 재귀 분할 시스템 ✅
 - [x] Task 구조체에 `IsLeaf`, `Depth` 추가
-- [x] DB 스키마에 `is_leaf`, `depth`, `subdivided` 상태 추가
+- [x] DB 스키마에 `is_leaf`, `depth`, `split` 상태 추가
 - [x] `task add --spec` 플래그 추가
 - [x] 1회차 프롬프트 템플릿 (`task.md`)
-- [x] 출력 파서 (`[SUBDIVIDED]`, `[PLANNED]`)
+- [x] 출력 파서 (`[SPLIT]`, `[PLANNED]`)
 - [x] `planRecursive()` 재귀 순회
 - [x] 2회차 순회 leaf 조건 추가
 

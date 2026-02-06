@@ -29,9 +29,9 @@
 | `task set <id> <field> <value>` | 작업 필드 수정 |
 | `task delete <id>` | 작업 삭제 |
 | `task plan [id]` | 단일 Task Plan 생성 |
-| `task plan --all` | 전체 spec_ready Task Plan 생성 |
+| `task plan --all` | 전체 todo Task Plan 생성 |
 | `task run [id]` | 단일 Task 실행 |
-| `task run --all` | 전체 plan_ready Task 실행 |
+| `task run --all` | 전체 planned Task 실행 |
 | `task cycle` | Plan + 실행 자동 순회 |
 
 ## edge (Task 연결)

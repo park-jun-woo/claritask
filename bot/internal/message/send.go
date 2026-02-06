@@ -43,7 +43,13 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 		}
 	}
 
-	msgID, _ := result.LastInsertId()
+	msgID, err := result.LastInsertId()
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("메시지 ID 획득 실패: %v", err),
+		}
+	}
 
 	// Update status to processing
 	_, err = globalDB.Exec(`UPDATE messages SET status = 'processing' WHERE id = ?`, msgID)
@@ -57,14 +63,25 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 	// Build report path
 	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("message-%d-report.md", msgID))
 	// Ensure .claribot directory exists
-	os.MkdirAll(filepath.Dir(reportPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(reportPath), 0755); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("report 디렉토리 생성 실패: %v", err),
+		}
+	}
 
-	// Get system prompt template and render with ReportPath
+	// Build context map (best-effort, empty string on failure)
+	contextMap := BuildContextMap(globalDB, projectPath, projectID)
+
+	// Get system prompt template and render with ReportPath and ContextMap
 	systemPrompt, err := prompts.Get(prompts.Common, "message")
 	if err != nil {
 		systemPrompt = defaultSystemPrompt()
 	}
-	systemPrompt = renderPrompt(systemPrompt, map[string]string{"ReportPath": reportPath})
+	systemPrompt = renderPrompt(systemPrompt, map[string]string{
+		"ReportPath": reportPath,
+		"ContextMap": contextMap,
+	})
 
 	// Execute Claude Code
 	opts := claude.Options{
@@ -85,6 +102,10 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 		`, err.Error(), completedAt, msgID); dbErr != nil {
 			log.Printf("[Message] 에러 저장 실패 (msg #%d): %v", msgID, dbErr)
 		}
+		// Clean up report file
+		if rmErr := os.Remove(reportPath); rmErr != nil && !os.IsNotExist(rmErr) {
+			log.Printf("[Message] report 파일 삭제 실패 (msg #%d): %v", msgID, rmErr)
+		}
 
 		return types.Result{
 			Success: false,
@@ -104,6 +125,11 @@ func SendWithProject(projectID *string, projectPath, content, source string) typ
 			Success: false,
 			Message: fmt.Sprintf("결과 저장 실패: %v", err),
 		}
+	}
+
+	// Clean up report file after DB save
+	if rmErr := os.Remove(reportPath); rmErr != nil && !os.IsNotExist(rmErr) {
+		log.Printf("[Message] report 파일 삭제 실패 (msg #%d): %v", msgID, rmErr)
 	}
 
 	return types.Result{
@@ -131,8 +157,12 @@ func renderPrompt(tmplStr string, data map[string]string) string {
 	// Convert map to struct-like data
 	type PromptData struct {
 		ReportPath string
+		ContextMap string
 	}
-	d := PromptData{ReportPath: data["ReportPath"]}
+	d := PromptData{
+		ReportPath: data["ReportPath"],
+		ContextMap: data["ContextMap"],
+	}
 
 	var buf bytes.Buffer
 	if err := tmpl.Execute(&buf, d); err != nil {

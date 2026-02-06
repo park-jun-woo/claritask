@@ -28,15 +28,15 @@ func Set(projectPath, id, field, value string) types.Result {
 	// Validate status values
 	if field == "status" {
 		validStatus := map[string]bool{
-			"spec_ready": true,
-			"plan_ready": true,
-			"done":       true,
-			"failed":     true,
+			"todo":    true,
+			"planned": true,
+			"done":    true,
+			"failed":  true,
 		}
 		if !validStatus[value] {
 			return types.Result{
 				Success: false,
-				Message: "허용되지 않는 상태: " + value + "\n허용: spec_ready, plan_ready, done, failed",
+				Message: "허용되지 않는 상태: " + value + "\n허용: todo, planned, done, failed",
 			}
 		}
 	}

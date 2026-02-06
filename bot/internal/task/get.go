@@ -55,9 +55,9 @@ func Get(projectPath, id string) types.Result {
 
 	// Add action buttons based on status
 	switch t.Status {
-	case "spec_ready":
+	case "todo":
 		msg += fmt.Sprintf("\n[Plan 생성:task plan %d][삭제:task delete %d]", t.ID, t.ID)
-	case "plan_ready":
+	case "planned":
 		msg += fmt.Sprintf("\n[실행:task run %d][삭제:task delete %d]", t.ID, t.ID)
 	case "done", "failed":
 		msg += fmt.Sprintf("\n[삭제:task delete %d]", t.ID)

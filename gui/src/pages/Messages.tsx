@@ -1,31 +1,46 @@
-import { useState } from 'react'
-import { Card, CardContent } from '@/components/ui/card'
+import { useState, useRef, useEffect } from 'react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
-import { useMessages, useSendMessage } from '@/hooks/useClaribot'
-import { Send, ChevronDown, ChevronRight, MessageSquare } from 'lucide-react'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { Separator } from '@/components/ui/separator'
+import { useMessages, useMessage, useSendMessage } from '@/hooks/useClaribot'
+import { Send, MessageSquare, ArrowLeft } from 'lucide-react'
+import { MarkdownRenderer } from '@/components/MarkdownRenderer'
+import { ChatBubble } from '@/components/ChatBubble'
+
+type MobileView = 'chat' | 'detail'
 
 export default function Messages() {
   const { data: messagesData } = useMessages()
   const sendMessage = useSendMessage()
   const [input, setInput] = useState('')
-  const [expandedIds, setExpandedIds] = useState<Set<number>>(new Set())
+  const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null)
+  const [mobileView, setMobileView] = useState<MobileView>('chat')
+
+  const { data: messageDetail } = useMessage(selectedMessageId ?? undefined)
+  const selectedMessage = messageDetail?.data ?? null
 
   const messageItems = parseItems(messagesData?.data)
+  const sortedMessages = [...messageItems].sort((a, b) => {
+    const ta = new Date(a.created_at || a.CreatedAt || 0).getTime()
+    const tb = new Date(b.created_at || b.CreatedAt || 0).getTime()
+    return ta - tb
+  })
+
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const isInitialLoad = useRef(true)
+
+  // Auto-scroll to bottom when messages change
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: isInitialLoad.current ? 'instant' : 'smooth' })
+    isInitialLoad.current = false
+  }, [sortedMessages.length])
 
   const handleSend = async () => {
     if (!input.trim()) return
     await sendMessage.mutateAsync(input.trim())
     setInput('')
-  }
-
-  const toggleExpand = (id: number) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      next.has(id) ? next.delete(id) : next.add(id)
-      return next
-    })
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -34,101 +49,213 @@ export default function Messages() {
     }
   }
 
-  return (
-    <div className="space-y-6 max-w-4xl">
-      <h1 className="text-3xl font-bold">Messages</h1>
+  const handleDetailClick = (id: number) => {
+    setSelectedMessageId(id)
+    setMobileView('detail')
+  }
 
-      {/* Send Form */}
-      <Card>
-        <CardContent className="p-4">
-          <div className="space-y-2">
+  const handleBackToChat = () => {
+    setMobileView('chat')
+  }
+
+  // Group messages by date for date separators
+  const groupedMessages = groupByDate(sortedMessages)
+
+  return (
+    <div className="flex gap-0 md:gap-4 h-[calc(100vh-8rem)]">
+      {/* Left Panel: Chat Area */}
+      <div className={`w-full md:w-1/2 flex flex-col border rounded-lg ${mobileView === 'detail' ? 'hidden md:flex' : 'flex'}`}>
+        {/* Chat Header */}
+        <div className="px-4 py-3 border-b shrink-0">
+          <h1 className="text-lg font-semibold flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" />
+            Messages
+          </h1>
+        </div>
+
+        {/* Chat Messages */}
+        <ScrollArea className="flex-1 px-4">
+          <div className="py-4">
+            {groupedMessages.map(({ date, messages: msgs }) => (
+              <div key={date}>
+                {/* Date Separator */}
+                <DateSeparator date={date} />
+
+                {/* Message pairs: user content + bot result */}
+                {msgs.map((msg: any) => {
+                  const id = msg.id || msg.ID
+                  const content = msg.content || msg.Content || ''
+                  const status = msg.status || msg.Status || 'pending'
+                  const source = msg.source || msg.Source || 'cli'
+                  const result = msg.result || msg.Result || ''
+                  const error = msg.error || msg.Error || ''
+                  const createdAt = msg.created_at || msg.CreatedAt || ''
+                  const completedAt = msg.completed_at || msg.CompletedAt || ''
+                  const isSelected = id === selectedMessageId
+
+                  return (
+                    <div key={id}>
+                      {/* User message bubble */}
+                      <ChatBubble
+                        type="user"
+                        content={content}
+                        source={source}
+                        time={formatTime(createdAt)}
+                      />
+
+                      {/* Bot response bubble */}
+                      <ChatBubble
+                        type="bot"
+                        content={
+                          error
+                            ? error.slice(0, 120) + (error.length > 120 ? '...' : '')
+                            : result
+                              ? getResponseSummary(result)
+                              : statusMessage(status)
+                        }
+                        result={result || undefined}
+                        status={status}
+                        time={formatTime(completedAt || createdAt)}
+                        isSelected={isSelected}
+                        onDetailClick={() => handleDetailClick(id)}
+                      />
+                    </div>
+                  )
+                })}
+              </div>
+            ))}
+            {sortedMessages.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-20 text-muted-foreground">
+                <MessageSquare className="h-10 w-10 mb-2 opacity-30" />
+                <p className="text-sm">메시지가 없습니다</p>
+              </div>
+            )}
+            <div ref={chatEndRef} />
+          </div>
+        </ScrollArea>
+
+        {/* Input Area - Fixed at bottom */}
+        <div className="p-3 border-t shrink-0">
+          <div className="flex gap-2 items-end">
             <Textarea
-              placeholder="Send a message to Claude... (Ctrl+Enter to send)"
+              placeholder="메시지를 입력하세요... (Ctrl+Enter)"
               value={input}
               onChange={e => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
-              rows={3}
+              rows={2}
+              className="text-sm resize-none flex-1"
             />
-            <div className="flex justify-end">
-              <Button
-                onClick={handleSend}
-                disabled={sendMessage.isPending || !input.trim()}
-              >
-                <Send className="h-4 w-4 mr-1" />
-                {sendMessage.isPending ? 'Sending...' : 'Send'}
-              </Button>
-            </div>
+            <Button
+              size="sm"
+              onClick={handleSend}
+              disabled={sendMessage.isPending || !input.trim()}
+              className="h-[52px] px-4 shrink-0"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
           </div>
-        </CardContent>
-      </Card>
-
-      {/* Message List */}
-      <div className="space-y-3">
-        {messageItems.map((msg: any) => {
-          const id = msg.id || msg.ID
-          const content = msg.content || msg.Content || ''
-          const source = msg.source || msg.Source || 'cli'
-          const status = msg.status || msg.Status || 'pending'
-          const result = msg.result || msg.Result || ''
-          const error = msg.error || msg.Error || ''
-          const createdAt = msg.created_at || msg.CreatedAt || ''
-          const isExpanded = expandedIds.has(id)
-          const hasResult = result || error
-
-          return (
-            <Card key={id}>
-              <CardContent className="p-4">
-                <div className="flex items-start gap-3">
-                  <MessageSquare className="h-5 w-5 text-muted-foreground mt-0.5 shrink-0" />
-                  <div className="flex-1 min-w-0 space-y-2">
-                    {/* Header */}
-                    <div className="flex items-center gap-2 flex-wrap">
-                      <span className="text-xs text-muted-foreground">#{id}</span>
-                      <Badge variant={
-                        status === 'done' ? 'success'
-                          : status === 'processing' ? 'warning'
-                            : status === 'failed' ? 'destructive'
-                              : 'secondary'
-                      }>
-                        {status}
-                      </Badge>
-                      <SourceBadge source={source} />
-                      <span className="text-xs text-muted-foreground ml-auto">{formatTime(createdAt)}</span>
-                    </div>
-
-                    {/* Content */}
-                    <p className="text-sm">{content}</p>
-
-                    {/* Result Toggle */}
-                    {hasResult && (
-                      <div>
-                        <button
-                          className="flex items-center gap-1 text-xs text-muted-foreground hover:text-foreground"
-                          onClick={() => toggleExpand(id)}
-                        >
-                          {isExpanded ? <ChevronDown className="h-3 w-3" /> : <ChevronRight className="h-3 w-3" />}
-                          {status === 'processing' ? 'Live output' : 'Show result'}
-                        </button>
-                        {isExpanded && (
-                          <pre className="mt-2 text-sm whitespace-pre-wrap bg-muted rounded p-3 max-h-[400px] overflow-auto">
-                            {error ? `Error: ${error}` : result}
-                          </pre>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                </div>
-              </CardContent>
-            </Card>
-          )
-        })}
+        </div>
       </div>
 
-      {messageItems.length === 0 && (
-        <div className="text-center py-12 text-muted-foreground">
-          No messages yet. Send a message above to get started.
+      {/* Right Panel: Message Detail */}
+      <div className={`w-full md:w-1/2 border rounded-lg flex flex-col min-w-0 ${mobileView === 'chat' ? 'hidden md:flex' : 'flex'}`}>
+        {selectedMessage ? (
+          <MessageDetail
+            message={selectedMessage}
+            onBack={handleBackToChat}
+          />
+        ) : (
+          <div className="flex-1 flex items-center justify-center text-muted-foreground">
+            <div className="text-center space-y-2">
+              <MessageSquare className="h-12 w-12 mx-auto opacity-30" />
+              <p className="text-sm">메시지를 선택하면 상세 내용을 볼 수 있습니다</p>
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// --- Sub-components ---
+
+function DateSeparator({ date }: { date: string }) {
+  return (
+    <div className="flex items-center gap-3 my-4">
+      <div className="flex-1 h-px bg-border" />
+      <span className="text-[11px] text-muted-foreground font-medium">{date}</span>
+      <div className="flex-1 h-px bg-border" />
+    </div>
+  )
+}
+
+function MessageDetail({ message, onBack }: { message: any; onBack: () => void }) {
+  const id = message.id || message.ID
+  const content = message.content || message.Content || ''
+  const source = message.source || message.Source || 'cli'
+  const status = message.status || message.Status || 'pending'
+  const result = message.result || message.Result || ''
+  const error = message.error || message.Error || ''
+  const createdAt = message.created_at || message.CreatedAt || ''
+
+  return (
+    <div className="flex flex-col h-full">
+      {/* Header */}
+      <div className="p-4 border-b shrink-0">
+        <div className="flex items-center gap-2 flex-wrap">
+          <Button variant="ghost" size="sm" onClick={onBack} className="md:hidden mr-1 -ml-2">
+            <ArrowLeft className="h-4 w-4" />
+          </Button>
+          <h3 className="font-semibold">Message #{id}</h3>
+          <Badge variant={
+            status === 'done' ? 'success'
+              : status === 'processing' ? 'warning'
+                : status === 'failed' ? 'destructive'
+                  : 'secondary'
+          }>
+            {status}
+          </Badge>
+          <SourceBadge source={source} />
+          <span className="text-xs text-muted-foreground ml-auto">{formatTime(createdAt)}</span>
         </div>
-      )}
+      </div>
+
+      {/* Body */}
+      <ScrollArea className="flex-1 p-4">
+        <div className="space-y-4">
+          {/* Content */}
+          <div>
+            <h5 className="text-sm font-medium text-muted-foreground mb-1">Content</h5>
+            <p className="text-sm whitespace-pre-wrap">{content}</p>
+          </div>
+
+          {/* Result */}
+          {result && (
+            <>
+              <Separator />
+              <div>
+                <h5 className="text-sm font-medium text-muted-foreground mb-1">Result</h5>
+                <div className="bg-muted rounded p-3 max-h-[600px] overflow-auto">
+                  <MarkdownRenderer content={result} />
+                </div>
+              </div>
+            </>
+          )}
+
+          {/* Error */}
+          {error && (
+            <>
+              <Separator />
+              <div>
+                <h5 className="text-sm font-medium text-destructive mb-1">Error</h5>
+                <pre className="text-sm whitespace-pre-wrap bg-destructive/10 rounded p-3 max-h-[400px] overflow-auto text-destructive">
+                  {error}
+                </pre>
+              </div>
+            </>
+          )}
+        </div>
+      </ScrollArea>
     </div>
   )
 }
@@ -140,7 +267,7 @@ function SourceBadge({ source }: { source: string }) {
     schedule: '\u23F0',
   }
   return (
-    <Badge variant="outline" className="text-xs gap-1">
+    <Badge variant="outline" className="text-xs gap-1 min-h-0">
       {icons[source] || ''} {source}
     </Badge>
   )
@@ -156,9 +283,49 @@ function formatTime(ts: string): string {
   }
 }
 
+function formatDate(ts: string): string {
+  if (!ts) return ''
+  try {
+    const d = new Date(ts)
+    return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' })
+  } catch {
+    return ts
+  }
+}
+
 function parseItems(data: any): any[] {
   if (!data) return []
   if (Array.isArray(data)) return data
   if (data.items && Array.isArray(data.items)) return data.items
   return []
+}
+
+function getResponseSummary(result: string): string {
+  if (!result) return ''
+  const plain = result.replace(/[#*`>\-\[\]()!]/g, '').trim()
+  const first = plain.split('\n').find(l => l.trim())?.trim() || ''
+  return first.length > 100 ? first.slice(0, 100) + '...' : first
+}
+
+function statusMessage(status: string): string {
+  switch (status) {
+    case 'pending': return '대기 중...'
+    case 'processing': return '처리 중...'
+    case 'done': return '완료'
+    case 'failed': return '실패'
+    default: return status
+  }
+}
+
+function groupByDate(messages: any[]): { date: string; messages: any[] }[] {
+  const groups: Map<string, any[]> = new Map()
+  for (const msg of messages) {
+    const ts = msg.created_at || msg.CreatedAt || ''
+    const dateKey = formatDate(ts) || 'Unknown'
+    if (!groups.has(dateKey)) {
+      groups.set(dateKey, [])
+    }
+    groups.get(dateKey)!.push(msg)
+  }
+  return Array.from(groups.entries()).map(([date, messages]) => ({ date, messages }))
 }

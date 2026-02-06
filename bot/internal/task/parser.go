@@ -7,15 +7,15 @@ import (
 
 // PlanResult represents the result of 1회차 순회
 type PlanResult struct {
-	Type    string   // "subdivided" or "planned"
-	Plan    string   // Plan content (if planned)
-	Children []Child // Child tasks (if subdivided)
+	Type     string  `json:"type"`               // "split" or "planned"
+	Plan     string  `json:"plan,omitempty"`      // Plan content (if planned)
+	Children []Child `json:"children,omitempty"`  // Child tasks (if split)
 }
 
 // Child represents a child task created during subdivision
 type Child struct {
-	ID    int
-	Title string
+	ID    int    `json:"id"`
+	Title string `json:"title"`
 }
 
 // stripCodeBlocks removes wrapping code block markers (```) from output.
@@ -29,10 +29,10 @@ func stripCodeBlocks(output string) string {
 	return output
 }
 
-// extractMarker finds [SUBDIVIDED] or [PLANNED] marker anywhere in the output,
+// extractMarker finds [SPLIT] or [PLANNED] marker anywhere in the output,
 // handling cases where Claude adds preamble text before the marker.
 func extractMarker(output string) (marker string, content string, found bool) {
-	for _, m := range []string{"[SUBDIVIDED]", "[PLANNED]"} {
+	for _, m := range []string{"[SPLIT]", "[PLANNED]"} {
 		idx := strings.Index(output, m)
 		if idx >= 0 {
 			return m, output[idx:], true
@@ -49,10 +49,10 @@ func ParsePlanOutput(output string) PlanResult {
 	output = stripCodeBlocks(output)
 
 	// Try direct prefix match first (fast path)
-	if strings.HasPrefix(output, "[SUBDIVIDED]") {
+	if strings.HasPrefix(output, "[SPLIT]") {
 		return PlanResult{
-			Type:     "subdivided",
-			Children: parseSubdividedChildren(output),
+			Type:     "split",
+			Children: parseSplitChildren(output),
 		}
 	}
 
@@ -70,10 +70,10 @@ func ParsePlanOutput(output string) PlanResult {
 	marker, content, found := extractMarker(output)
 	if found {
 		switch marker {
-		case "[SUBDIVIDED]":
+		case "[SPLIT]":
 			return PlanResult{
-				Type:     "subdivided",
-				Children: parseSubdividedChildren(content),
+				Type:     "split",
+				Children: parseSplitChildren(content),
 			}
 		case "[PLANNED]":
 			plan := strings.TrimPrefix(content, "[PLANNED]")
@@ -92,9 +92,9 @@ func ParsePlanOutput(output string) PlanResult {
 	}
 }
 
-// parseSubdividedChildren extracts child task info from [SUBDIVIDED] output
+// parseSplitChildren extracts child task info from [SPLIT] output
 // Format: - Task #<id>: <title>
-func parseSubdividedChildren(output string) []Child {
+func parseSplitChildren(output string) []Child {
 	var children []Child
 
 	// Pattern: - Task #123: Some title

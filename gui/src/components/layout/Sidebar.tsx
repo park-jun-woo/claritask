@@ -17,7 +17,7 @@ interface SidebarProps {
   onToggle: () => void
 }
 
-const navItems = [
+export const navItems = [
   { to: '/', icon: LayoutDashboard, label: 'Dashboard' },
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
@@ -35,7 +35,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       )}
     >
       <div className="flex items-center justify-end p-2">
-        <Button variant="ghost" size="icon" onClick={onToggle} className="h-8 w-8">
+        <Button variant="ghost" size="icon" onClick={onToggle} className="min-h-[44px] min-w-[44px]">
           {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
         </Button>
       </div>
@@ -47,7 +47,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             end={to === '/'}
             className={({ isActive }) =>
               cn(
-                "flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                "flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors",
                 "hover:bg-accent hover:text-accent-foreground",
                 isActive
                   ? "bg-accent text-accent-foreground"

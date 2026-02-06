@@ -44,8 +44,8 @@ export default function Schedules() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-3xl font-bold">Schedules</h1>
-        <Button onClick={() => setShowAdd(!showAdd)} size="sm">
+        <h1 className="text-2xl md:text-3xl font-bold">Schedules</h1>
+        <Button onClick={() => setShowAdd(!showAdd)} size="sm" className="min-h-[44px]">
           <Plus className="h-4 w-4 mr-1" /> Add Schedule
         </Button>
       </div>
@@ -98,8 +98,8 @@ export default function Schedules() {
             </label>
           </CardContent>
           <CardFooter className="gap-2">
-            <Button size="sm" onClick={handleAdd} disabled={addSchedule.isPending}>Add</Button>
-            <Button size="sm" variant="ghost" onClick={() => setShowAdd(false)}>Cancel</Button>
+            <Button size="sm" className="min-h-[44px]" onClick={handleAdd} disabled={addSchedule.isPending}>Add</Button>
+            <Button size="sm" variant="ghost" className="min-h-[44px]" onClick={() => setShowAdd(false)}>Cancel</Button>
           </CardFooter>
         </Card>
       )}
@@ -130,10 +130,10 @@ export default function Schedules() {
                       {projectId && <Badge variant="info" className="text-xs">{projectId}</Badge>}
                     </div>
 
-                    <div className="flex items-center gap-2 text-sm">
-                      <Clock className="h-4 w-4 text-muted-foreground" />
-                      <code className="bg-muted px-2 py-0.5 rounded text-xs">{cronExpr}</code>
-                      <span className="text-muted-foreground text-xs">{describeCron(cronExpr)}</span>
+                    <div className="flex items-center gap-2 text-sm overflow-x-auto">
+                      <Clock className="h-4 w-4 text-muted-foreground shrink-0" />
+                      <code className="bg-muted px-2 py-0.5 rounded text-xs whitespace-nowrap">{cronExpr}</code>
+                      <span className="text-muted-foreground text-xs whitespace-nowrap">{describeCron(cronExpr)}</span>
                     </div>
 
                     <p className="text-sm">{message}</p>
@@ -144,10 +144,11 @@ export default function Schedules() {
                     </div>
                   </div>
 
-                  <div className="flex flex-col gap-1">
+                  <div className="flex flex-col gap-1 shrink-0">
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="min-h-[44px] min-w-[44px]"
                       onClick={() => toggleSchedule.mutate({ id, enable: !enabled })}
                       title={enabled ? 'Disable' : 'Enable'}
                     >
@@ -156,6 +157,7 @@ export default function Schedules() {
                     <Button
                       size="sm"
                       variant="ghost"
+                      className="min-h-[44px] min-w-[44px]"
                       onClick={() => setShowRuns(showRuns === id ? null : id)}
                       title="Run history"
                     >
@@ -164,7 +166,7 @@ export default function Schedules() {
                     <Button
                       size="sm"
                       variant="ghost"
-                      className="text-destructive hover:text-destructive"
+                      className="text-destructive hover:text-destructive min-h-[44px] min-w-[44px]"
                       onClick={() => handleDelete(id)}
                       title="Delete"
                     >

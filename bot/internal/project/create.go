@@ -104,7 +104,8 @@ func Create(id, projType, description string) types.Result {
 	// 3. Create local DB and migrate
 	localDB, err := db.OpenLocal(projectPath)
 	if err != nil {
-		os.RemoveAll(projectPath) // rollback
+		globalDB.Exec(`DELETE FROM projects WHERE id = ?`, id) // rollback
+		os.RemoveAll(projectPath)                              // rollback
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("failed to create local db: %v", err),
@@ -113,7 +114,8 @@ func Create(id, projType, description string) types.Result {
 	defer localDB.Close()
 
 	if err := localDB.MigrateLocal(); err != nil {
-		os.RemoveAll(projectPath) // rollback
+		globalDB.Exec(`DELETE FROM projects WHERE id = ?`, id) // rollback
+		os.RemoveAll(projectPath)                              // rollback
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("failed to migrate local db: %v", err),

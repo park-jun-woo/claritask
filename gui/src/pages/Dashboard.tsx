@@ -24,7 +24,7 @@ export default function Dashboard() {
   const taskDone = taskItems.filter((t: any) => t.status === 'done' || t.Status === 'done').length
   const taskPending = taskItems.filter((t: any) => {
     const s = t.status || t.Status
-    return s === 'spec_ready' || s === 'plan_ready'
+    return s === 'todo' || s === 'planned'
   }).length
 
   const msgProcessing = messageItems.filter((m: any) => (m.status || m.Status) === 'processing').length
@@ -34,7 +34,7 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-3xl font-bold">Dashboard</h1>
+      <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
 
       {/* Summary Cards */}
       <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
@@ -99,9 +99,9 @@ export default function Dashboard() {
           </CardHeader>
           <CardContent>
             <div className="space-y-3">
-              <StatusBar label="spec_ready" count={countByStatus(taskItems, 'spec_ready')} total={taskTotal} color="bg-gray-400" />
-              <StatusBar label="subdivided" count={countByStatus(taskItems, 'subdivided')} total={taskTotal} color="bg-blue-400" />
-              <StatusBar label="plan_ready" count={countByStatus(taskItems, 'plan_ready')} total={taskTotal} color="bg-yellow-400" />
+              <StatusBar label="todo" count={countByStatus(taskItems, 'todo')} total={taskTotal} color="bg-gray-400" />
+              <StatusBar label="split" count={countByStatus(taskItems, 'split')} total={taskTotal} color="bg-blue-400" />
+              <StatusBar label="planned" count={countByStatus(taskItems, 'planned')} total={taskTotal} color="bg-yellow-400" />
               <StatusBar label="done" count={countByStatus(taskItems, 'done')} total={taskTotal} color="bg-green-400" />
               <StatusBar label="failed" count={countByStatus(taskItems, 'failed')} total={taskTotal} color="bg-red-400" />
             </div>

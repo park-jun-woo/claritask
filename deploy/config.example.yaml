@@ -13,8 +13,9 @@ telegram:
 
 # Claude Code Execution
 claude:
-  timeout: 1200  # Idle timeout in seconds (default: 1200 = 20 min)
-  max: 3         # Max concurrent instances (default: 3, max: 10)
+  timeout: 1200      # Idle timeout in seconds (default: 1200 = 20 min)
+  max_timeout: 1800  # Absolute timeout in seconds (default: 1800 = 30 min, range: 60-7200)
+  max: 10            # Max concurrent instances (default: 10, max: 10)
 
 # Project Management
 project:

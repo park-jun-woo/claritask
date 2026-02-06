@@ -64,6 +64,12 @@ func Status(projectPath string) types.Result {
 			summary.Failed = count
 		}
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	var sb strings.Builder
 	sb.WriteString("📊 메시지 상태\n")
@@ -142,6 +148,12 @@ func Processing(projectPath string) types.Result {
 		}
 		m.Status = "processing"
 		messages = append(messages, m)
+	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
 	}
 
 	if len(messages) == 0 {

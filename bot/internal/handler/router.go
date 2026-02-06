@@ -2,11 +2,14 @@ package handler
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
-	"parkjunwoo.com/claribot/internal/edge"
+	"parkjunwoo.com/claribot/internal/config"
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
@@ -45,13 +48,50 @@ func (r *Router) SetPageSize(size int) {
 	}
 }
 
-// SetProject sets the current project context
+// SetProject sets the current project context and persists the selection
 func (r *Router) SetProject(id, path, desc string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.ctx.ProjectID = id
 	r.ctx.ProjectPath = path
 	r.ctx.ProjectDescription = desc
+	saveLastProject(id)
+}
+
+// RestoreProject restores the last selected project from disk
+func (r *Router) RestoreProject() {
+	id := loadLastProject()
+	if id == "" {
+		return
+	}
+	result := project.Get(id)
+	if !result.Success {
+		return
+	}
+	if p, ok := result.Data.(*project.Project); ok {
+		r.mu.Lock()
+		r.ctx.ProjectID = p.ID
+		r.ctx.ProjectPath = p.Path
+		r.ctx.ProjectDescription = p.Description
+		r.mu.Unlock()
+	}
+}
+
+func lastProjectPath() string {
+	home, _ := os.UserHomeDir()
+	return filepath.Join(home, ".claribot", "last_project")
+}
+
+func saveLastProject(id string) {
+	os.WriteFile(lastProjectPath(), []byte(id), 0644)
+}
+
+func loadLastProject() string {
+	data, err := os.ReadFile(lastProjectPath())
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // GetProject returns the current project
@@ -124,10 +164,10 @@ func (r *Router) Execute(ctx *Context, input string) types.Result {
 		return r.handleProject(ctx, cmd, args)
 	case "task":
 		return r.handleTask(ctx, cmd, args)
-	case "edge":
-		return r.handleEdge(ctx, cmd, args)
 	case "message":
 		return r.handleMessage(ctx, cmd, args)
+	case "config":
+		return r.handleConfig(ctx, cmd, args)
 	case "schedule":
 		return r.handleSchedule(ctx, cmd, args)
 	case "send":
@@ -168,7 +208,7 @@ func (r *Router) handleProject(ctx *Context, cmd string, args []string) types.Re
 	case "":
 		return types.Result{
 			Success: true,
-			Message: "project 명령어:\n  [목록:project list]\n  [생성:project create]\n  [추가:project add]",
+			Message: "project 명령어:\n  [목록:project list]\n  [생성:project create]\n  [추가:project add]\n  [설정:project set]",
 		}
 	case "add":
 		var path, projType, desc string
@@ -240,6 +280,13 @@ func (r *Router) handleProject(ctx *Context, cmd string, args []string) types.Re
 			r.SetProject("", "", "")
 		}
 		return result
+	case "set":
+		// project set <id> <field> <value>
+		if len(args) < 3 {
+			return types.Result{Success: false, Message: "usage: project set <id> <field> <value>"}
+		}
+		value := strings.Join(args[2:], " ")
+		return project.Set(args[0], args[1], value)
 	case "switch":
 		if len(args) < 1 {
 			return project.List(pagination.NewPageRequest(1, r.pageSize)) // show list with switch buttons
@@ -269,8 +316,14 @@ func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Resul
 	if cmd == "" {
 		return types.Result{
 			Success: true,
-			Message: "task 명령어:\n  [목록:task list]\n  [추가:task add]\n  [Plan 생성:task plan]\n  [실행:task run]\n  [전체 순회:task cycle]",
+			Message: "task 명령어:\n[목록:task list] [추가:task add]\n[플랜순회:task plan --all]\n[실행순회:task run --all]\n[전체순회:task cycle]\n[중단:task stop]",
 		}
+	}
+
+	// stop doesn't require project selection
+	if cmd == "stop" {
+		msg, running := task.Stop()
+		return types.Result{Success: running, Message: msg}
 	}
 
 	if ctx.ProjectPath == "" {
@@ -288,9 +341,9 @@ func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Resul
 				Context:    "task add",
 			}
 		}
-		// Parse --parent and --spec options
+		// Parse --parent, --spec, --spec-file options
 		var parentID *int
-		var spec string
+		var spec, specFile string
 		var titleParts []string
 		for i := 0; i < len(args); i++ {
 			if args[i] == "--parent" && i+1 < len(args) {
@@ -300,12 +353,23 @@ func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Resul
 				}
 				parentID = &pid
 				i++ // skip next arg
+			} else if args[i] == "--spec-file" && i+1 < len(args) {
+				specFile = args[i+1]
+				i++ // skip next arg
 			} else if args[i] == "--spec" && i+1 < len(args) {
 				spec = args[i+1]
 				i++ // skip next arg
 			} else {
 				titleParts = append(titleParts, args[i])
 			}
+		}
+		// --spec-file takes priority over --spec
+		if specFile != "" {
+			data, err := os.ReadFile(specFile)
+			if err != nil {
+				return types.Result{Success: false, Message: fmt.Sprintf("spec 파일 읽기 실패: %v", err)}
+			}
+			spec = string(data)
 		}
 		title := strings.Join(titleParts, " ")
 		if title == "" {
@@ -319,7 +383,13 @@ func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Resul
 		}
 		return task.Add(ctx.ProjectPath, title, parentID, spec)
 	case "list":
-		// task list [parent_id] [-p page] [-n pageSize]
+		// task list [parent_id] [-p page] [-n pageSize] [--tree]
+		// Check for --tree flag
+		for _, arg := range args {
+			if arg == "--tree" {
+				return task.ListTree(ctx.ProjectPath)
+			}
+		}
 		var parentID *int
 		page, pageSize := r.parsePagination(args)
 		// Check first positional arg for parent_id (skip -p/-n and their values)
@@ -384,54 +454,6 @@ func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Resul
 		return task.Cycle(ctx.ProjectPath)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown task command: %s", cmd)}
-	}
-}
-
-func (r *Router) handleEdge(ctx *Context, cmd string, args []string) types.Result {
-	// Show help even without project selected
-	if cmd == "" {
-		return types.Result{
-			Success: true,
-			Message: "edge 명령어:\n  [목록:edge list]\n  [추가:edge add]\n  [조회:edge get]",
-		}
-	}
-
-	if ctx.ProjectPath == "" {
-		return types.Result{Success: false, Message: "프로젝트를 먼저 선택하세요: /project switch <id>"}
-	}
-
-	switch cmd {
-	case "add":
-		if len(args) < 2 {
-			return types.Result{Success: false, Message: "usage: edge add <from_id> <to_id>"}
-		}
-		return edge.Add(ctx.ProjectPath, args[0], args[1])
-	case "list":
-		var taskID string
-		page, pageSize := r.parsePagination(args)
-		for _, arg := range args {
-			if arg != "-p" && arg != "-n" && !strings.HasPrefix(arg, "-") {
-				taskID = arg
-				break
-			}
-		}
-		return edge.List(ctx.ProjectPath, taskID, pagination.NewPageRequest(page, pageSize))
-	case "get":
-		if len(args) < 2 {
-			return types.Result{Success: false, Message: "usage: edge get <from_id> <to_id>"}
-		}
-		return edge.Get(ctx.ProjectPath, args[0], args[1])
-	case "delete":
-		if len(args) < 2 {
-			return types.Result{Success: false, Message: "usage: edge delete <from_id> <to_id>"}
-		}
-		confirmed := len(args) > 2 && args[2] == "yes"
-		if len(args) > 2 && args[2] == "no" {
-			return types.Result{Success: true, Message: "삭제 취소됨"}
-		}
-		return edge.Delete(ctx.ProjectPath, args[0], args[1], confirmed)
-	default:
-		return types.Result{Success: false, Message: fmt.Sprintf("unknown edge command: %s", cmd)}
 	}
 }
 
@@ -508,17 +530,40 @@ func (r *Router) handleStatus(ctx *Context) types.Result {
 		sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", ctx.ProjectID))
 		sb.WriteString(fmt.Sprintf("   설명: %s\n", ctx.ProjectDescription))
 
+		// Cycle status
+		cycleStatus := task.GetCycleStatus()
+		if cycleStatus.Status != "idle" {
+			sb.WriteString("\n🔄 순회 상태:\n")
+			typeLabel := map[string]string{"cycle": "전체순회", "plan": "플랜순회", "run": "실행순회"}[cycleStatus.Type]
+			if typeLabel == "" {
+				typeLabel = cycleStatus.Type
+			}
+			switch cycleStatus.Status {
+			case "running":
+				sb.WriteString(fmt.Sprintf("   ▶️ %s 진행 중", typeLabel))
+				if cycleStatus.CurrentTaskID > 0 {
+					sb.WriteString(fmt.Sprintf(" (Task #%d)", cycleStatus.CurrentTaskID))
+				}
+				sb.WriteString("\n")
+			case "interrupted":
+				sb.WriteString(fmt.Sprintf("   ⚠️ %s 중단됨", typeLabel))
+				if cycleStatus.CurrentTaskID > 0 {
+					sb.WriteString(fmt.Sprintf(" (Task #%d에서 중단)", cycleStatus.CurrentTaskID))
+				}
+				sb.WriteString("\n")
+				sb.WriteString(fmt.Sprintf("[순회 재개:resume:%s]", cycleStatus.Type))
+				sb.WriteString("\n")
+			}
+			elapsed := time.Since(cycleStatus.StartedAt).Truncate(time.Second)
+			sb.WriteString(fmt.Sprintf("   경과: %s\n", elapsed))
+		}
+
 		// Task stats
 		if stats, err := task.GetStats(ctx.ProjectPath); err == nil && stats.Total > 0 {
 			sb.WriteString("\n📊 Task 현황:\n")
 
-			// 진행 상태 표시
-			if claudeStatus.Used > 0 {
-				sb.WriteString("   🔄 순회 진행 중\n")
-			}
-
 			// 통계
-			remaining := stats.SpecReady + stats.PlanReady
+			remaining := stats.Todo + stats.Planned
 			sb.WriteString(fmt.Sprintf("   전체: %d개 (실행대상: %d개)\n", stats.Total, stats.Leaf))
 			sb.WriteString(fmt.Sprintf("   ✅ 완료: %d개", stats.Done))
 			if stats.Failed > 0 {
@@ -526,7 +571,7 @@ func (r *Router) handleStatus(ctx *Context) types.Result {
 			}
 			sb.WriteString("\n")
 			if remaining > 0 {
-				sb.WriteString(fmt.Sprintf("   ⏳ 대기: %d개 (spec:%d, plan:%d)\n", remaining, stats.SpecReady, stats.PlanReady))
+				sb.WriteString(fmt.Sprintf("   ⏳ 대기: %d개 (todo:%d, planned:%d)\n", remaining, stats.Todo, stats.Planned))
 			}
 
 			// 진행률
@@ -565,6 +610,43 @@ func (r *Router) parsePagination(args []string) (page, pageSize int) {
 		}
 	}
 	return
+}
+
+func (r *Router) handleConfig(ctx *Context, cmd string, args []string) types.Result {
+	if cmd == "" {
+		return types.Result{
+			Success: true,
+			Message: "config 명령어:\n  [목록:config list]\n  [조회:config get]\n  [설정:config set]\n  [삭제:config delete]",
+		}
+	}
+
+	switch cmd {
+	case "set":
+		if len(args) < 2 {
+			return types.Result{Success: false, Message: "usage: config set <key> <value>"}
+		}
+		value := strings.Join(args[1:], " ")
+		return config.SetDBConfig(args[0], value)
+	case "get":
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: config get <key>"}
+		}
+		return config.GetDBConfig(args[0])
+	case "list":
+		page, pageSize := r.parsePagination(args)
+		return config.ListDBConfig(pagination.NewPageRequest(page, pageSize))
+	case "delete":
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: config delete <key>"}
+		}
+		confirmed := len(args) > 1 && args[1] == "yes"
+		if len(args) > 1 && args[1] == "no" {
+			return types.Result{Success: true, Message: "삭제 취소됨"}
+		}
+		return config.DeleteDBConfig(args[0], confirmed)
+	default:
+		return types.Result{Success: false, Message: fmt.Sprintf("unknown config command: %s", cmd)}
+	}
 }
 
 func (r *Router) handleSchedule(ctx *Context, cmd string, args []string) types.Result {

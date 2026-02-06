@@ -1,10 +1,4 @@
-// API Request/Response types matching Go types
-
-export interface ClaribotRequest {
-  command: string
-  args?: string[]
-  context?: string
-}
+// API Response type matching Go types.Result
 
 export interface ClaribotResponse {
   success: boolean
@@ -35,7 +29,7 @@ export interface Task {
   spec: string
   plan: string
   report: string
-  status: 'spec_ready' | 'subdivided' | 'plan_ready' | 'done' | 'failed'
+  status: 'todo' | 'split' | 'planned' | 'done' | 'failed'
   error: string
   is_leaf: boolean
   depth: number
@@ -99,9 +93,9 @@ export interface ClaudeStatus {
 export interface TaskStats {
   total: number
   leaf: number
-  spec_ready: number
-  plan_ready: number
-  subdivided: number
+  todo: number
+  planned: number
+  split: number
   done: number
   failed: number
 }

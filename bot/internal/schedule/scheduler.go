@@ -186,7 +186,11 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 		log.Printf("Scheduler: schedule_run 생성 실패: %v", err)
 		return
 	}
-	runID, _ := result.LastInsertId()
+	runID, err := result.LastInsertId()
+	if err != nil {
+		log.Printf("Scheduler: schedule_run ID 획득 실패: %v", err)
+		return
+	}
 
 	// Auto-disable if run_once (before Claude execution to prevent re-runs on error)
 	if runOnce {
@@ -216,7 +220,10 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 	// Build report path
 	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("schedule-%d-report.md", runID))
 	// Ensure .claribot directory exists
-	os.MkdirAll(filepath.Dir(reportPath), 0755)
+	if err := os.MkdirAll(filepath.Dir(reportPath), 0755); err != nil {
+		log.Printf("Scheduler: report 디렉토리 생성 실패: %v", err)
+		return
+	}
 
 	// Load system prompt and render with ReportPath
 	systemPrompt, err := prompts.Get(prompts.Common, "schedule")
@@ -246,7 +253,10 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 	} else if claudeResult.ExitCode != 0 {
 		status = "failed"
 		resultText = claudeResult.Output
-		errorText = "exit code: " + string(rune(claudeResult.ExitCode))
+		errorText = fmt.Sprintf("exit code: %d", claudeResult.ExitCode)
+		if claude.IsAuthError(claudeResult) {
+			log.Printf("Scheduler: ⚠️ 스케줄 #%d 인증 오류 감지 - Claude 인증 상태를 확인하세요", scheduleID)
+		}
 		log.Printf("Scheduler: 스케줄 #%d Claude 비정상 종료 (exit: %d)", scheduleID, claudeResult.ExitCode)
 	} else {
 		status = "done"
@@ -262,40 +272,44 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 	`, status, resultText, errorText, completedAt, runID)
 	if err != nil {
 		log.Printf("Scheduler: schedule_run 업데이트 실패: %v", err)
+	} else {
+		// Clean up report file after DB save
+		if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
+			log.Printf("Scheduler: report 파일 삭제 실패 (run #%d): %v", runID, err)
+		}
 	}
 
 	// Update schedules last_run and next_run
 	s.updateRunTimes(scheduleID, globalDB)
 
 	// Handle failure counting
+	var failCount int
 	s.mu.Lock()
 	if status == "failed" {
 		s.failureCounts[scheduleID]++
-		failCount := s.failureCounts[scheduleID]
-		s.mu.Unlock()
-
-		// Auto-disable after consecutive failures
-		if failCount >= MaxConsecutiveFailures {
-			log.Printf("Scheduler: 스케줄 #%d %d회 연속 실패, 자동 비활성화", scheduleID, failCount)
-			_, err = globalDB.Exec(`UPDATE schedules SET enabled = 0, updated_at = ? WHERE id = ?`, db.TimeNow(), scheduleID)
-			if err != nil {
-				log.Printf("Scheduler: 스케줄 #%d 비활성화 실패: %v", scheduleID, err)
-			} else {
-				s.Unregister(scheduleID)
-			}
-
-			// Notify about auto-disable
-			if s.notifier != nil {
-				notification := fmt.Sprintf("⚠️ 스케줄 자동 비활성화됨\n\n%s\n\n사유: %d회 연속 실패\n마지막 오류: %s",
-					truncate(msg, 50), MaxConsecutiveFailures, errorText)
-				s.notifier(projectID, notification)
-				return
-			}
-		}
+		failCount = s.failureCounts[scheduleID]
 	} else {
-		// Reset failure count on success
 		s.failureCounts[scheduleID] = 0
-		s.mu.Unlock()
+	}
+	s.mu.Unlock()
+
+	// Auto-disable after consecutive failures
+	if failCount >= MaxConsecutiveFailures {
+		log.Printf("Scheduler: 스케줄 #%d %d회 연속 실패, 자동 비활성화", scheduleID, failCount)
+		_, err = globalDB.Exec(`UPDATE schedules SET enabled = 0, updated_at = ? WHERE id = ?`, db.TimeNow(), scheduleID)
+		if err != nil {
+			log.Printf("Scheduler: 스케줄 #%d 비활성화 실패: %v", scheduleID, err)
+		} else {
+			s.Unregister(scheduleID)
+		}
+
+		// Notify about auto-disable
+		if s.notifier != nil {
+			notification := fmt.Sprintf("⚠️ 스케줄 자동 비활성화됨\n\n%s\n\n사유: %d회 연속 실패\n마지막 오류: %s",
+				truncate(msg, 50), MaxConsecutiveFailures, errorText)
+			s.notifier(projectID, notification)
+			return
+		}
 	}
 
 	// Send notification

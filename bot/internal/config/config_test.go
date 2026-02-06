@@ -17,6 +17,9 @@ func TestDefaults(t *testing.T) {
 	if cfg.Claude.Timeout != DefaultTimeout {
 		t.Errorf("Timeout = %d, want %d", cfg.Claude.Timeout, DefaultTimeout)
 	}
+	if cfg.Claude.MaxTimeout != DefaultMaxTimeout {
+		t.Errorf("MaxTimeout = %d, want %d", cfg.Claude.MaxTimeout, DefaultMaxTimeout)
+	}
 	if cfg.Claude.Max != DefaultMaxClaude {
 		t.Errorf("Max = %d, want %d", cfg.Claude.Max, DefaultMaxClaude)
 	}
@@ -38,7 +41,7 @@ func TestValidate(t *testing.T) {
 			name: "valid config",
 			cfg: Config{
 				Service:    ServiceConfig{Host: "127.0.0.1", Port: 8080},
-				Claude:     ClaudeConfig{Timeout: 600, Max: 3},
+				Claude:     ClaudeConfig{Timeout: 600, MaxTimeout: 1800, Max: 3},
 				Pagination: PaginationConfig{PageSize: 10},
 			},
 			wantWarnings: 0,
@@ -47,7 +50,7 @@ func TestValidate(t *testing.T) {
 			name: "invalid port",
 			cfg: Config{
 				Service:    ServiceConfig{Host: "127.0.0.1", Port: 99999},
-				Claude:     ClaudeConfig{Timeout: 600, Max: 3},
+				Claude:     ClaudeConfig{Timeout: 600, MaxTimeout: 1800, Max: 3},
 				Pagination: PaginationConfig{PageSize: 10},
 			},
 			wantWarnings: 1,
@@ -56,7 +59,7 @@ func TestValidate(t *testing.T) {
 			name: "timeout too low",
 			cfg: Config{
 				Service:    ServiceConfig{Host: "127.0.0.1", Port: 8080},
-				Claude:     ClaudeConfig{Timeout: 10, Max: 3},
+				Claude:     ClaudeConfig{Timeout: 10, MaxTimeout: 1800, Max: 3},
 				Pagination: PaginationConfig{PageSize: 10},
 			},
 			wantWarnings: 1,
@@ -65,7 +68,7 @@ func TestValidate(t *testing.T) {
 			name: "max claude too high",
 			cfg: Config{
 				Service:    ServiceConfig{Host: "127.0.0.1", Port: 8080},
-				Claude:     ClaudeConfig{Timeout: 600, Max: 100},
+				Claude:     ClaudeConfig{Timeout: 600, MaxTimeout: 1800, Max: 100},
 				Pagination: PaginationConfig{PageSize: 10},
 			},
 			wantWarnings: 1,
@@ -74,7 +77,7 @@ func TestValidate(t *testing.T) {
 			name: "page size too high",
 			cfg: Config{
 				Service:    ServiceConfig{Host: "127.0.0.1", Port: 8080},
-				Claude:     ClaudeConfig{Timeout: 600, Max: 3},
+				Claude:     ClaudeConfig{Timeout: 600, MaxTimeout: 1800, Max: 3},
 				Pagination: PaginationConfig{PageSize: 500},
 			},
 			wantWarnings: 1,

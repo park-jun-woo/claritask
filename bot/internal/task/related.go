@@ -45,36 +45,3 @@ func GetRelated(localDB *db.DB, taskID int) ([]Task, error) {
 	return tasks, rows.Err()
 }
 
-// GetRelatedSpecs returns related tasks' specs for Plan generation (1회차 순회)
-func GetRelatedSpecs(localDB *db.DB, taskID int) ([]Task, error) {
-	tasks, err := GetRelated(localDB, taskID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter only tasks with non-empty specs
-	var result []Task
-	for _, t := range tasks {
-		if t.Spec != "" {
-			result = append(result, t)
-		}
-	}
-	return result, nil
-}
-
-// GetRelatedPlans returns related tasks' plans for execution (2회차 순회)
-func GetRelatedPlans(localDB *db.DB, taskID int) ([]Task, error) {
-	tasks, err := GetRelated(localDB, taskID)
-	if err != nil {
-		return nil, err
-	}
-
-	// Filter only tasks with non-empty plans
-	var result []Task
-	for _, t := range tasks {
-		if t.Plan != "" {
-			result = append(result, t)
-		}
-	}
-	return result, nil
-}

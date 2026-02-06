@@ -3,10 +3,14 @@ package project
 import (
 	"database/sql"
 	"fmt"
+	"strconv"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
 )
+
+// DefaultParallel is the default parallel execution count
+const DefaultParallel = 3
 
 // Get gets project details
 func Get(id string) types.Result {
@@ -38,8 +42,22 @@ func Get(id string) types.Result {
 		}
 	}
 
-	msg := fmt.Sprintf("Project: %s\nType: %s\nPath: %s\nDescription: %s\nStatus: %s\nCreated: %s",
-		p.ID, p.Type, p.Path, p.Description, p.Status, p.CreatedAt)
+	// Read parallel from local DB config
+	p.Parallel = DefaultParallel
+	localDB, err := db.OpenLocal(p.Path)
+	if err == nil {
+		defer localDB.Close()
+		var val string
+		err = localDB.QueryRow("SELECT value FROM config WHERE key = 'parallel'").Scan(&val)
+		if err == nil {
+			if n, err := strconv.Atoi(val); err == nil && n >= 1 {
+				p.Parallel = n
+			}
+		}
+	}
+
+	msg := fmt.Sprintf("Project: %s\nType: %s\nPath: %s\nDescription: %s\nStatus: %s\nParallel: %d\nCreated: %s",
+		p.ID, p.Type, p.Path, p.Description, p.Status, p.Parallel, p.CreatedAt)
 
 	return types.Result{
 		Success: true,

@@ -61,6 +61,12 @@ func List(req pagination.PageRequest) types.Result {
 		}
 		projects = append(projects, p)
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	pageResp := pagination.NewPageResponse(projects, req.Page, req.PageSize, total)
 

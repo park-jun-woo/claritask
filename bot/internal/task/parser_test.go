@@ -20,13 +20,13 @@ func TestParsePlanOutput_PlannedDirect(t *testing.T) {
 	}
 }
 
-func TestParsePlanOutput_SubdividedDirect(t *testing.T) {
-	output := `[SUBDIVIDED]
+func TestParsePlanOutput_SplitDirect(t *testing.T) {
+	output := `[SPLIT]
 - Task #10: 첫 번째 하위 작업
 - Task #11: 두 번째 하위 작업`
 	result := ParsePlanOutput(output)
-	if result.Type != "subdivided" {
-		t.Errorf("expected type 'subdivided', got '%s'", result.Type)
+	if result.Type != "split" {
+		t.Errorf("expected type 'split', got '%s'", result.Type)
 	}
 	if len(result.Children) != 2 {
 		t.Errorf("expected 2 children, got %d", len(result.Children))
@@ -39,12 +39,12 @@ func TestParsePlanOutput_SubdividedDirect(t *testing.T) {
 	}
 }
 
-func TestParsePlanOutput_SubdividedInCodeBlock(t *testing.T) {
+func TestParsePlanOutput_SplitInCodeBlock(t *testing.T) {
 	// This is the exact bug scenario: Claude wraps output in code blocks
-	output := "```\n[SUBDIVIDED]\n- Task #37: 첫 번째\n- Task #38: 두 번째\n```"
+	output := "```\n[SPLIT]\n- Task #37: 첫 번째\n- Task #38: 두 번째\n```"
 	result := ParsePlanOutput(output)
-	if result.Type != "subdivided" {
-		t.Errorf("expected type 'subdivided', got '%s'", result.Type)
+	if result.Type != "split" {
+		t.Errorf("expected type 'split', got '%s'", result.Type)
 	}
 	if len(result.Children) != 2 {
 		t.Errorf("expected 2 children, got %d", len(result.Children))
@@ -62,36 +62,36 @@ func TestParsePlanOutput_PlannedInCodeBlock(t *testing.T) {
 	}
 }
 
-func TestParsePlanOutput_SubdividedInCodeBlockWithLanguage(t *testing.T) {
+func TestParsePlanOutput_SplitInCodeBlockWithLanguage(t *testing.T) {
 	// Code block with language specifier: ```text
-	output := "```text\n[SUBDIVIDED]\n- Task #5: 작업\n```"
+	output := "```text\n[SPLIT]\n- Task #5: 작업\n```"
 	result := ParsePlanOutput(output)
-	if result.Type != "subdivided" {
-		t.Errorf("expected type 'subdivided', got '%s'", result.Type)
+	if result.Type != "split" {
+		t.Errorf("expected type 'split', got '%s'", result.Type)
 	}
 	if len(result.Children) != 1 {
 		t.Errorf("expected 1 child, got %d", len(result.Children))
 	}
 }
 
-func TestParsePlanOutput_SubdividedWithCRLF(t *testing.T) {
+func TestParsePlanOutput_SplitWithCRLF(t *testing.T) {
 	// \r\n line endings (Windows-style from Claude)
-	output := "\r\n[SUBDIVIDED]\r\n- Task #20: 작업 A\r\n- Task #21: 작업 B\r\n"
+	output := "\r\n[SPLIT]\r\n- Task #20: 작업 A\r\n- Task #21: 작업 B\r\n"
 	result := ParsePlanOutput(output)
-	if result.Type != "subdivided" {
-		t.Errorf("expected type 'subdivided', got '%s'", result.Type)
+	if result.Type != "split" {
+		t.Errorf("expected type 'split', got '%s'", result.Type)
 	}
 	if len(result.Children) != 2 {
 		t.Errorf("expected 2 children, got %d", len(result.Children))
 	}
 }
 
-func TestParsePlanOutput_SubdividedWithPreamble(t *testing.T) {
+func TestParsePlanOutput_SplitWithPreamble(t *testing.T) {
 	// Claude adds explanation text before the marker
-	output := "분석 결과 이 작업은 분할이 필요합니다.\n\n[SUBDIVIDED]\n- Task #15: 하위 작업"
+	output := "분석 결과 이 작업은 분할이 필요합니다.\n\n[SPLIT]\n- Task #15: 하위 작업"
 	result := ParsePlanOutput(output)
-	if result.Type != "subdivided" {
-		t.Errorf("expected type 'subdivided', got '%s'", result.Type)
+	if result.Type != "split" {
+		t.Errorf("expected type 'split', got '%s'", result.Type)
 	}
 	if len(result.Children) != 1 {
 		t.Errorf("expected 1 child, got %d", len(result.Children))
@@ -118,13 +118,13 @@ func TestStripCodeBlocks(t *testing.T) {
 	}{
 		{
 			name:     "no code block",
-			input:    "[SUBDIVIDED]\n- Task #1: test",
-			expected: "[SUBDIVIDED]\n- Task #1: test",
+			input:    "[SPLIT]\n- Task #1: test",
+			expected: "[SPLIT]\n- Task #1: test",
 		},
 		{
 			name:     "simple code block",
-			input:    "```\n[SUBDIVIDED]\n- Task #1: test\n```",
-			expected: "[SUBDIVIDED]\n- Task #1: test",
+			input:    "```\n[SPLIT]\n- Task #1: test\n```",
+			expected: "[SPLIT]\n- Task #1: test",
 		},
 		{
 			name:     "code block with language",
@@ -133,8 +133,8 @@ func TestStripCodeBlocks(t *testing.T) {
 		},
 		{
 			name:     "code block with trailing whitespace",
-			input:    "```\n[SUBDIVIDED]\n- Task #1: test\n```  \n",
-			expected: "[SUBDIVIDED]\n- Task #1: test",
+			input:    "```\n[SPLIT]\n- Task #1: test\n```  \n",
+			expected: "[SPLIT]\n- Task #1: test",
 		},
 	}
 
@@ -156,9 +156,9 @@ func TestExtractMarker(t *testing.T) {
 		wantFound  bool
 	}{
 		{
-			name:       "subdivided at start",
-			input:      "[SUBDIVIDED]\n- Task #1: test",
-			wantMarker: "[SUBDIVIDED]",
+			name:       "split at start",
+			input:      "[SPLIT]\n- Task #1: test",
+			wantMarker: "[SPLIT]",
 			wantFound:  true,
 		},
 		{
@@ -168,9 +168,9 @@ func TestExtractMarker(t *testing.T) {
 			wantFound:  true,
 		},
 		{
-			name:       "subdivided with preamble",
-			input:      "Some text before\n[SUBDIVIDED]\n- Task #1: test",
-			wantMarker: "[SUBDIVIDED]",
+			name:       "split with preamble",
+			input:      "Some text before\n[SPLIT]\n- Task #1: test",
+			wantMarker: "[SPLIT]",
 			wantFound:  true,
 		},
 		{

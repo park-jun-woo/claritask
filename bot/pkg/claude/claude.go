@@ -10,6 +10,7 @@ import (
 	"regexp"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 	"unicode/utf8"
 
@@ -42,6 +43,8 @@ type Manager struct {
 	mu       sync.RWMutex
 	sessions map[*Session]struct{} // track active sessions
 	closed   bool
+	stopCh   chan struct{}   // signal to stop watchdog
+	wg       sync.WaitGroup // wait for watchdog goroutine
 }
 
 // global manager instance
@@ -57,7 +60,10 @@ func Init(cfg Config) {
 			config:   cfg,
 			sem:      make(chan struct{}, cfg.Max),
 			sessions: make(map[*Session]struct{}),
+			stopCh:   make(chan struct{}),
 		}
+		globalManager.wg.Add(1)
+		go globalManager.watchdog()
 	})
 }
 
@@ -71,6 +77,10 @@ func Shutdown() {
 
 // Shutdown closes all active sessions
 func (m *Manager) Shutdown() {
+	// Stop watchdog goroutine
+	close(m.stopCh)
+	m.wg.Wait()
+
 	m.mu.Lock()
 	m.closed = true
 	sessions := make([]*Session, 0, len(m.sessions))
@@ -428,11 +438,12 @@ func GetStatus() Status {
 
 // Session represents an interactive Claude Code session
 type Session struct {
-	cmd     *exec.Cmd
-	pty     *os.File
-	cancel  context.CancelFunc
-	manager *Manager
-	mu      sync.Mutex
+	cmd          *exec.Cmd
+	pty          *os.File
+	cancel       context.CancelFunc
+	manager      *Manager
+	mu           sync.Mutex
+	lastActivity time.Time
 }
 
 // StartSession starts an interactive Claude Code session
@@ -464,7 +475,15 @@ func (m *Manager) StartSession(ctx context.Context, opts Options) (*Session, err
 		return nil, fmt.Errorf("cancelled while waiting in queue: %w", ctx.Err())
 	}
 
-	sessionCtx, cancel := context.WithCancel(context.Background())
+	// Apply MaxTimeout: use context.WithTimeout if configured, else context.WithCancel
+	var sessionCtx context.Context
+	var cancel context.CancelFunc
+	if m.config.MaxTimeout > 0 {
+		sessionCtx, cancel = context.WithTimeout(context.Background(), m.config.MaxTimeout)
+		log.Printf("[Claude] Session max timeout set: %v", m.config.MaxTimeout)
+	} else {
+		sessionCtx, cancel = context.WithCancel(context.Background())
+	}
 
 	args := buildInteractiveArgs(opts)
 	cmd := exec.CommandContext(sessionCtx, "claude", args...)
@@ -480,16 +499,28 @@ func (m *Manager) StartSession(ctx context.Context, opts Options) (*Session, err
 	}
 
 	session := &Session{
-		cmd:     cmd,
-		pty:     ptmx,
-		cancel:  cancel,
-		manager: m,
+		cmd:          cmd,
+		pty:          ptmx,
+		cancel:       cancel,
+		manager:      m,
+		lastActivity: time.Now(),
 	}
 
 	// Track session
 	m.mu.Lock()
 	m.sessions[session] = struct{}{}
 	m.mu.Unlock()
+
+	// Auto-close session when MaxTimeout is reached
+	if m.config.MaxTimeout > 0 {
+		go func() {
+			<-sessionCtx.Done()
+			if sessionCtx.Err() == context.DeadlineExceeded {
+				log.Printf("[Claude] Session max timeout reached (%v), auto-closing", m.config.MaxTimeout)
+				session.Close()
+			}
+		}()
+	}
 
 	return session, nil
 }
@@ -498,6 +529,8 @@ func (m *Manager) StartSession(ctx context.Context, opts Options) (*Session, err
 func (s *Session) Send(message string) (string, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+
+	s.lastActivity = time.Now()
 
 	// Write message
 	_, err := s.pty.Write([]byte(message + "\n"))
@@ -538,6 +571,43 @@ func (s *Session) Send(message string) (string, error) {
 	return stripANSI(output.String()), nil
 }
 
+// watchdog periodically checks active sessions for dead processes
+func (m *Manager) watchdog() {
+	defer m.wg.Done()
+	ticker := time.NewTicker(1 * time.Minute)
+	defer ticker.Stop()
+
+	log.Printf("[Claude] Watchdog started (interval: 1m)")
+
+	for {
+		select {
+		case <-m.stopCh:
+			log.Printf("[Claude] Watchdog stopped")
+			return
+		case <-ticker.C:
+			m.mu.RLock()
+			sessions := make([]*Session, 0, len(m.sessions))
+			for s := range m.sessions {
+				sessions = append(sessions, s)
+			}
+			m.mu.RUnlock()
+
+			for _, s := range sessions {
+				if s.cmd.Process == nil {
+					continue
+				}
+				// Signal(0) checks if process is alive without sending a signal
+				err := s.cmd.Process.Signal(syscall.Signal(0))
+				if err != nil {
+					log.Printf("[Claude] Watchdog: process %d is dead (last activity: %s), closing session",
+						s.cmd.Process.Pid, s.lastActivity.Format("15:04:05"))
+					s.Close()
+				}
+			}
+		}
+	}
+}
+
 // Close terminates the Claude Code session and releases semaphore
 func (s *Session) Close() error {
 	s.mu.Lock()
@@ -556,6 +626,17 @@ func (s *Session) Close() error {
 	<-s.manager.sem
 
 	return err
+}
+
+// authErrorPattern matches authentication/authorization error messages from Claude Code
+var authErrorPattern = regexp.MustCompile(`(?i)(does not have access|please login again|authentication failed|unauthorized|token expired|invalid.{0,20}credentials|API key.{0,20}(invalid|expired|missing)|not authenticated|session expired|access denied)`)
+
+// IsAuthError checks if a Claude Code result indicates an authentication error
+func IsAuthError(result *Result) bool {
+	if result == nil || result.ExitCode == 0 {
+		return false
+	}
+	return authErrorPattern.MatchString(result.Output)
 }
 
 // stripANSI removes ANSI escape sequences and ensures valid UTF-8 output

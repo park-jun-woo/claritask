@@ -2,6 +2,7 @@ package schedule
 
 import (
 	"fmt"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 	"parkjunwoo.com/claribot/internal/db"
@@ -60,7 +61,13 @@ func Add(cronExpr, message string, projectID *string, runOnce bool) types.Result
 		}
 	}
 
-	id, _ := result.LastInsertId()
+	id, err := result.LastInsertId()
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("스케줄 ID 획득 실패: %v", err),
+		}
+	}
 
 	// Register with global scheduler
 	if globalScheduler != nil {
@@ -94,8 +101,8 @@ func Add(cronExpr, message string, projectID *string, runOnce bool) types.Result
 }
 
 func truncate(s string, maxLen int) string {
-	if len(s) <= maxLen {
+	if utf8.RuneCountInString(s) <= maxLen {
 		return s
 	}
-	return s[:maxLen] + "..."
+	return string([]rune(s)[:maxLen]) + "..."
 }

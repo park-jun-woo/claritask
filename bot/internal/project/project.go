@@ -8,20 +8,21 @@ import (
 
 // Project represents a project
 type Project struct {
-	ID          string
-	Name        string
-	Path        string
-	Type        string
-	Description string
-	Status      string
-	CreatedAt   string
-	UpdatedAt   string
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Path        string `json:"path"`
+	Type        string `json:"type"`
+	Description string `json:"description"`
+	Status      string `json:"status"`
+	Parallel    int    `json:"parallel"`
+	CreatedAt   string `json:"created_at"`
+	UpdatedAt   string `json:"updated_at"`
 }
 
 // ProjectType represents a project type with label
 type ProjectType struct {
-	ID    string
-	Label string
+	ID    string `json:"id"`
+	Label string `json:"label"`
 }
 
 // ValidTypes is the list of valid project types

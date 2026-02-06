@@ -96,6 +96,12 @@ func List(projectPath string, parentID *int, req pagination.PageRequest) types.R
 		}
 		tasks = append(tasks, t)
 	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
 
 	pageResp := pagination.NewPageResponse(tasks, req.Page, req.PageSize, total)
 
@@ -124,11 +130,80 @@ func List(projectPath string, parentID *int, req pagination.PageRequest) types.R
 	}
 }
 
+// ListTree returns all tasks as a flat list with parent_id/depth/is_leaf, ordered by id.
+// CLI output shows indented tree structure based on depth.
+func ListTree(projectPath string) types.Result {
+	localDB, err := db.OpenLocal(projectPath)
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("DB 열기 실패: %v", err),
+		}
+	}
+	defer localDB.Close()
+
+	rows, err := localDB.Query(`
+		SELECT id, parent_id, title, status, depth, is_leaf, created_at
+		FROM tasks
+		ORDER BY id ASC
+	`)
+	if err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("조회 실패: %v", err),
+		}
+	}
+	defer rows.Close()
+
+	var tasks []Task
+	for rows.Next() {
+		var t Task
+		if err := rows.Scan(&t.ID, &t.ParentID, &t.Title, &t.Status, &t.Depth, &t.IsLeaf, &t.CreatedAt); err != nil {
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("스캔 실패: %v", err),
+			}
+		}
+		tasks = append(tasks, t)
+	}
+	if err := rows.Err(); err != nil {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("행 순회 오류: %v", err),
+		}
+	}
+
+	if len(tasks) == 0 {
+		return types.Result{
+			Success: true,
+			Message: "작업이 없습니다.\n[추가:task add]",
+		}
+	}
+
+	var sb strings.Builder
+	sb.WriteString(fmt.Sprintf("📋 전체 작업 트리 (총 %d개)\n", len(tasks)))
+	for _, t := range tasks {
+		indent := strings.Repeat("  ", t.Depth)
+		statusIcon := statusToIcon(t.Status)
+		leaf := ""
+		if t.IsLeaf {
+			leaf = " 🍃"
+		}
+		sb.WriteString(fmt.Sprintf("%s%s [#%d:task get %d] %s%s\n", indent, statusIcon, t.ID, t.ID, t.Title, leaf))
+	}
+
+	return types.Result{
+		Success: true,
+		Message: sb.String(),
+		Data:    tasks,
+	}
+}
+
 func statusToIcon(status string) string {
 	switch status {
-	case "spec_ready":
+	case "todo":
 		return "📝"
-	case "plan_ready":
+	case "planned":
 		return "📋"
 	case "done":
 		return "✅"

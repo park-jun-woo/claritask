@@ -57,9 +57,18 @@ func OpenGlobal() (*DB, error) {
 }
 
 // OpenLocal opens a project's local database (project/.claribot/db.clt)
+// Automatically runs migrations to ensure schema is up to date.
 func OpenLocal(projectPath string) (*DB, error) {
 	path := filepath.Join(projectPath, ".claribot", "db.clt")
-	return Open(path)
+	db, err := Open(path)
+	if err != nil {
+		return nil, err
+	}
+	if err := db.MigrateLocal(); err != nil {
+		db.Close()
+		return nil, fmt.Errorf("migrate local: %w", err)
+	}
+	return db, nil
 }
 
 // Close closes the database connection
@@ -143,6 +152,17 @@ CREATE TABLE IF NOT EXISTS messages (
 
 CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status);
 CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id);
+
+CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS auth (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL
+);
 `
 	_, err := db.Exec(schema)
 	if err != nil {
@@ -175,8 +195,8 @@ CREATE TABLE IF NOT EXISTS tasks (
     spec TEXT DEFAULT '',
     plan TEXT DEFAULT '',
     report TEXT DEFAULT '',
-    status TEXT DEFAULT 'spec_ready'
-        CHECK(status IN ('spec_ready', 'subdivided', 'plan_ready', 'done', 'failed')),
+    status TEXT DEFAULT 'todo'
+        CHECK(status IN ('todo', 'split', 'planned', 'done', 'failed')),
     error TEXT DEFAULT '',
     is_leaf INTEGER DEFAULT 1,
     depth INTEGER DEFAULT 0,
@@ -196,18 +216,49 @@ CREATE TABLE IF NOT EXISTS task_edges (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
-CREATE INDEX IF NOT EXISTS idx_tasks_leaf ON tasks(is_leaf);
 CREATE INDEX IF NOT EXISTS idx_task_edges_to ON task_edges(to_task_id);
+
+CREATE TABLE IF NOT EXISTS traversals (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    type TEXT NOT NULL CHECK(type IN ('plan', 'run', 'cycle')),
+    target_id INTEGER,
+    trigger TEXT DEFAULT '',
+    status TEXT DEFAULT 'running' CHECK(status IN ('running', 'done', 'failed', 'cancelled')),
+    total INTEGER DEFAULT 0,
+    success INTEGER DEFAULT 0,
+    failed INTEGER DEFAULT 0,
+    started_at TEXT NOT NULL,
+    finished_at TEXT,
+    FOREIGN KEY (target_id) REFERENCES tasks(id) ON DELETE SET NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_traversals_type ON traversals(type);
+CREATE INDEX IF NOT EXISTS idx_traversals_status ON traversals(status);
+
+CREATE TABLE IF NOT EXISTS config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
 `
 	_, err := db.Exec(schema)
 	if err != nil {
 		return err
 	}
 
-	// Run migrations for existing tables
+	// Run migrations for existing tables (errors ignored: column/index already exists)
 	migrations := []string{
 		`ALTER TABLE tasks ADD COLUMN is_leaf INTEGER DEFAULT 1`,
 		`ALTER TABLE tasks ADD COLUMN depth INTEGER DEFAULT 0`,
+		`ALTER TABLE tasks ADD COLUMN spec TEXT DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN plan TEXT DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN report TEXT DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN error TEXT DEFAULT ''`,
+		`CREATE INDEX IF NOT EXISTS idx_tasks_leaf ON tasks(is_leaf)`,
+		// Migrate status values: spec_ready→todo, plan_ready→planned, subdivided→split
+		`UPDATE tasks SET status = 'todo' WHERE status = 'spec_ready'`,
+		`UPDATE tasks SET status = 'planned' WHERE status = 'plan_ready'`,
+		`UPDATE tasks SET status = 'split' WHERE status = 'subdivided'`,
 	}
 
 	for _, migration := range migrations {

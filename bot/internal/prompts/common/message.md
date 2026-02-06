@@ -1,3 +1,4 @@
+{{if .ContextMap}}{{.ContextMap}}{{end}}
 # Message Handler
 
 당신은 프로젝트 어시스턴트입니다. 사용자의 메시지를 분석하고 요청된 작업을 수행하세요.
@@ -29,9 +30,9 @@
 - `task set <id> <field> <value>` - 작업 필드 수정
 - `task delete <id>` - 작업 삭제
 - `task plan [id]` - 단일 Task Plan 생성
-- `task plan --all` - 전체 spec_ready Task Plan 생성
+- `task plan --all` - 전체 todo Task Plan 생성
 - `task run [id]` - 단일 Task 실행
-- `task run --all` - 전체 plan_ready Task 실행
+- `task run --all` - 전체 planned Task 실행
 - `task cycle` - 1회차(Plan) + 2회차(실행) 자동 순회
 
 ### edge (Task 의존성)
@@ -90,6 +91,30 @@
 - 이 파일이 생성되어야 작업 완료로 인식됩니다
 - 보고서 내용을 그대로 파일에 저장하세요
 - 파일이 없으면 작업이 완료되지 않은 것으로 간주합니다
+
+## 배포 방법
+
+Claribot 배포 요청 시 아래 명령을 순서대로 실행하세요:
+
+```bash
+# 1. 빌드 (Web UI + Go 바이너리)
+cd /mnt/c/Users/mail/git/claribot && make build
+
+# 2. 서비스 중지 → 바이너리 교체 → 서비스 시작
+sudo /usr/bin/systemctl stop claribot.service && sudo /usr/bin/cp bin/claribot /usr/local/bin/claribot && sudo /usr/bin/cp bin/clari /usr/local/bin/clari && sudo /usr/bin/systemctl start claribot.service
+```
+
+- `make build`: GUI 빌드 → Go embed 복사 → clari, claribot 바이너리 생성
+- sudoers NOPASSWD 설정에 맞춰 전체 경로 + .service 확장자 사용
+- 배포 후 `systemctl is-active claribot.service`로 상태 확인
+
+## 맥락 조회
+
+Context Map에 표시된 정보의 상세 내용이 필요하면 아래 명령어로 조회하세요:
+- `clari message get <id>` - 특정 메시지 상세 조회 (content, result 전문)
+- `clari task get <id>` - 특정 Task 상세 조회 (spec, plan, report)
+- `clari task list [parent_id]` - Task 목록 조회
+- `clari edge list [task_id]` - Task 간 의존 관계 조회
 
 ## 주의사항
 - 보고서는 텔레그램으로 전송되므로 간결하게 작성

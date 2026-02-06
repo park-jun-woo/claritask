@@ -56,7 +56,11 @@ export function useSwitchProject() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['status'] })
       qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['task'] })
       qc.invalidateQueries({ queryKey: ['messages'] })
+      qc.invalidateQueries({ queryKey: ['specs'] })
+      qc.invalidateQueries({ queryKey: ['spec'] })
+      qc.invalidateQueries({ queryKey: ['project'] })
     },
   })
 }

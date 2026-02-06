@@ -8,7 +8,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
-  useSpecs, useSpec, useAddSpec, useSetSpec, useDeleteSpec
+  useSpecs, useSpec, useAddSpec, useSetSpec, useDeleteSpec, useStatus
 } from '@/hooks/useClaribot'
 import type { Spec } from '@/types'
 import {
@@ -47,6 +47,17 @@ export default function Specs() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [contentMode, setContentMode] = useState<'preview' | 'edit'>('preview')
+
+  // Get current project from status
+  const { data: statusData } = useStatus()
+  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
+
+  // Reset selection when project changes
+  useEffect(() => {
+    setSelectedSpecId(null)
+    setEditField(null)
+    setContentMode('preview')
+  }, [currentProject])
 
   const specItems = useMemo(() => parseItems(specsData?.data), [specsData])
 
@@ -108,9 +119,24 @@ export default function Specs() {
             ) : (
               <div className="flex items-start justify-between gap-2">
                 <h4 className="text-lg font-medium">{selectedSpec.title}</h4>
-                <Button variant="ghost" size="sm" className="min-h-[44px] text-xs shrink-0" onClick={() => { setEditField('title'); setEditValue(selectedSpec.title) }}>
-                  <Pencil className="h-3 w-3 mr-1" /> Edit
-                </Button>
+                <div className="flex gap-1 shrink-0">
+                  <Button variant="ghost" size="sm" className="min-h-[44px] text-xs" onClick={() => { setEditField('title'); setEditValue(selectedSpec.title) }}>
+                    <Pencil className="h-3 w-3 mr-1" /> Edit
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="destructive"
+                    className="min-h-[44px] text-xs"
+                    onClick={() => {
+                      if (confirm('Delete this spec?')) {
+                        deleteSpec.mutate(selectedSpec.id)
+                        setSelectedSpecId(null)
+                      }
+                    }}
+                  >
+                    Delete
+                  </Button>
+                </div>
               </div>
             )}
             <div className="flex items-center gap-2 mt-2">
@@ -121,22 +147,6 @@ export default function Specs() {
               <span className="text-xs text-muted-foreground">
                 {new Date(selectedSpec.updated_at).toLocaleDateString()}
               </span>
-            </div>
-            {/* Delete Button */}
-            <div className="mt-3">
-              <Button
-                size="sm"
-                variant="destructive"
-                className="min-h-[44px]"
-                onClick={() => {
-                  if (confirm('Delete this spec?')) {
-                    deleteSpec.mutate(selectedSpec.id)
-                    setSelectedSpecId(null)
-                  }
-                }}
-              >
-                Delete
-              </Button>
             </div>
           </div>
 
@@ -215,7 +225,7 @@ export default function Specs() {
                   value={editValue}
                   onChange={e => setEditValue(e.target.value)}
                   rows={Math.max(10, (editValue.match(/\n/g) || []).length + 3)}
-                  className="font-mono text-sm resize-none"
+                  className="font-mono text-sm resize-none overflow-hidden"
                   placeholder="Markdown content..."
                 />
                 <div className="flex gap-1">
@@ -239,7 +249,7 @@ export default function Specs() {
       {/* List Panel */}
       <div className={cn(
         "flex flex-col space-y-2 min-w-0",
-        isDesktop ? "w-1/2" : "w-full flex-1"
+        isDesktop ? "w-1/3" : "w-full flex-1"
       )}>
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-1">
@@ -309,19 +319,11 @@ export default function Specs() {
         {/* Spec List */}
         <ScrollArea className="flex-1 border rounded-md">
           <div className="p-2">
-            {isDesktop ? (
-              <SpecTable
-                items={filteredItems}
-                onSelect={s => setSelectedSpecId(s.id)}
-                selectedId={selectedSpecId ?? undefined}
-              />
-            ) : (
-              <SpecCards
-                items={filteredItems}
-                onSelect={s => setSelectedSpecId(s.id)}
-                selectedId={selectedSpecId ?? undefined}
-              />
-            )}
+            <SpecCards
+              items={filteredItems}
+              onSelect={s => setSelectedSpecId(s.id)}
+              selectedId={selectedSpecId ?? undefined}
+            />
             {filteredItems.length === 0 && (
               <p className="text-center text-muted-foreground py-8 text-sm">
                 {specItems.length === 0 ? 'No specs yet.' : 'No matching specs.'}
@@ -333,7 +335,7 @@ export default function Specs() {
 
       {/* Desktop: Detail Panel */}
       {isDesktop && (
-        <div className="w-1/2 border rounded-md flex flex-col min-w-0">
+        <div className="w-2/3 border rounded-md flex flex-col min-w-0">
           {selectedSpec ? (
             <>
               <div className="flex items-center justify-between p-4 border-b">

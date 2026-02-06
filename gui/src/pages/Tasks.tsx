@@ -49,11 +49,30 @@ export default function Tasks() {
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set())
   const [editField, setEditField] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
+  const [statusFilter, setStatusFilter] = useState<string | null>(null)
+
+  // Get current project from status
+  const { data: statusData } = useStatus()
+  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
+
+  // Reset selection when project changes
+  useEffect(() => {
+    setSelectedTaskId(null)
+    setEditField(null)
+    setStatusFilter(null)
+  }, [currentProject])
 
   const taskItems = useMemo(() => parseItems(tasksData?.data), [tasksData])
 
-  // Build tree structure
+  // Filtered items based on status
+  const filteredItems = useMemo(() => {
+    if (!statusFilter) return taskItems
+    return taskItems.filter((t: any) => (t.status || t.Status || 'todo') === statusFilter)
+  }, [taskItems, statusFilter])
+
+  // Build tree structure (use all items for tree, filter shows flat list)
   const treeData = useMemo(() => buildTree(taskItems), [taskItems])
+  const filteredTreeData = useMemo(() => statusFilter ? buildTree(filteredItems) : treeData, [statusFilter, filteredItems, treeData])
 
   const handleAdd = async () => {
     if (!addForm.title) return
@@ -248,7 +267,13 @@ export default function Tasks() {
         )}
 
         {/* Task Status Bar */}
-        {taskItems.length > 0 && <TaskStatusBar items={taskItems} />}
+        {taskItems.length > 0 && (
+          <TaskStatusBar
+            items={taskItems}
+            statusFilter={statusFilter}
+            onFilterChange={setStatusFilter}
+          />
+        )}
 
         {/* Add Form */}
         {showAdd && (
@@ -285,7 +310,7 @@ export default function Tasks() {
           <div className="p-2">
             {viewMode === 'tree' ? (
               <TreeView
-                nodes={treeData}
+                nodes={filteredTreeData}
                 expandedNodes={expandedNodes}
                 onToggle={toggleNode}
                 onSelect={handleSelect}
@@ -293,11 +318,16 @@ export default function Tasks() {
               />
             ) : (
               <ListView
-                items={taskItems}
+                items={filteredItems}
                 onSelect={handleSelect}
                 selectedId={selectedTaskId ?? undefined}
                 isMobile={!isDesktop}
               />
+            )}
+            {filteredItems.length === 0 && taskItems.length > 0 && (
+              <p className="text-center text-muted-foreground py-8 text-sm">
+                No tasks match the filter.
+              </p>
             )}
             {taskItems.length === 0 && (
               <p className="text-center text-muted-foreground py-8 text-sm">
@@ -480,7 +510,11 @@ function TreeView({
   )
 }
 
-function TaskStatusBar({ items }: { items: any[] }) {
+function TaskStatusBar({ items, statusFilter, onFilterChange }: {
+  items: any[]
+  statusFilter: string | null
+  onFilterChange: (status: string | null) => void
+}) {
   const { data: status } = useStatus() as { data: StatusResponse | undefined }
   const cycleStatus = status?.cycle_status
 
@@ -545,11 +579,20 @@ function TaskStatusBar({ items }: { items: any[] }) {
       {/* Status counts row */}
       <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
         {statuses.map(s => (
-          <div key={s} className="flex items-center gap-1">
+          <button
+            key={s}
+            className={cn(
+              "flex items-center gap-1 px-1.5 py-0.5 rounded transition-colors",
+              statusFilter === s
+                ? "bg-accent text-accent-foreground"
+                : "hover:bg-muted"
+            )}
+            onClick={() => onFilterChange(statusFilter === s ? null : s)}
+          >
             <span className={`w-2 h-2 rounded-full ${colors[s]}`} />
             <span>{s}</span>
             <span className="font-medium text-foreground">{counts[s]}</span>
-          </div>
+          </button>
         ))}
         <div className="flex items-center gap-1 ml-auto">
           <span>done/leaf</span>

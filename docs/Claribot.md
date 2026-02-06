@@ -20,11 +20,6 @@
 5. Task 수행 중 추가 하위 Task 등록 가능
 6. 모든 Task 완료 → 결과 반환
 
-### 핵심 기술: 그래프 기반 컨텍스트 선별 주입
-
-- 전체 히스토리 덤프가 아닌 Edge로 연결된 Task만 주입
-- O(n) → O(k) 컨텍스트 사용량 최적화
-
 ---
 
 ## 아키텍처
@@ -90,7 +85,6 @@ claribot/
 │   │   ├── task/
 │   │   ├── message/
 │   │   ├── schedule/
-│   │   ├── edge/
 │   │   ├── prompts/
 │   │   ├── tghandler/
 │   │   └── webui/                # Go embed + 정적 파일 서빙
@@ -167,12 +161,6 @@ tasks (
     result TEXT,
     error TEXT,
     created_at, started_at, completed_at
-)
-
-task_edges (
-    from_task_id INTEGER,     -- 선행 작업
-    to_task_id INTEGER,       -- 후행 작업
-    created_at
 )
 ```
 

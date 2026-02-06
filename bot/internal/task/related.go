@@ -6,7 +6,6 @@ import (
 
 // GetRelated returns all tasks related to the given task ID
 // Related tasks include:
-// - Edge 연결된 Task (양방향)
 // - Parent Task
 // - Child Tasks
 func GetRelated(localDB *db.DB, taskID int) ([]Task, error) {
@@ -15,18 +14,15 @@ func GetRelated(localDB *db.DB, taskID int) ([]Task, error) {
 		FROM tasks t
 		WHERE t.id != ?
 		AND (
-			-- Edge 연결 (양방향)
-			t.id IN (SELECT to_task_id FROM task_edges WHERE from_task_id = ?)
-			OR t.id IN (SELECT from_task_id FROM task_edges WHERE to_task_id = ?)
 			-- Parent
-			OR t.id = (SELECT parent_id FROM tasks WHERE id = ?)
+			t.id = (SELECT parent_id FROM tasks WHERE id = ?)
 			-- Children
 			OR t.parent_id = ?
 		)
 		ORDER BY t.id ASC
 	`
 
-	rows, err := localDB.Query(query, taskID, taskID, taskID, taskID, taskID)
+	rows, err := localDB.Query(query, taskID, taskID, taskID)
 	if err != nil {
 		return nil, err
 	}

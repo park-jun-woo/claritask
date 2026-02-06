@@ -6,6 +6,7 @@ type Schedule struct {
 	ProjectID *string `json:"project_id,omitempty"` // NULL이면 전역
 	CronExpr  string  `json:"cron_expr"`
 	Message   string  `json:"message"`
+	Type      string  `json:"type"`    // claude, bash
 	Enabled   bool    `json:"enabled"`
 	RunOnce   bool    `json:"run_once"` // true면 한 번 실행 후 자동 비활성화
 	LastRun   *string `json:"last_run,omitempty"`

@@ -21,9 +21,9 @@ func Get(projectPath, id string) types.Result {
 
 	var t Task
 	err = localDB.QueryRow(`
-		SELECT id, parent_id, title, spec, plan, report, status, error, created_at, updated_at
+		SELECT id, parent_id, title, spec, plan, report, status, error, priority, created_at, updated_at
 		FROM tasks WHERE id = ?
-	`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Report, &t.Status, &t.Error, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Report, &t.Status, &t.Error, &t.Priority, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -40,6 +40,9 @@ func Get(projectPath, id string) types.Result {
 
 	statusIcon := statusToIcon(t.Status)
 	msg := fmt.Sprintf("%s #%d %s\nStatus: %s\nCreated: %s", statusIcon, t.ID, t.Title, t.Status, t.CreatedAt)
+	if t.Priority != 0 {
+		msg += fmt.Sprintf("\nPriority: %d", t.Priority)
+	}
 	if t.Spec != "" {
 		msg += fmt.Sprintf("\n\n📝 Spec:\n%s", t.Spec)
 	}

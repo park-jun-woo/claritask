@@ -70,8 +70,7 @@ func buildSimplePlanPrompt(t *Task, contextMap string) string {
 		sb.WriteString("```\n\n")
 		sb.WriteString("## 조회 명령어\n\n")
 		sb.WriteString("- `clari task get <id>` - 특정 Task 상세 조회 (spec, plan, report)\n")
-		sb.WriteString("- `clari task list [parent_id]` - Task 목록 조회\n")
-		sb.WriteString("- `clari edge list [task_id]` - Task 간 의존 관계 조회\n\n")
+		sb.WriteString("- `clari task list [parent_id]` - Task 목록 조회\n\n")
 	}
 
 	sb.WriteString("---\n\n")
@@ -80,8 +79,47 @@ func buildSimplePlanPrompt(t *Task, contextMap string) string {
 	return sb.String()
 }
 
+// ExecutePromptData holds data for execute prompt template
+type ExecutePromptData struct {
+	TaskID     int
+	Title      string
+	Plan       string
+	ContextMap string
+	ReportPath string
+}
+
 // BuildExecutePrompt builds prompt for execution (2회차 순회)
 func BuildExecutePrompt(t *Task, contextMap string, reportPath string) string {
+	// Load template from prompts
+	tmplContent, err := prompts.Get(prompts.DevPlatform, "task_run")
+	if err != nil {
+		// Fallback to simple prompt if template not found
+		return buildSimpleExecutePrompt(t, contextMap, reportPath)
+	}
+
+	tmpl, err := template.New("execute").Parse(tmplContent)
+	if err != nil {
+		return buildSimpleExecutePrompt(t, contextMap, reportPath)
+	}
+
+	data := ExecutePromptData{
+		TaskID:     t.ID,
+		Title:      t.Title,
+		Plan:       t.Plan,
+		ContextMap: contextMap,
+		ReportPath: reportPath,
+	}
+
+	var buf bytes.Buffer
+	if err := tmpl.Execute(&buf, data); err != nil {
+		return buildSimpleExecutePrompt(t, contextMap, reportPath)
+	}
+
+	return buf.String()
+}
+
+// buildSimpleExecutePrompt is fallback when template fails
+func buildSimpleExecutePrompt(t *Task, contextMap string, reportPath string) string {
 	var sb strings.Builder
 
 	sb.WriteString(fmt.Sprintf("# Task: %s\n\n", t.Title))
@@ -96,8 +134,7 @@ func BuildExecutePrompt(t *Task, contextMap string, reportPath string) string {
 		sb.WriteString("```\n\n")
 		sb.WriteString("## 조회 명령어\n\n")
 		sb.WriteString("- `clari task get <id>` - 특정 Task 상세 조회 (spec, plan, report)\n")
-		sb.WriteString("- `clari task list [parent_id]` - Task 목록 조회\n")
-		sb.WriteString("- `clari edge list [task_id]` - Task 간 의존 관계 조회\n\n")
+		sb.WriteString("- `clari task list [parent_id]` - Task 목록 조회\n\n")
 	}
 
 	sb.WriteString("---\n\n")

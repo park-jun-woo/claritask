@@ -30,11 +30,11 @@ func Plan(projectPath, id string) types.Result {
 	var t Task
 
 	if id == "" {
-		// Get next todo task (root level first)
+		// Get next todo task (priority first, then root level first)
 		err = localDB.QueryRow(`
 			SELECT id, parent_id, title, spec, plan, status, is_leaf, depth FROM tasks
 			WHERE status = 'todo'
-			ORDER BY depth ASC, id ASC LIMIT 1
+			ORDER BY priority DESC, depth ASC, id ASC LIMIT 1
 		`).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Status, &t.IsLeaf, &t.Depth)
 		if err == sql.ErrNoRows {
 			return types.Result{
@@ -370,13 +370,13 @@ func planAllInternal(ctx context.Context, projectPath string) types.Result {
 	// Read parallel config
 	parallel := getParallel(localDB)
 
-	// Get all root todo tasks (no parent or parent is split)
+	// Get all root todo tasks (no parent or parent is split), priority first
 	rows, err := localDB.Query(`
 		SELECT id, parent_id, title, spec, plan, status, is_leaf, depth FROM tasks
 		WHERE status = 'todo' AND (parent_id IS NULL OR parent_id IN (
 			SELECT id FROM tasks WHERE status = 'split'
 		))
-		ORDER BY depth ASC, id ASC
+		ORDER BY priority DESC, depth ASC, id ASC
 	`)
 	if err != nil {
 		localDB.Close()

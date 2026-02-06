@@ -57,7 +57,7 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 		err = localDB.QueryRow(`
 			SELECT id, title, spec, plan, status FROM tasks
 			WHERE status = 'planned' AND is_leaf = 1
-			ORDER BY depth DESC, id ASC LIMIT 1
+			ORDER BY priority DESC, depth DESC, id ASC LIMIT 1
 		`).Scan(&t.ID, &t.Title, &t.Spec, &t.Plan, &t.Status)
 		if err == sql.ErrNoRows {
 			return types.Result{
@@ -294,11 +294,11 @@ func runAllInternal(ctx context.Context, projectPath string) types.Result {
 	// Read parallel config
 	parallel := getParallel(localDB)
 
-	// Get all planned leaf tasks (deepest first)
+	// Get all planned leaf tasks (priority first, then deepest)
 	rows, err := localDB.Query(`
 		SELECT id, title FROM tasks
 		WHERE status = 'planned' AND is_leaf = 1
-		ORDER BY depth DESC, id ASC
+		ORDER BY priority DESC, depth DESC, id ASC
 	`)
 	if err != nil {
 		localDB.Close()

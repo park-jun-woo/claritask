@@ -7,7 +7,6 @@ import (
 	"strconv"
 
 	"parkjunwoo.com/claribot/internal/config"
-	"parkjunwoo.com/claribot/internal/edge"
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
@@ -62,6 +61,41 @@ func (r *Router) parsePage(req *http.Request) (int, int) {
 }
 
 // --- Project handlers ---
+
+// ProjectStats represents task statistics for a single project
+type ProjectStats struct {
+	ProjectID   string     `json:"project_id"`
+	ProjectName string     `json:"project_name"`
+	Stats       *task.Stats `json:"stats"`
+}
+
+// HandleProjectsStats handles GET /api/projects/stats
+func (r *Router) HandleProjectsStats(w http.ResponseWriter, req *http.Request) {
+	projects, err := project.ListAll()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("failed to list projects: %v", err))
+		return
+	}
+
+	var result []ProjectStats
+	for _, p := range projects {
+		stats, err := task.GetStats(p.Path)
+		if err != nil {
+			// Skip projects with no task DB or errors
+			stats = &task.Stats{}
+		}
+		result = append(result, ProjectStats{
+			ProjectID:   p.ID,
+			ProjectName: p.Name,
+			Stats:       stats,
+		})
+	}
+
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Data:    result,
+	})
+}
 
 // HandleListProjects handles GET /api/projects
 func (r *Router) HandleListProjects(w http.ResponseWriter, req *http.Request) {
@@ -343,63 +377,6 @@ func (r *Router) HandleStopTask(w http.ResponseWriter, req *http.Request) {
 	writeResult(w, types.Result{Success: running, Message: msg})
 }
 
-// --- Edge handlers ---
-
-// HandleListEdges handles GET /api/edges
-func (r *Router) HandleListEdges(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	if ctx.ProjectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
-		return
-	}
-	taskID := req.URL.Query().Get("task_id")
-	page, pageSize := r.parsePage(req)
-	writeResult(w, edge.List(ctx.ProjectPath, taskID, pagination.NewPageRequest(page, pageSize)))
-}
-
-// HandleAddEdge handles POST /api/edges
-func (r *Router) HandleAddEdge(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	if ctx.ProjectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
-		return
-	}
-	var body struct {
-		FromTaskID int `json:"from_task_id"`
-		ToTaskID   int `json:"to_task_id"`
-	}
-	if err := decodeBody(req, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	if body.FromTaskID == 0 || body.ToTaskID == 0 {
-		writeError(w, http.StatusBadRequest, "from_task_id and to_task_id required")
-		return
-	}
-	result := edge.Add(ctx.ProjectPath, strconv.Itoa(body.FromTaskID), strconv.Itoa(body.ToTaskID))
-	status := http.StatusCreated
-	if !result.Success {
-		status = http.StatusBadRequest
-	}
-	writeJSON(w, status, result)
-}
-
-// HandleDeleteEdge handles DELETE /api/edges/{fromId}/{toId}
-func (r *Router) HandleDeleteEdge(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	if ctx.ProjectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
-		return
-	}
-	fromID := req.PathValue("fromId")
-	toID := req.PathValue("toId")
-	if fromID == "" || toID == "" {
-		writeError(w, http.StatusBadRequest, "from_id and to_id required")
-		return
-	}
-	writeResult(w, edge.Delete(ctx.ProjectPath, fromID, toID, true))
-}
-
 // --- Message handlers ---
 
 // HandleListMessages handles GET /api/messages
@@ -572,6 +549,7 @@ func (r *Router) HandleAddSchedule(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		CronExpr  string  `json:"cron_expr"`
 		Message   string  `json:"message"`
+		Type      string  `json:"type"`
 		ProjectID *string `json:"project_id"`
 		RunOnce   bool    `json:"run_once"`
 	}
@@ -586,7 +564,7 @@ func (r *Router) HandleAddSchedule(w http.ResponseWriter, req *http.Request) {
 	if body.ProjectID == nil && ctx.ProjectID != "" {
 		body.ProjectID = &ctx.ProjectID
 	}
-	result := schedule.Add(body.CronExpr, body.Message, body.ProjectID, body.RunOnce)
+	result := schedule.Add(body.CronExpr, body.Message, body.ProjectID, body.RunOnce, body.Type)
 	status := http.StatusCreated
 	if !result.Success {
 		status = http.StatusBadRequest
@@ -695,7 +673,8 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	// Status
 	mux.HandleFunc("GET /api/status", r.HandleStatus)
 
-	// Projects
+	// Projects - specific routes before parameterized
+	mux.HandleFunc("GET /api/projects/stats", r.HandleProjectsStats)
 	mux.HandleFunc("GET /api/projects", r.HandleListProjects)
 	mux.HandleFunc("POST /api/projects", r.HandleCreateProject)
 	mux.HandleFunc("GET /api/projects/{id}", r.HandleGetProject)
@@ -716,11 +695,6 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tasks/{id}/plan", r.HandlePlanTask)
 	mux.HandleFunc("POST /api/tasks/{id}/run", r.HandleRunTask)
 
-	// Edges
-	mux.HandleFunc("GET /api/edges", r.HandleListEdges)
-	mux.HandleFunc("POST /api/edges", r.HandleAddEdge)
-	mux.HandleFunc("DELETE /api/edges/{fromId}/{toId}", r.HandleDeleteEdge)
-
 	// Messages - specific routes before parameterized
 	mux.HandleFunc("GET /api/messages/status", r.HandleMessageStatus)
 	mux.HandleFunc("GET /api/messages/processing", r.HandleMessageProcessing)
@@ -734,8 +708,7 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/configs/{key}", r.HandleSetConfig)
 	mux.HandleFunc("DELETE /api/configs/{key}", r.HandleDeleteConfig)
 
-	// Schedules - specific routes before parameterized
-	mux.HandleFunc("GET /api/schedules/runs/{runId}", r.HandleScheduleRunDetail)
+	// Schedules
 	mux.HandleFunc("GET /api/schedules", r.HandleListSchedules)
 	mux.HandleFunc("POST /api/schedules", r.HandleAddSchedule)
 	mux.HandleFunc("GET /api/schedules/{id}", r.HandleGetSchedule)
@@ -744,5 +717,8 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/schedules/{id}/enable", r.HandleEnableSchedule)
 	mux.HandleFunc("POST /api/schedules/{id}/disable", r.HandleDisableSchedule)
 	mux.HandleFunc("GET /api/schedules/{id}/runs", r.HandleScheduleRuns)
+
+	// Schedule runs (separate path to avoid conflict with /api/schedules/{id}/runs)
+	mux.HandleFunc("GET /api/schedule-runs/{runId}", r.HandleScheduleRunDetail)
 }
 

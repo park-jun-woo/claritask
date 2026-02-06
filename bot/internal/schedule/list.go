@@ -62,7 +62,7 @@ func List(projectID *string, showAll bool, req pagination.PageRequest) types.Res
 	var args []interface{}
 	if showAll {
 		query = `
-			SELECT id, project_id, cron_expr, message, enabled, run_once, next_run
+			SELECT id, project_id, cron_expr, message, type, enabled, run_once, next_run
 			FROM schedules
 			ORDER BY id DESC
 			LIMIT ? OFFSET ?
@@ -70,7 +70,7 @@ func List(projectID *string, showAll bool, req pagination.PageRequest) types.Res
 		args = []interface{}{req.Limit(), req.Offset()}
 	} else if projectID != nil {
 		query = `
-			SELECT id, project_id, cron_expr, message, enabled, run_once, next_run
+			SELECT id, project_id, cron_expr, message, type, enabled, run_once, next_run
 			FROM schedules
 			WHERE project_id = ?
 			ORDER BY id DESC
@@ -79,7 +79,7 @@ func List(projectID *string, showAll bool, req pagination.PageRequest) types.Res
 		args = []interface{}{*projectID, req.Limit(), req.Offset()}
 	} else {
 		query = `
-			SELECT id, project_id, cron_expr, message, enabled, run_once, next_run
+			SELECT id, project_id, cron_expr, message, type, enabled, run_once, next_run
 			FROM schedules
 			WHERE project_id IS NULL
 			ORDER BY id DESC
@@ -101,7 +101,7 @@ func List(projectID *string, showAll bool, req pagination.PageRequest) types.Res
 	for rows.Next() {
 		var s Schedule
 		var enabled, runOnce int
-		if err := rows.Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &enabled, &runOnce, &s.NextRun); err != nil {
+		if err := rows.Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &s.Type, &enabled, &runOnce, &s.NextRun); err != nil {
 			return types.Result{
 				Success: false,
 				Message: fmt.Sprintf("스캔 실패: %v", err),
@@ -131,8 +131,12 @@ func List(projectID *string, showAll bool, req pagination.PageRequest) types.Res
 		if s.RunOnce {
 			onceMarker = " [1회]"
 		}
-		sb.WriteString(fmt.Sprintf("  %s [#%d:schedule get %d] %s %s%s\n",
-			statusIcon, s.ID, s.ID, s.CronExpr, truncate(s.Message, 30), onceMarker))
+		typeMarker := ""
+		if s.Type == "bash" {
+			typeMarker = " [bash]"
+		}
+		sb.WriteString(fmt.Sprintf("  %s [#%d:schedule get %d] %s %s%s%s\n",
+			statusIcon, s.ID, s.ID, s.CronExpr, truncate(s.Message, 30), typeMarker, onceMarker))
 	}
 
 	// Pagination buttons

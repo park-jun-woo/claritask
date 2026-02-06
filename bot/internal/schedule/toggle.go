@@ -32,7 +32,7 @@ func setEnabled(id string, enabled bool) types.Result {
 	// Get schedule info
 	var s Schedule
 	var runOnce int
-	err = globalDB.QueryRow(`SELECT id, project_id, cron_expr, message, run_once FROM schedules WHERE id = ?`, id).Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &runOnce)
+	err = globalDB.QueryRow(`SELECT id, project_id, cron_expr, message, type, run_once FROM schedules WHERE id = ?`, id).Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &s.Type, &runOnce)
 	if err == sql.ErrNoRows {
 		return types.Result{
 			Success: false,
@@ -74,7 +74,7 @@ func setEnabled(id string, enabled bool) types.Result {
 	// Update scheduler
 	if globalScheduler != nil {
 		if enabled {
-			globalScheduler.Register(s.ID, s.CronExpr, s.Message, s.ProjectID, s.RunOnce)
+			globalScheduler.Register(s.ID, s.CronExpr, s.Message, s.ProjectID, s.RunOnce, s.Type)
 		} else {
 			globalScheduler.Unregister(s.ID)
 		}

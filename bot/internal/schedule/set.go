@@ -54,8 +54,8 @@ func SetProject(id string, projectID *string) types.Result {
 	// Re-register with scheduler to update the job
 	var s Schedule
 	var enabled, runOnce int
-	err = globalDB.QueryRow(`SELECT id, project_id, cron_expr, message, enabled, run_once FROM schedules WHERE id = ?`, id).
-		Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &enabled, &runOnce)
+	err = globalDB.QueryRow(`SELECT id, project_id, cron_expr, message, type, enabled, run_once FROM schedules WHERE id = ?`, id).
+		Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &s.Type, &enabled, &runOnce)
 	if err != nil && err != sql.ErrNoRows {
 		return types.Result{
 			Success: false,
@@ -66,7 +66,7 @@ func SetProject(id string, projectID *string) types.Result {
 	s.RunOnce = runOnce == 1
 
 	if globalScheduler != nil && s.Enabled {
-		globalScheduler.Register(s.ID, s.CronExpr, s.Message, s.ProjectID, s.RunOnce)
+		globalScheduler.Register(s.ID, s.CronExpr, s.Message, s.ProjectID, s.RunOnce, s.Type)
 	}
 
 	var msg string

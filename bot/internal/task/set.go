@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"strconv"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -11,17 +12,28 @@ import (
 func Set(projectPath, id, field, value string) types.Result {
 	// Allowed fields
 	allowedFields := map[string]bool{
-		"title":  true,
-		"spec":   true,
-		"plan":   true,
-		"report": true,
-		"status": true,
+		"title":    true,
+		"spec":     true,
+		"plan":     true,
+		"report":   true,
+		"status":   true,
+		"priority": true,
 	}
 
 	if !allowedFields[field] {
 		return types.Result{
 			Success: false,
-			Message: fmt.Sprintf("허용되지 않는 필드: %s\n허용: title, spec, plan, report, status", field),
+			Message: fmt.Sprintf("허용되지 않는 필드: %s\n허용: title, spec, plan, report, status, priority", field),
+		}
+	}
+
+	// Validate priority (must be integer)
+	if field == "priority" {
+		if _, err := strconv.Atoi(value); err != nil {
+			return types.Result{
+				Success: false,
+				Message: "priority는 정수여야 합니다: " + value,
+			}
 		}
 	}
 

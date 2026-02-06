@@ -34,15 +34,6 @@
 | `task run --all` | 전체 planned Task 실행 |
 | `task cycle` | Plan + 실행 자동 순회 |
 
-## edge (Task 연결)
-
-| 명령어 | 설명 |
-|--------|------|
-| `edge list [task_id] [--all]` | 연결 목록 조회 |
-| `edge add <from_id> <to_id>` | 연결 추가 |
-| `edge get <from_id> <to_id>` | 연결 조회 |
-| `edge delete <from_id> <to_id>` | 연결 삭제 |
-
 ## message (메시지)
 
 | 명령어 | 설명 |

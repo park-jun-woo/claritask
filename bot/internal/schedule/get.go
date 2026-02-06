@@ -22,9 +22,9 @@ func Get(id string) types.Result {
 	var s Schedule
 	var enabled, runOnce int
 	err = globalDB.QueryRow(`
-		SELECT id, project_id, cron_expr, message, enabled, run_once, last_run, next_run, created_at, updated_at
+		SELECT id, project_id, cron_expr, message, type, enabled, run_once, last_run, next_run, created_at, updated_at
 		FROM schedules WHERE id = ?
-	`, id).Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &enabled, &runOnce, &s.LastRun, &s.NextRun, &s.CreatedAt, &s.UpdatedAt)
+	`, id).Scan(&s.ID, &s.ProjectID, &s.CronExpr, &s.Message, &s.Type, &enabled, &runOnce, &s.LastRun, &s.NextRun, &s.CreatedAt, &s.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -47,8 +47,8 @@ func Get(id string) types.Result {
 		statusIcon = "⏸️"
 	}
 
-	msg := fmt.Sprintf("%s 스케줄 #%d\nCron: %s\n메시지: %s\n상태: %s",
-		statusIcon, s.ID, s.CronExpr, s.Message, enabledStr(s.Enabled))
+	msg := fmt.Sprintf("%s 스케줄 #%d\nCron: %s\n타입: %s\n메시지: %s\n상태: %s",
+		statusIcon, s.ID, s.CronExpr, s.Type, s.Message, enabledStr(s.Enabled))
 	if s.RunOnce {
 		msg += "\n모드: 1회 실행"
 	}

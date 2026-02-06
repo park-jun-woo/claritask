@@ -86,6 +86,8 @@ clari task add "Settings 다크모드 토글 추가" --parent {{.TaskID}} --spec
 - **독립성**: 각 하위 Task 단독 실행 가능
 - **명확한 경계**: 책임 중복 금지
 - **상세 Spec 필수**: 모든 sub task에 --spec-file로 상세 Spec 전달
+- **중복 Task 검증**: 분할 전 연관 Task 목록에서 동일하거나 유사한 목적의 기존 Task가 있는지 확인하세요. 이미 done/planned/split 상태인 Task와 범위가 겹치는 sub task를 만들지 마세요.
+- **선행 Task 확인**: 연관 Task 목록에서 현재 Task의 선행 조건이 되는 Task가 미완료(todo/planned 등)인 경우, 현재 Task를 분할하지 말고 [PLANNED]로 출력하되 계획 내에 선행 Task 완료 후 진행이 필요함을 명시하세요.
 
 ### 출력 형식
 
@@ -158,14 +160,6 @@ clari task add "Settings 다크모드 토글 추가" --parent {{.TaskID}} --spec
 | `task get <id>` | 작업 상세 조회 |
 | `task set <id> <field> <value>` | 작업 필드 수정 |
 | `task delete <id>` | 작업 삭제 |
-
-### edge (Task 연결)
-
-| 명령어 | 설명 |
-|--------|------|
-| `edge list [task_id]` | 연결 목록 조회 |
-| `edge add <from_id> <to_id>` | 연결 추가 |
-| `edge delete <from_id> <to_id>` | 연결 삭제 |
 
 ---
 

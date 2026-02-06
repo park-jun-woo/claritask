@@ -522,63 +522,72 @@ func (r *Router) handleStatus(ctx *Context) types.Result {
 	}
 	sb.WriteString("\n")
 
-	// Project status
-	if ctx.ProjectID == "" {
-		sb.WriteString("\n📁 프로젝트: 선택 안됨 (글로벌 모드)\n")
-		sb.WriteString("[선택:project switch]")
-	} else {
-		sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", ctx.ProjectID))
-		sb.WriteString(fmt.Sprintf("   설명: %s\n", ctx.ProjectDescription))
-
-		// Cycle status
-		cycleStatus := task.GetCycleStatus()
-		if cycleStatus.Status != "idle" {
-			sb.WriteString("\n🔄 순회 상태:\n")
-			typeLabel := map[string]string{"cycle": "전체순회", "plan": "플랜순회", "run": "실행순회"}[cycleStatus.Type]
-			if typeLabel == "" {
-				typeLabel = cycleStatus.Type
-			}
-			switch cycleStatus.Status {
-			case "running":
-				sb.WriteString(fmt.Sprintf("   ▶️ %s 진행 중", typeLabel))
-				if cycleStatus.CurrentTaskID > 0 {
-					sb.WriteString(fmt.Sprintf(" (Task #%d)", cycleStatus.CurrentTaskID))
-				}
-				sb.WriteString("\n")
-			case "interrupted":
-				sb.WriteString(fmt.Sprintf("   ⚠️ %s 중단됨", typeLabel))
-				if cycleStatus.CurrentTaskID > 0 {
-					sb.WriteString(fmt.Sprintf(" (Task #%d에서 중단)", cycleStatus.CurrentTaskID))
-				}
-				sb.WriteString("\n")
-				sb.WriteString(fmt.Sprintf("[순회 재개:resume:%s]", cycleStatus.Type))
-				sb.WriteString("\n")
-			}
-			elapsed := time.Since(cycleStatus.StartedAt).Truncate(time.Second)
-			sb.WriteString(fmt.Sprintf("   경과: %s\n", elapsed))
+	// Cycle status
+	cycleStatus := task.GetCycleStatus()
+	if cycleStatus.Status != "idle" {
+		sb.WriteString("\n🔄 순회 상태:\n")
+		typeLabel := map[string]string{"cycle": "전체순회", "plan": "플랜순회", "run": "실행순회"}[cycleStatus.Type]
+		if typeLabel == "" {
+			typeLabel = cycleStatus.Type
 		}
-
-		// Task stats
-		if stats, err := task.GetStats(ctx.ProjectPath); err == nil && stats.Total > 0 {
-			sb.WriteString("\n📊 Task 현황:\n")
-
-			// 통계
-			remaining := stats.Todo + stats.Planned
-			sb.WriteString(fmt.Sprintf("   전체: %d개 (실행대상: %d개)\n", stats.Total, stats.Leaf))
-			sb.WriteString(fmt.Sprintf("   ✅ 완료: %d개", stats.Done))
-			if stats.Failed > 0 {
-				sb.WriteString(fmt.Sprintf(" / ❌ 실패: %d개", stats.Failed))
+		switch cycleStatus.Status {
+		case "running":
+			sb.WriteString(fmt.Sprintf("   ▶️ %s 진행 중", typeLabel))
+			if cycleStatus.CurrentTaskID > 0 {
+				sb.WriteString(fmt.Sprintf(" (Task #%d)", cycleStatus.CurrentTaskID))
 			}
 			sb.WriteString("\n")
-			if remaining > 0 {
-				sb.WriteString(fmt.Sprintf("   ⏳ 대기: %d개 (todo:%d, planned:%d)\n", remaining, stats.Todo, stats.Planned))
+		case "interrupted":
+			sb.WriteString(fmt.Sprintf("   ⚠️ %s 중단됨", typeLabel))
+			if cycleStatus.CurrentTaskID > 0 {
+				sb.WriteString(fmt.Sprintf(" (Task #%d에서 중단)", cycleStatus.CurrentTaskID))
+			}
+			sb.WriteString("\n")
+			sb.WriteString(fmt.Sprintf("[순회 재개:resume:%s]", cycleStatus.Type))
+			sb.WriteString("\n")
+		}
+		elapsed := time.Since(cycleStatus.StartedAt).Truncate(time.Second)
+		sb.WriteString(fmt.Sprintf("   경과: %s\n", elapsed))
+	}
+
+	// All projects with task stats
+	projects, err := project.ListAll()
+	if err != nil || len(projects) == 0 {
+		if ctx.ProjectID == "" {
+			sb.WriteString("\n📁 프로젝트: 없음\n")
+			sb.WriteString("[생성:project create]")
+		} else {
+			sb.WriteString(fmt.Sprintf("\n📁 프로젝트: %s\n", ctx.ProjectID))
+		}
+	} else {
+		sb.WriteString("\n📁 프로젝트별 현황:\n")
+		for _, p := range projects {
+			// Current project indicator
+			indicator := "  "
+			if p.ID == ctx.ProjectID {
+				indicator = "📌"
 			}
 
-			// 진행률
-			if stats.Leaf > 0 {
-				progress := float64(stats.Done) / float64(stats.Leaf) * 100
-				sb.WriteString(fmt.Sprintf("   진행률: %.0f%%", progress))
+			stats, statsErr := task.GetStats(p.Path)
+			if statsErr != nil || stats.Total == 0 {
+				sb.WriteString(fmt.Sprintf("%s %s — Task 없음\n", indicator, p.ID))
+				continue
 			}
+
+			progress := 0.0
+			if stats.Leaf > 0 {
+				progress = float64(stats.Done) / float64(stats.Leaf) * 100
+			}
+
+			sb.WriteString(fmt.Sprintf("%s %s — 전체:%d ✅%d ⏳%d", indicator, p.ID, stats.Leaf, stats.Done, stats.Todo+stats.Planned))
+			if stats.Failed > 0 {
+				sb.WriteString(fmt.Sprintf(" ❌%d", stats.Failed))
+			}
+			sb.WriteString(fmt.Sprintf(" [%.0f%%]\n", progress))
+		}
+
+		if ctx.ProjectID == "" {
+			sb.WriteString("\n[선택:project switch]")
 		}
 	}
 
@@ -659,17 +668,18 @@ func (r *Router) handleSchedule(ctx *Context, cmd string, args []string) types.R
 
 	switch cmd {
 	case "add":
-		// schedule add "cron" "message" [--project id] [--once]
+		// schedule add "cron" "message" [--project id] [--once] [--type claude|bash]
 		if len(args) < 2 {
 			return types.Result{
 				Success: false,
-				Message: "usage: schedule add <cron_expr> <message> [--project <id>] [--once]",
+				Message: "usage: schedule add <cron_expr> <message> [--project <id>] [--once] [--type claude|bash]",
 			}
 		}
 
 		cronExpr := args[0]
 		var messageParts []string
 		var projectID *string
+		var scheduleType string
 		runOnce := false
 
 		for i := 1; i < len(args); i++ {
@@ -678,6 +688,9 @@ func (r *Router) handleSchedule(ctx *Context, cmd string, args []string) types.R
 				i++
 			} else if args[i] == "--once" {
 				runOnce = true
+			} else if args[i] == "--type" && i+1 < len(args) {
+				scheduleType = args[i+1]
+				i++
 			} else {
 				messageParts = append(messageParts, args[i])
 			}
@@ -696,7 +709,7 @@ func (r *Router) handleSchedule(ctx *Context, cmd string, args []string) types.R
 			projectID = &ctx.ProjectID
 		}
 
-		return schedule.Add(cronExpr, message, projectID, runOnce)
+		return schedule.Add(cronExpr, message, projectID, runOnce, scheduleType)
 
 	case "list":
 		// schedule list [--all] [-p page]

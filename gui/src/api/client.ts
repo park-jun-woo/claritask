@@ -87,6 +87,8 @@ export const projectAPI = {
     apiPost('/projects/none/switch'),
   set: (id: string, field: string, value: string) =>
     apiPatch(`/projects/${id}`, { field, value }),
+  stats: () =>
+    apiGet('/projects/stats'),
 }
 
 // --- Task API ---
@@ -122,22 +124,6 @@ export const taskAPI = {
     apiPost('/tasks/stop'),
 }
 
-// --- Edge API ---
-
-export const edgeAPI = {
-  list: (taskId?: number | string, all = false) => {
-    const params = new URLSearchParams()
-    if (taskId !== undefined) params.set('task_id', String(taskId))
-    if (all) params.set('all', 'true')
-    const qs = params.toString()
-    return apiGet(`/edges${qs ? '?' + qs : ''}`)
-  },
-  add: (fromId: number | string, toId: number | string) =>
-    apiPost('/edges', { from_task_id: Number(fromId), to_task_id: Number(toId) }),
-  delete: (fromId: number | string, toId: number | string) =>
-    apiDelete(`/edges/${fromId}/${toId}`),
-}
-
 // --- Message API ---
 
 export const messageAPI = {
@@ -160,12 +146,13 @@ export const scheduleAPI = {
     apiGet(`/schedules${all ? '?all=true' : ''}`),
   get: (id: number | string) =>
     apiGet(`/schedules/${id}`),
-  add: (cronExpr: string, message: string, projectId?: string, once = false) =>
+  add: (cronExpr: string, message: string, projectId?: string, once = false, type: 'claude' | 'bash' = 'claude') =>
     apiPost('/schedules', {
       cron_expr: cronExpr,
       message,
       project_id: projectId,
       run_once: once,
+      type,
     }),
   delete: (id: number | string) =>
     apiDelete(`/schedules/${id}`),
@@ -180,7 +167,7 @@ export const scheduleAPI = {
   runs: (scheduleId: number | string) =>
     apiGet(`/schedules/${scheduleId}/runs`),
   run: (runId: number | string) =>
-    apiGet(`/schedules/runs/${runId}`),
+    apiGet(`/schedule-runs/${runId}`),
 }
 
 // --- Config API ---

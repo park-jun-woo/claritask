@@ -75,9 +75,8 @@ claribot/
 - 명확하게 Claribot을 배포하라고 말하면 배포한다.
 
 ```bash
-# 빌드 + 재설치 + 재시작 (서비스 실행 중일 때)
-# sudoers NOPASSWD 설정에 맞춰 전체 경로 + .service 확장자 사용
-make build && sudo /usr/bin/systemctl stop claribot.service && sudo /usr/bin/cp bin/claribot /usr/local/bin/claribot && sudo /usr/bin/cp bin/clari /usr/local/bin/clari && sudo /usr/bin/systemctl start claribot.service
+# 빌드 + 배포
+make build && nohup deploy/claribot-deploy.sh > /tmp/deploy.log 2>&1 &
 ```
 
 ## 버전 표기 규칙

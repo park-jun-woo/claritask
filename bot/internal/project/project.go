@@ -30,6 +30,7 @@ var ValidTypes = []ProjectType{
 	{ID: "dev.platform", Label: "플랫폼개발"},
 	{ID: "dev.cli", Label: "CLI개발"},
 	{ID: "write.webnovel", Label: "웹소설집필"},
+	{ID: "life.family", Label: "가족생활"},
 }
 
 // GetTypeIDs returns just the type IDs for validation

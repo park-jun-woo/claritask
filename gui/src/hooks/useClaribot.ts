@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectAPI, taskAPI, messageAPI, scheduleAPI, statusAPI, edgeAPI, health } from '@/api/client'
+import { projectAPI, taskAPI, messageAPI, scheduleAPI, statusAPI, health } from '@/api/client'
 
 // --- Health ---
 export function useHealth() {
@@ -33,6 +33,14 @@ export function useProject(id?: string) {
     queryKey: ['project', id],
     queryFn: () => projectAPI.get(id),
     enabled: !!id,
+  })
+}
+
+export function useProjectStats() {
+  return useQuery({
+    queryKey: ['projectStats'],
+    queryFn: projectAPI.stats,
+    refetchInterval: 30_000,
   })
 }
 
@@ -129,32 +137,6 @@ export function useTaskCycle() {
   })
 }
 
-// --- Edges ---
-export function useEdges(taskId?: number | string, all = true) {
-  return useQuery({
-    queryKey: ['edges', { taskId, all }],
-    queryFn: () => edgeAPI.list(taskId, all),
-  })
-}
-
-export function useAddEdge() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (params: { fromId: number | string; toId: number | string }) =>
-      edgeAPI.add(params.fromId, params.toId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['edges'] }),
-  })
-}
-
-export function useDeleteEdge() {
-  const qc = useQueryClient()
-  return useMutation({
-    mutationFn: (params: { fromId: number | string; toId: number | string }) =>
-      edgeAPI.delete(params.fromId, params.toId),
-    onSuccess: () => qc.invalidateQueries({ queryKey: ['edges'] }),
-  })
-}
-
 // --- Messages ---
 export function useMessages(all = true) {
   return useQuery({
@@ -211,8 +193,8 @@ export function useScheduleRuns(scheduleId: number | string) {
 export function useAddSchedule() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (params: { cronExpr: string; message: string; projectId?: string; once?: boolean }) =>
-      scheduleAPI.add(params.cronExpr, params.message, params.projectId, params.once),
+    mutationFn: (params: { cronExpr: string; message: string; projectId?: string; once?: boolean; type?: 'claude' | 'bash' }) =>
+      scheduleAPI.add(params.cronExpr, params.message, params.projectId, params.once, params.type),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
   })
 }

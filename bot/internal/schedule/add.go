@@ -10,7 +10,16 @@ import (
 )
 
 // Add adds a new schedule
-func Add(cronExpr, message string, projectID *string, runOnce bool) types.Result {
+func Add(cronExpr, message string, projectID *string, runOnce bool, scheduleType string) types.Result {
+	if scheduleType == "" {
+		scheduleType = "claude"
+	}
+	if scheduleType != "claude" && scheduleType != "bash" {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("잘못된 스케줄 타입: %s (claude 또는 bash)", scheduleType),
+		}
+	}
 	// Validate cron expression
 	parser := cron.NewParser(cron.Minute | cron.Hour | cron.Dom | cron.Month | cron.Dow)
 	schedule, err := parser.Parse(cronExpr)
@@ -51,9 +60,9 @@ func Add(cronExpr, message string, projectID *string, runOnce bool) types.Result
 	}
 
 	result, err := globalDB.Exec(`
-		INSERT INTO schedules (project_id, cron_expr, message, enabled, run_once, next_run, created_at, updated_at)
-		VALUES (?, ?, ?, 1, ?, ?, ?, ?)
-	`, projectID, cronExpr, message, runOnceInt, nextRun, now, now)
+		INSERT INTO schedules (project_id, cron_expr, message, type, enabled, run_once, next_run, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
+	`, projectID, cronExpr, message, scheduleType, runOnceInt, nextRun, now, now)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -71,10 +80,10 @@ func Add(cronExpr, message string, projectID *string, runOnce bool) types.Result
 
 	// Register with global scheduler
 	if globalScheduler != nil {
-		globalScheduler.Register(int(id), cronExpr, message, projectID, runOnce)
+		globalScheduler.Register(int(id), cronExpr, message, projectID, runOnce, scheduleType)
 	}
 
-	msg := fmt.Sprintf("스케줄 추가됨: #%d\nCron: %s\n메시지: %s\n다음 실행: %s", id, cronExpr, truncate(message, 50), nextRun)
+	msg := fmt.Sprintf("스케줄 추가됨: #%d\nCron: %s\n타입: %s\n메시지: %s\n다음 실행: %s", id, cronExpr, scheduleType, truncate(message, 50), nextRun)
 	if runOnce {
 		msg += "\n모드: 1회 실행"
 	}
@@ -91,6 +100,7 @@ func Add(cronExpr, message string, projectID *string, runOnce bool) types.Result
 			ProjectID: projectID,
 			CronExpr:  cronExpr,
 			Message:   message,
+			Type:      scheduleType,
 			Enabled:   true,
 			RunOnce:   runOnce,
 			NextRun:   &nextRun,

@@ -7,7 +7,7 @@ import (
 	"parkjunwoo.com/claribot/internal/db"
 )
 
-// BuildContextMap builds a text summary of the entire task tree with edge info.
+// BuildContextMap builds a text summary of the entire task tree.
 // Used as lightweight context instead of injecting full related task content.
 func BuildContextMap(localDB *db.DB) (string, error) {
 	rows, err := localDB.Query(`
@@ -44,39 +44,11 @@ func BuildContextMap(localDB *db.DB) (string, error) {
 		return "(작업 없음)", nil
 	}
 
-	// Build edge map: from_task_id -> []to_task_id
-	edgeMap := make(map[int][]int)
-	edgeRows, err := localDB.Query(`SELECT from_task_id, to_task_id FROM task_edges`)
-	if err != nil {
-		return "", fmt.Errorf("edge 조회 실패: %w", err)
-	}
-	defer edgeRows.Close()
-
-	for edgeRows.Next() {
-		var from, to int
-		if err := edgeRows.Scan(&from, &to); err != nil {
-			return "", fmt.Errorf("edge 스캔 실패: %w", err)
-		}
-		edgeMap[from] = append(edgeMap[from], to)
-	}
-	if err := edgeRows.Err(); err != nil {
-		return "", fmt.Errorf("edge 행 순회 오류: %w", err)
-	}
-
 	// Format output
 	var sb strings.Builder
 	for _, t := range tasks {
 		indent := strings.Repeat("  ", t.Depth)
 		sb.WriteString(fmt.Sprintf("%s#%d [%s] %s", indent, t.ID, t.Status, t.Title))
-
-		if deps, ok := edgeMap[t.ID]; ok {
-			depStrs := make([]string, len(deps))
-			for i, d := range deps {
-				depStrs[i] = fmt.Sprintf("#%d", d)
-			}
-			sb.WriteString(fmt.Sprintf(" → depends on: %s", strings.Join(depStrs, ", ")))
-		}
-
 		sb.WriteString("\n")
 	}
 

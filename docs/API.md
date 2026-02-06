@@ -181,34 +181,6 @@ POST { "command": "task", "subcommand": "run", "args": ["--all"] }
 POST { "command": "task", "subcommand": "cycle" }
 ```
 
-### Edge
-
-의존성 관리 명령어. 프로젝트 선택 필요.
-
-#### edge list
-
-```
-POST { "command": "edge", "subcommand": "list", "args": ["task_id"] }
-```
-
-#### edge add
-
-```
-POST { "command": "edge", "subcommand": "add", "args": ["from_id", "to_id"] }
-```
-
-#### edge get
-
-```
-POST { "command": "edge", "subcommand": "get", "args": ["from_id", "to_id"] }
-```
-
-#### edge delete
-
-```
-POST { "command": "edge", "subcommand": "delete", "args": ["from_id", "to_id", "yes"] }
-```
-
 ### Message
 
 메시지 관리 명령어

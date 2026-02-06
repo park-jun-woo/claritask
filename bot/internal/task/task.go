@@ -35,6 +35,7 @@ type Task struct {
 	Error     string `json:"error,omitempty"`
 	IsLeaf    bool   `json:"is_leaf"`   // true: 실행 대상, false: 분할됨
 	Depth     int    `json:"depth"`     // 트리 깊이 (root=0)
+	Priority  int    `json:"priority"`  // 실행 우선순위 (높을수록 먼저 실행)
 	CreatedAt string `json:"created_at"`
 	UpdatedAt string `json:"updated_at"`
 }

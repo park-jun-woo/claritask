@@ -37,13 +37,6 @@ export interface Task {
   updated_at: string
 }
 
-// Edge (Task Dependency)
-export interface Edge {
-  from_task_id: number
-  to_task_id: number
-  created_at: string
-}
-
 // Message
 export interface Message {
   id: number
@@ -63,6 +56,7 @@ export interface Schedule {
   project_id: string | null
   cron_expr: string
   message: string
+  type: 'claude' | 'bash'
   enabled: boolean
   run_once: boolean
   last_run: string | null
@@ -98,6 +92,13 @@ export interface TaskStats {
   split: number
   done: number
   failed: number
+}
+
+// Project Stats (from /api/projects/stats)
+export interface ProjectStats {
+  project_id: string
+  project_name: string
+  stats: TaskStats & { in_progress: number }
 }
 
 // Pagination

@@ -2,9 +2,11 @@ package schedule
 
 import (
 	"bytes"
+	"context"
 	"fmt"
 	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sync"
 	"text/template"
@@ -102,7 +104,7 @@ func (s *Scheduler) loadFromDB() error {
 	defer globalDB.Close()
 
 	rows, err := globalDB.Query(`
-		SELECT id, project_id, cron_expr, message, run_once
+		SELECT id, project_id, cron_expr, message, type, run_once
 		FROM schedules
 		WHERE enabled = 1
 	`)
@@ -114,20 +116,20 @@ func (s *Scheduler) loadFromDB() error {
 	for rows.Next() {
 		var id int
 		var projectID *string
-		var cronExpr, msg string
+		var cronExpr, msg, scheduleType string
 		var runOnce int
-		if err := rows.Scan(&id, &projectID, &cronExpr, &msg, &runOnce); err != nil {
+		if err := rows.Scan(&id, &projectID, &cronExpr, &msg, &scheduleType, &runOnce); err != nil {
 			log.Printf("Scheduler: 스케줄 로드 실패: %v", err)
 			continue
 		}
-		s.Register(id, cronExpr, msg, projectID, runOnce == 1)
+		s.Register(id, cronExpr, msg, projectID, runOnce == 1, scheduleType)
 	}
 
 	return rows.Err()
 }
 
 // Register adds a schedule to the cron
-func (s *Scheduler) Register(scheduleID int, cronExpr, msg string, projectID *string, runOnce bool) {
+func (s *Scheduler) Register(scheduleID int, cronExpr, msg string, projectID *string, runOnce bool, scheduleType string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -138,7 +140,7 @@ func (s *Scheduler) Register(scheduleID int, cronExpr, msg string, projectID *st
 
 	// Add new job
 	entryID, err := s.cron.AddFunc(cronExpr, func() {
-		s.execute(scheduleID, msg, projectID, runOnce)
+		s.execute(scheduleID, msg, projectID, runOnce, scheduleType)
 	})
 	if err != nil {
 		log.Printf("Scheduler: 스케줄 #%d 등록 실패: %v", scheduleID, err)
@@ -165,8 +167,8 @@ func (s *Scheduler) Unregister(scheduleID int) {
 	}
 }
 
-// execute runs a scheduled task with Claude Code
-func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOnce bool) {
+// execute runs a scheduled task with Claude Code or bash command
+func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOnce bool, scheduleType string) {
 	log.Printf("Scheduler: 스케줄 #%d 실행 시작", scheduleID)
 
 	globalDB, err := db.OpenGlobal()
@@ -217,51 +219,90 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 		projectPath = project.DefaultPath
 	}
 
-	// Build report path
-	reportPath := filepath.Join(projectPath, ".claribot", fmt.Sprintf("schedule-%d-report.md", runID))
-	// Ensure .claribot directory exists
-	if err := os.MkdirAll(filepath.Dir(reportPath), 0755); err != nil {
-		log.Printf("Scheduler: report 디렉토리 생성 실패: %v", err)
-		return
-	}
-
-	// Load system prompt and render with ReportPath
-	systemPrompt, err := prompts.Get(prompts.Common, "schedule")
-	if err != nil {
-		log.Printf("Scheduler: 시스템 프롬프트 로드 실패: %v", err)
-		systemPrompt = ""
-	}
-	systemPrompt = renderSchedulePrompt(systemPrompt, reportPath)
-
-	// Execute Claude Code
-	opts := claude.Options{
-		UserPrompt:   msg,
-		SystemPrompt: systemPrompt,
-		WorkDir:      projectPath,
-		ReportPath:   reportPath,
-	}
-
-	claudeResult, claudeErr := claude.Run(opts)
-
 	completedAt := db.TimeNow()
 	var status, resultText, errorText string
+	var reportPath string
 
-	if claudeErr != nil {
-		status = "failed"
-		errorText = claudeErr.Error()
-		log.Printf("Scheduler: 스케줄 #%d Claude 실행 실패: %v", scheduleID, claudeErr)
-	} else if claudeResult.ExitCode != 0 {
-		status = "failed"
-		resultText = claudeResult.Output
-		errorText = fmt.Sprintf("exit code: %d", claudeResult.ExitCode)
-		if claude.IsAuthError(claudeResult) {
-			log.Printf("Scheduler: ⚠️ 스케줄 #%d 인증 오류 감지 - Claude 인증 상태를 확인하세요", scheduleID)
+	if scheduleType == "bash" {
+		// Execute bash command directly
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, "bash", "-c", msg)
+		cmd.Dir = projectPath
+
+		var stdout, stderr bytes.Buffer
+		cmd.Stdout = &stdout
+		cmd.Stderr = &stderr
+
+		log.Printf("Scheduler: 스케줄 #%d bash 실행: %s", scheduleID, truncate(msg, 100))
+		cmdErr := cmd.Run()
+		completedAt = db.TimeNow()
+
+		// Combine stdout + stderr
+		var combined bytes.Buffer
+		if stdout.Len() > 0 {
+			combined.Write(stdout.Bytes())
 		}
-		log.Printf("Scheduler: 스케줄 #%d Claude 비정상 종료 (exit: %d)", scheduleID, claudeResult.ExitCode)
+		if stderr.Len() > 0 {
+			if combined.Len() > 0 {
+				combined.WriteString("\n")
+			}
+			combined.WriteString("[stderr]\n")
+			combined.Write(stderr.Bytes())
+		}
+		resultText = combined.String()
+
+		if cmdErr != nil {
+			status = "failed"
+			errorText = cmdErr.Error()
+			log.Printf("Scheduler: 스케줄 #%d bash 실행 실패: %v", scheduleID, cmdErr)
+		} else {
+			status = "done"
+			log.Printf("Scheduler: 스케줄 #%d bash 실행 완료", scheduleID)
+		}
 	} else {
-		status = "done"
-		resultText = claudeResult.Output
-		log.Printf("Scheduler: 스케줄 #%d 실행 완료", scheduleID)
+		// Execute Claude Code (default)
+		reportPath = filepath.Join(projectPath, ".claribot", fmt.Sprintf("schedule-%d-report.md", runID))
+		if err := os.MkdirAll(filepath.Dir(reportPath), 0755); err != nil {
+			log.Printf("Scheduler: report 디렉토리 생성 실패: %v", err)
+			return
+		}
+
+		systemPrompt, err := prompts.Get(prompts.Common, "schedule")
+		if err != nil {
+			log.Printf("Scheduler: 시스템 프롬프트 로드 실패: %v", err)
+			systemPrompt = ""
+		}
+		systemPrompt = renderSchedulePrompt(systemPrompt, reportPath)
+
+		opts := claude.Options{
+			UserPrompt:   msg,
+			SystemPrompt: systemPrompt,
+			WorkDir:      projectPath,
+			ReportPath:   reportPath,
+		}
+
+		claudeResult, claudeErr := claude.Run(opts)
+		completedAt = db.TimeNow()
+
+		if claudeErr != nil {
+			status = "failed"
+			errorText = claudeErr.Error()
+			log.Printf("Scheduler: 스케줄 #%d Claude 실행 실패: %v", scheduleID, claudeErr)
+		} else if claudeResult.ExitCode != 0 {
+			status = "failed"
+			resultText = claudeResult.Output
+			errorText = fmt.Sprintf("exit code: %d", claudeResult.ExitCode)
+			if claude.IsAuthError(claudeResult) {
+				log.Printf("Scheduler: ⚠️ 스케줄 #%d 인증 오류 감지 - Claude 인증 상태를 확인하세요", scheduleID)
+			}
+			log.Printf("Scheduler: 스케줄 #%d Claude 비정상 종료 (exit: %d)", scheduleID, claudeResult.ExitCode)
+		} else {
+			status = "done"
+			resultText = claudeResult.Output
+			log.Printf("Scheduler: 스케줄 #%d 실행 완료", scheduleID)
+		}
 	}
 
 	// Update schedule_run with result
@@ -272,8 +313,8 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 	`, status, resultText, errorText, completedAt, runID)
 	if err != nil {
 		log.Printf("Scheduler: schedule_run 업데이트 실패: %v", err)
-	} else {
-		// Clean up report file after DB save
+	} else if reportPath != "" {
+		// Clean up report file after DB save (claude type only)
 		if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
 			log.Printf("Scheduler: report 파일 삭제 실패 (run #%d): %v", runID, err)
 		}
@@ -314,11 +355,15 @@ func (s *Scheduler) execute(scheduleID int, msg string, projectID *string, runOn
 
 	// Send notification
 	if s.notifier != nil {
+		typeEmoji := "🤖"
+		if scheduleType == "bash" {
+			typeEmoji = "🔧"
+		}
 		var notification string
 		if status == "done" {
-			notification = "📅 스케줄 실행 완료: " + truncate(msg, 50) + "\n\n" + truncate(resultText, 500)
+			notification = fmt.Sprintf("%s 스케줄 실행 완료: %s\n\n%s", typeEmoji, truncate(msg, 50), truncate(resultText, 500))
 		} else {
-			notification = "❌ 스케줄 실행 실패: " + truncate(msg, 50) + "\n\n" + errorText
+			notification = fmt.Sprintf("❌%s 스케줄 실행 실패: %s\n\n%s", typeEmoji, truncate(msg, 50), errorText)
 		}
 		s.notifier(projectID, notification)
 	}

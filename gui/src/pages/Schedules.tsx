@@ -7,7 +7,7 @@ import { Textarea } from '@/components/ui/textarea'
 import {
   useSchedules, useAddSchedule, useDeleteSchedule, useToggleSchedule, useScheduleRuns, useProjects
 } from '@/hooks/useClaribot'
-import { Plus, Trash2, Clock, History, Power, PowerOff } from 'lucide-react'
+import { Plus, Trash2, Clock, History, Power, PowerOff, Bot, Terminal } from 'lucide-react'
 
 export default function Schedules() {
   const { data: schedulesData } = useSchedules()
@@ -17,7 +17,7 @@ export default function Schedules() {
   const toggleSchedule = useToggleSchedule()
 
   const [showAdd, setShowAdd] = useState(false)
-  const [addForm, setAddForm] = useState({ cronExpr: '', message: '', projectId: '', once: false })
+  const [addForm, setAddForm] = useState({ cronExpr: '', message: '', projectId: '', once: false, type: 'claude' as 'claude' | 'bash' })
   const [showRuns, setShowRuns] = useState<number | null>(null)
 
   const scheduleItems = parseItems(schedulesData?.data)
@@ -30,8 +30,9 @@ export default function Schedules() {
       message: addForm.message,
       projectId: addForm.projectId || undefined,
       once: addForm.once,
+      type: addForm.type,
     })
-    setAddForm({ cronExpr: '', message: '', projectId: '', once: false })
+    setAddForm({ cronExpr: '', message: '', projectId: '', once: false, type: 'claude' })
     setShowAdd(false)
   }
 
@@ -67,9 +68,20 @@ export default function Schedules() {
               <p className="text-xs text-muted-foreground mt-1">min hour day month weekday</p>
             </div>
             <div>
+              <label className="text-sm font-medium">Type</label>
+              <select
+                className="flex h-10 w-full rounded-md border border-input bg-background px-3 py-2 text-sm"
+                value={addForm.type}
+                onChange={e => setAddForm(f => ({ ...f, type: e.target.value as 'claude' | 'bash' }))}
+              >
+                <option value="claude">Claude (AI)</option>
+                <option value="bash">Bash (Command)</option>
+              </select>
+            </div>
+            <div>
               <label className="text-sm font-medium">Message</label>
               <Textarea
-                placeholder="Message to send to Claude"
+                placeholder={addForm.type === 'bash' ? 'Shell command to execute' : 'Message to send to Claude'}
                 value={addForm.message}
                 onChange={e => setAddForm(f => ({ ...f, message: e.target.value }))}
                 rows={2}
@@ -110,6 +122,7 @@ export default function Schedules() {
           const id = s.id || s.ID
           const cronExpr = s.cron_expr || s.CronExpr || ''
           const message = s.message || s.Message || ''
+          const scheduleType = s.type || s.Type || 'claude'
           const enabled = s.enabled ?? s.Enabled ?? false
           const runOnce = s.run_once ?? s.RunOnce ?? false
           const projectId = s.project_id || s.ProjectID || null
@@ -125,6 +138,10 @@ export default function Schedules() {
                       <span className="font-medium">#{id}</span>
                       <Badge variant={enabled ? 'success' : 'secondary'}>
                         {enabled ? 'ON' : 'OFF'}
+                      </Badge>
+                      <Badge variant="outline" className="text-xs flex items-center gap-1">
+                        {scheduleType === 'bash' ? <Terminal className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
+                        {scheduleType === 'bash' ? 'Bash' : 'Claude'}
                       </Badge>
                       {runOnce && <Badge variant="outline" className="text-xs">run_once</Badge>}
                       {projectId && <Badge variant="info" className="text-xs">{projectId}</Badge>}
@@ -176,7 +193,7 @@ export default function Schedules() {
                 </div>
 
                 {/* Run History */}
-                {showRuns === id && <RunHistory scheduleId={id} />}
+                {showRuns === id && <RunHistory scheduleId={id} scheduleType={scheduleType} />}
               </CardContent>
             </Card>
           )
@@ -192,7 +209,7 @@ export default function Schedules() {
   )
 }
 
-function RunHistory({ scheduleId }: { scheduleId: number }) {
+function RunHistory({ scheduleId, scheduleType }: { scheduleId: number; scheduleType: string }) {
   const { data: runsData } = useScheduleRuns(scheduleId)
   const runs = parseItems(runsData?.data)
 
@@ -213,6 +230,10 @@ function RunHistory({ scheduleId }: { scheduleId: number }) {
               <div key={id} className="text-sm border rounded p-2">
                 <div className="flex items-center gap-2">
                   <span className="text-xs text-muted-foreground">#{id}</span>
+                  {scheduleType === 'bash'
+                    ? <Terminal className="h-3 w-3 text-muted-foreground" />
+                    : <Bot className="h-3 w-3 text-muted-foreground" />
+                  }
                   <Badge variant={status === 'done' ? 'success' : status === 'failed' ? 'destructive' : 'warning'}>
                     {status}
                   </Badge>

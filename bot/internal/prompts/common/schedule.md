@@ -26,10 +26,6 @@
 - `task run --all` - 전체 planned Task 실행
 - `task cycle` - 1회차(Plan) + 2회차(실행) 자동 순회
 
-### edge (Task 의존성)
-- `edge list [task_id]` - 의존성 목록 조회
-- `edge add <from_id> <to_id>` - 의존성 추가
-
 ### message (메시지)
 - `message list` - 메시지 목록 조회
 - `message status` - 메시지 처리 상태

@@ -14,19 +14,29 @@ const maxCycleIterations = 10
 
 // Cycle runs full cycle: 1회차 (Plan 생성, 반복) + 2회차 (실행)
 func Cycle(projectPath string) types.Result {
+	// Check if already running for this project
+	if IsCycleRunning(projectPath) {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("이 프로젝트는 이미 순회 중입니다: %s", getProjectID(projectPath)),
+		}
+	}
+
 	ResetCancel()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	startTime := time.Now()
-	SetCycleState(CycleState{
+	SetCycleState(projectPath, CycleState{
 		Running:     true,
 		Type:        "cycle",
 		StartedAt:   startTime,
 		ProjectPath: projectPath,
 	})
-	SetCycleCancel(cancel)
-	defer ClearCycleState()
+	SetCycleCancel(projectPath, cancel)
+	defer func() {
+		cancel()
+		ClearCycleState(projectPath)
+	}()
 
 	localDB, err := db.OpenLocal(projectPath)
 	if err != nil {
@@ -38,6 +48,7 @@ func Cycle(projectPath string) types.Result {
 	defer localDB.Close()
 
 	var messages []string
+	projectID := getProjectID(projectPath)
 
 	// Phase 1: Plan all todo tasks (반복 순회 - subdivide로 생성된 신규 todo 포함)
 	for i := 0; i < maxCycleIterations; i++ {
@@ -56,7 +67,7 @@ func Cycle(projectPath string) types.Result {
 			break
 		}
 
-		UpdatePhase("plan", todoCount)
+		UpdatePhase(projectPath, "plan", todoCount)
 		messages = append(messages, fmt.Sprintf("📋 Plan 순회 %d회차: %d개 작업 Plan 생성 시작", i+1, todoCount))
 		planResult := planAllInternal(ctx, projectPath)
 		messages = append(messages, planResult.Message)
@@ -73,8 +84,8 @@ func Cycle(projectPath string) types.Result {
 	if IsCancelled() || ctx.Err() != nil {
 		messages = append(messages, "🛑 중단 요청으로 Run 순회 건너뜀")
 		if globalNotifier != nil {
-			notification := fmt.Sprintf("🛑 Cycle 중단됨\n소요: %s\n%s",
-				formatDuration(time.Since(startTime)), strings.Join(messages, "\n"))
+			notification := fmt.Sprintf("🛑 [%s] Cycle 중단됨\n소요: %s\n%s",
+				projectID, formatDuration(time.Since(startTime)), strings.Join(messages, "\n"))
 			globalNotifier(nil, notification)
 		}
 		return types.Result{
@@ -88,7 +99,7 @@ func Cycle(projectPath string) types.Result {
 	localDB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE status = 'planned'`).Scan(&plannedCount)
 
 	if plannedCount > 0 {
-		UpdatePhase("run", plannedCount)
+		UpdatePhase(projectPath, "run", plannedCount)
 		messages = append(messages, fmt.Sprintf("🔄 2회차 순회: %d개 작업 실행 시작", plannedCount))
 		runResult := runAllInternal(ctx, projectPath)
 		messages = append(messages, runResult.Message)
@@ -111,8 +122,8 @@ func Cycle(projectPath string) types.Result {
 	messages = append(messages, fmt.Sprintf("🏁 Cycle 완료: done %d개, failed %d개", doneCount, failedCount))
 
 	if globalNotifier != nil {
-		notification := fmt.Sprintf("🏁 Cycle 순회 완료\n소요: %s\n결과: done %d개, failed %d개",
-			formatDuration(time.Since(startTime)), doneCount, failedCount)
+		notification := fmt.Sprintf("🏁 [%s] Cycle 순회 완료\n소요: %s\n결과: done %d개, failed %d개",
+			projectID, formatDuration(time.Since(startTime)), doneCount, failedCount)
 		globalNotifier(nil, notification)
 	}
 

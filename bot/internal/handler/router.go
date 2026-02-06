@@ -518,46 +518,46 @@ func (r *Router) handleStatus(ctx *Context) types.Result {
 	}
 	sb.WriteString("\n")
 
-	// Cycle status
-	cycleStatus := task.GetCycleStatus()
-	if cycleStatus.Status != "idle" {
+	// Cycle status - show all running cycles
+	cycleStatuses := task.GetAllCycleStatuses()
+	if len(cycleStatuses) > 0 {
 		sb.WriteString("\n🔄 순회 상태:\n")
-		typeLabel := map[string]string{"cycle": "전체순회", "plan": "플랜순회", "run": "실행순회"}[cycleStatus.Type]
-		if typeLabel == "" {
-			typeLabel = cycleStatus.Type
-		}
-		// Phase label
-		phaseLabel := ""
-		if cycleStatus.Phase == "plan" {
-			phaseLabel = "📋 Planning"
-		} else if cycleStatus.Phase == "run" {
-			phaseLabel = "🚀 Running"
-		}
+		for _, cycleStatus := range cycleStatuses {
+			typeLabel := map[string]string{"cycle": "전체순회", "plan": "플랜순회", "run": "실행순회"}[cycleStatus.Type]
+			if typeLabel == "" {
+				typeLabel = cycleStatus.Type
+			}
+			// Phase label
+			phaseLabel := ""
+			if cycleStatus.Phase == "plan" {
+				phaseLabel = "📋 Planning"
+			} else if cycleStatus.Phase == "run" {
+				phaseLabel = "🚀 Running"
+			}
 
-		switch cycleStatus.Status {
-		case "running":
-			sb.WriteString(fmt.Sprintf("   ▶️ %s 진행 중", typeLabel))
-			if phaseLabel != "" && cycleStatus.TargetTotal > 0 {
-				sb.WriteString(fmt.Sprintf(" — %s 단계 (%d/%d)", phaseLabel, cycleStatus.Completed, cycleStatus.TargetTotal))
+			switch cycleStatus.Status {
+			case "running":
+				sb.WriteString(fmt.Sprintf("   ▶️ [%s] %s 진행 중", cycleStatus.ProjectID, typeLabel))
+				if phaseLabel != "" && cycleStatus.TargetTotal > 0 {
+					sb.WriteString(fmt.Sprintf(" — %s 단계 (%d/%d)", phaseLabel, cycleStatus.Completed, cycleStatus.TargetTotal))
+				}
+				if cycleStatus.CurrentTaskID > 0 {
+					sb.WriteString(fmt.Sprintf(" (Task #%d)", cycleStatus.CurrentTaskID))
+				}
+				sb.WriteString("\n")
+			case "interrupted":
+				sb.WriteString(fmt.Sprintf("   ⚠️ [%s] %s 중단됨", cycleStatus.ProjectID, typeLabel))
+				if phaseLabel != "" && cycleStatus.TargetTotal > 0 {
+					sb.WriteString(fmt.Sprintf(" — %s 단계 (%d/%d)", phaseLabel, cycleStatus.Completed, cycleStatus.TargetTotal))
+				}
+				if cycleStatus.CurrentTaskID > 0 {
+					sb.WriteString(fmt.Sprintf(" (Task #%d에서 중단)", cycleStatus.CurrentTaskID))
+				}
+				sb.WriteString("\n")
 			}
-			if cycleStatus.CurrentTaskID > 0 {
-				sb.WriteString(fmt.Sprintf(" (Task #%d)", cycleStatus.CurrentTaskID))
-			}
-			sb.WriteString("\n")
-		case "interrupted":
-			sb.WriteString(fmt.Sprintf("   ⚠️ %s 중단됨", typeLabel))
-			if phaseLabel != "" && cycleStatus.TargetTotal > 0 {
-				sb.WriteString(fmt.Sprintf(" — %s 단계 (%d/%d)", phaseLabel, cycleStatus.Completed, cycleStatus.TargetTotal))
-			}
-			if cycleStatus.CurrentTaskID > 0 {
-				sb.WriteString(fmt.Sprintf(" (Task #%d에서 중단)", cycleStatus.CurrentTaskID))
-			}
-			sb.WriteString("\n")
-			sb.WriteString(fmt.Sprintf("[순회 재개:resume:%s]", cycleStatus.Type))
-			sb.WriteString("\n")
+			elapsed := time.Since(cycleStatus.StartedAt).Truncate(time.Second)
+			sb.WriteString(fmt.Sprintf("      경과: %s\n", elapsed))
 		}
-		elapsed := time.Since(cycleStatus.StartedAt).Truncate(time.Second)
-		sb.WriteString(fmt.Sprintf("   경과: %s\n", elapsed))
 	}
 
 	// All projects with task stats

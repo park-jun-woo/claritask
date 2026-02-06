@@ -2,6 +2,7 @@ package task
 
 import (
 	"context"
+	"path/filepath"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -16,88 +17,136 @@ type CycleState struct {
 	StartedAt     time.Time `json:"started_at"`
 	CurrentTaskID int       `json:"current_task_id"`
 	ProjectPath   string    `json:"project_path"`
+	ProjectID     string    `json:"project_id"`
 	ActiveWorkers int       `json:"active_workers"`
-	Phase         string    `json:"phase"`           // "plan", "run"
-	TargetTotal   int       `json:"target_total"`    // total number of tasks in current phase
-	Completed     int       `json:"completed"`       // number of tasks completed in current phase
+	Phase         string    `json:"phase"`        // "plan", "run"
+	TargetTotal   int       `json:"target_total"` // total number of tasks in current phase
+	Completed     int       `json:"completed"`    // number of tasks completed in current phase
 }
 
-// activeWorkers tracks the number of currently running parallel workers
+// activeWorkers tracks the number of currently running parallel workers (global)
 var activeWorkers atomic.Int32
 
+// Per-project cycle state management
 var (
-	cycleMu           sync.RWMutex
-	currentCycleState CycleState
-	cycleCancel       context.CancelFunc // cancel function for the current cycle's context
+	cycleMu             sync.RWMutex
+	projectCycleStates  = make(map[string]*CycleState)
+	projectCycleCancels = make(map[string]context.CancelFunc)
 )
 
-// SetCycleState sets the current cycle state
-func SetCycleState(state CycleState) {
-	cycleMu.Lock()
-	defer cycleMu.Unlock()
-	currentCycleState = state
+// getProjectID extracts project ID from path
+func getProjectID(projectPath string) string {
+	return filepath.Base(projectPath)
 }
 
-// SetCycleCancel stores the cancel function for the current cycle's context
-func SetCycleCancel(cancel context.CancelFunc) {
+// SetCycleState sets the cycle state for a specific project
+func SetCycleState(projectPath string, state CycleState) {
 	cycleMu.Lock()
 	defer cycleMu.Unlock()
-	cycleCancel = cancel
+	state.ProjectID = getProjectID(projectPath)
+	projectCycleStates[projectPath] = &state
 }
 
-// CancelCycle calls the stored cancel function to immediately cancel the running cycle context
-func CancelCycle() {
+// SetCycleCancel stores the cancel function for a specific project's cycle
+func SetCycleCancel(projectPath string, cancel context.CancelFunc) {
 	cycleMu.Lock()
-	cancel := cycleCancel
+	defer cycleMu.Unlock()
+	projectCycleCancels[projectPath] = cancel
+}
+
+// CancelCycle cancels the cycle for a specific project
+func CancelCycle(projectPath string) {
+	cycleMu.Lock()
+	cancel := projectCycleCancels[projectPath]
 	cycleMu.Unlock()
 	if cancel != nil {
 		cancel()
 	}
 }
 
-// ClearCycleState resets the cycle state to empty
-func ClearCycleState() {
+// CancelAllCycles cancels all running cycles
+func CancelAllCycles() {
 	cycleMu.Lock()
-	defer cycleMu.Unlock()
-	currentCycleState = CycleState{}
-	cycleCancel = nil
+	cancels := make([]context.CancelFunc, 0, len(projectCycleCancels))
+	for _, cancel := range projectCycleCancels {
+		if cancel != nil {
+			cancels = append(cancels, cancel)
+		}
+	}
+	cycleMu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
 }
 
-// GetCycleState returns a copy of the current cycle state
-func GetCycleState() CycleState {
+// ClearCycleState clears the cycle state for a specific project
+func ClearCycleState(projectPath string) {
+	cycleMu.Lock()
+	defer cycleMu.Unlock()
+	delete(projectCycleStates, projectPath)
+	delete(projectCycleCancels, projectPath)
+}
+
+// GetCycleState returns a copy of the cycle state for a specific project
+func GetCycleState(projectPath string) CycleState {
 	cycleMu.RLock()
 	defer cycleMu.RUnlock()
-	return currentCycleState
+	if state, ok := projectCycleStates[projectPath]; ok {
+		return *state
+	}
+	return CycleState{}
 }
 
-// UpdateCurrentTask updates only the CurrentTaskID field
-func UpdateCurrentTask(taskID int) {
-	cycleMu.Lock()
-	defer cycleMu.Unlock()
-	currentCycleState.CurrentTaskID = taskID
+// GetAllCycleStates returns all active cycle states
+func GetAllCycleStates() []CycleState {
+	cycleMu.RLock()
+	defer cycleMu.RUnlock()
+	states := make([]CycleState, 0, len(projectCycleStates))
+	for _, state := range projectCycleStates {
+		if state.Running {
+			states = append(states, *state)
+		}
+	}
+	return states
 }
 
-// UpdatePhase updates the Phase, TargetTotal and resets Completed
-func UpdatePhase(phase string, targetTotal int) {
+// UpdateCurrentTask updates only the CurrentTaskID field for a project
+func UpdateCurrentTask(projectPath string, taskID int) {
 	cycleMu.Lock()
 	defer cycleMu.Unlock()
-	currentCycleState.Phase = phase
-	currentCycleState.TargetTotal = targetTotal
-	currentCycleState.Completed = 0
+	if state, ok := projectCycleStates[projectPath]; ok {
+		state.CurrentTaskID = taskID
+	}
 }
 
-// IncrementCompleted increments the Completed counter by 1
-func IncrementCompleted() {
+// UpdatePhase updates the Phase, TargetTotal and resets Completed for a project
+func UpdatePhase(projectPath string, phase string, targetTotal int) {
 	cycleMu.Lock()
 	defer cycleMu.Unlock()
-	currentCycleState.Completed++
+	if state, ok := projectCycleStates[projectPath]; ok {
+		state.Phase = phase
+		state.TargetTotal = targetTotal
+		state.Completed = 0
+	}
+}
+
+// IncrementCompleted increments the Completed counter by 1 for a project
+func IncrementCompleted(projectPath string) {
+	cycleMu.Lock()
+	defer cycleMu.Unlock()
+	if state, ok := projectCycleStates[projectPath]; ok {
+		state.Completed++
+	}
 }
 
 // UpdateActiveWorkers adjusts the active worker count by delta (+1 or -1)
-func UpdateActiveWorkers(delta int) {
+func UpdateActiveWorkers(projectPath string, delta int) {
 	activeWorkers.Add(int32(delta))
 	cycleMu.Lock()
-	currentCycleState.ActiveWorkers = int(activeWorkers.Load())
+	if state, ok := projectCycleStates[projectPath]; ok {
+		state.ActiveWorkers = int(activeWorkers.Load())
+	}
 	cycleMu.Unlock()
 }
 
@@ -111,14 +160,26 @@ func ResetActiveWorkers() {
 	activeWorkers.Store(0)
 }
 
-// IsCycleInterrupted returns true if a cycle was started but Claude is no longer running
-func IsCycleInterrupted() bool {
-	state := GetCycleState()
-	if !state.Running {
-		return false
+// IsCycleRunning returns true if a cycle is running for the specified project
+func IsCycleRunning(projectPath string) bool {
+	cycleMu.RLock()
+	defer cycleMu.RUnlock()
+	if state, ok := projectCycleStates[projectPath]; ok {
+		return state.Running
 	}
-	status := claude.GetStatus()
-	return status.Used == 0
+	return false
+}
+
+// IsAnyCycleRunning returns true if any cycle is running
+func IsAnyCycleRunning() bool {
+	cycleMu.RLock()
+	defer cycleMu.RUnlock()
+	for _, state := range projectCycleStates {
+		if state.Running {
+			return true
+		}
+	}
+	return false
 }
 
 // CycleStatusInfo represents the current cycle status for display
@@ -128,26 +189,31 @@ type CycleStatusInfo struct {
 	StartedAt     time.Time
 	CurrentTaskID int
 	ProjectPath   string
+	ProjectID     string
 	ActiveWorkers int
-	Phase         string    // "plan", "run"
-	TargetTotal   int       // total number of tasks in current phase
-	Completed     int       // number of tasks completed in current phase
+	Phase         string // "plan", "run"
+	TargetTotal   int    // total number of tasks in current phase
+	Completed     int    // number of tasks completed in current phase
 }
 
-// GetCycleStatus returns the current cycle status by cross-checking CycleState and Claude semaphore
+// GetCycleStatus returns the combined cycle status (for backward compatibility)
+// Shows the first active cycle found
 func GetCycleStatus() CycleStatusInfo {
-	state := GetCycleState()
-
-	if !state.Running {
+	states := GetAllCycleStates()
+	if len(states) == 0 {
 		return CycleStatusInfo{Status: "idle"}
 	}
 
+	// Return first active cycle for backward compatibility
+	state := states[0]
 	claudeStatus := claude.GetStatus()
+
 	info := CycleStatusInfo{
 		Type:          state.Type,
 		StartedAt:     state.StartedAt,
 		CurrentTaskID: state.CurrentTaskID,
 		ProjectPath:   state.ProjectPath,
+		ProjectID:     state.ProjectID,
 		ActiveWorkers: int(activeWorkers.Load()),
 		Phase:         state.Phase,
 		TargetTotal:   state.TargetTotal,
@@ -161,4 +227,36 @@ func GetCycleStatus() CycleStatusInfo {
 	}
 
 	return info
+}
+
+// GetAllCycleStatuses returns status info for all active cycles
+func GetAllCycleStatuses() []CycleStatusInfo {
+	states := GetAllCycleStates()
+	if len(states) == 0 {
+		return nil
+	}
+
+	claudeStatus := claude.GetStatus()
+	status := "running"
+	if claudeStatus.Used == 0 {
+		status = "interrupted"
+	}
+
+	infos := make([]CycleStatusInfo, 0, len(states))
+	for _, state := range states {
+		infos = append(infos, CycleStatusInfo{
+			Status:        status,
+			Type:          state.Type,
+			StartedAt:     state.StartedAt,
+			CurrentTaskID: state.CurrentTaskID,
+			ProjectPath:   state.ProjectPath,
+			ProjectID:     state.ProjectID,
+			ActiveWorkers: state.ActiveWorkers,
+			Phase:         state.Phase,
+			TargetTotal:   state.TargetTotal,
+			Completed:     state.Completed,
+		})
+	}
+
+	return infos
 }

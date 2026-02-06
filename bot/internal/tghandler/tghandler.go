@@ -443,10 +443,11 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 		}
 
 		// Clear interrupted state and re-execute
-		task.ClearCycleState()
-		h.bot.Send(cb.ChatID, fmt.Sprintf("🔄 %s 재개합니다...", cmd))
-
 		snapshot := h.router.SnapshotContext()
+		if snapshot.ProjectPath != "" {
+			task.ClearCycleState(snapshot.ProjectPath)
+		}
+		h.bot.Send(cb.ChatID, fmt.Sprintf("🔄 %s 재개합니다...", cmd))
 		h.safeGo(cb.ChatID, func() {
 			result := h.router.Execute(snapshot, cmd)
 			h.sendReport(cb.ChatID, result)

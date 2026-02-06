@@ -101,7 +101,7 @@ func Plan(projectPath, id string) types.Result {
 
 // planRecursive executes plan for a task and its children recursively
 func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *Task) types.Result {
-	UpdateCurrentTask(t.ID)
+	UpdateCurrentTask(projectPath, t.ID)
 
 	// Check depth limit - force plan if at max depth
 	forceLeaf := t.Depth >= MaxDepth
@@ -294,20 +294,30 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 
 // PlanAll generates plans for all todo tasks (1회차 순회 전체 실행)
 func PlanAll(projectPath string) types.Result {
+	// Check if already running for this project
+	if IsCycleRunning(projectPath) {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("이 프로젝트는 이미 순회 중입니다: %s", getProjectID(projectPath)),
+		}
+	}
+
 	ResetCancel()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	startTime := time.Now()
-	SetCycleState(CycleState{
+	SetCycleState(projectPath, CycleState{
 		Running:     true,
 		Type:        "plan",
 		StartedAt:   startTime,
 		ProjectPath: projectPath,
 		Phase:       "plan",
 	})
-	SetCycleCancel(cancel)
-	defer ClearCycleState()
+	SetCycleCancel(projectPath, cancel)
+	defer func() {
+		cancel()
+		ClearCycleState(projectPath)
+	}()
 
 	// Insert traversal record
 	localDB, travErr := db.OpenLocal(projectPath)
@@ -418,7 +428,7 @@ func planAllInternal(ctx context.Context, projectPath string) types.Result {
 		}
 	}
 
-	UpdatePhase("plan", len(tasks))
+	UpdatePhase(projectPath, "plan", len(tasks))
 	log.Printf("[Task] PlanAll: %d tasks, parallel=%d", len(tasks), parallel)
 
 	// Sequential execution when parallel=1 (original behavior)
@@ -459,7 +469,7 @@ func planAllSequential(ctx context.Context, projectPath string, tasks []Task) ty
 		}
 
 		result := planRecursive(ctx, localDB, projectPath, &t)
-		IncrementCompleted()
+		IncrementCompleted(projectPath)
 		if result.Success {
 			success++
 			messages = append(messages, result.Message)
@@ -553,10 +563,10 @@ func planAllParallel(parentCtx context.Context, projectPath string, tasks []Task
 				return
 			}
 
-			UpdateActiveWorkers(+1)
+			UpdateActiveWorkers(projectPath, +1)
 			log.Printf("[Task] Worker started plan task #%d (%s)", t.ID, t.Title)
 			defer func() {
-				UpdateActiveWorkers(-1)
+				UpdateActiveWorkers(projectPath, -1)
 				log.Printf("[Task] Worker finished plan task #%d (%s)", t.ID, t.Title)
 			}()
 
@@ -598,7 +608,7 @@ func planAllParallel(parentCtx context.Context, projectPath string, tasks []Task
 		if pr.Message == "이미 처리됨" {
 			continue
 		}
-		IncrementCompleted()
+		IncrementCompleted(projectPath)
 		if pr.Success {
 			success++
 			messages = append(messages, pr.Message)

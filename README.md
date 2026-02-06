@@ -1,15 +1,17 @@
 # Claribot
 
-LLM 기반 프로젝트 자동화 시스템. Telegram 봇과 CLI로 Claude Code를 제어하여 프로젝트 작업을 자동화한다.
+English | [한국어](README.ko.md)
+
+LLM-based project automation system. Automate project tasks by controlling Claude Code via Telegram bot and CLI.
 
 ## Features
 
-- **Telegram 봇 인터페이스**: 모바일에서 프로젝트 관리 및 Claude 실행
-- **CLI 클라이언트**: 터미널에서 동일한 기능 사용
-- **다중 프로젝트 관리**: 프로젝트별 독립 DB로 작업/태스크 관리
-- **Claude Code 연동**: PTY 기반 Claude Code 실행 및 결과 반환
-- **Task 기반 워크플로우**: 메시지 → Task 변환 → 실행 → 결과 보고
-- **Cron 스케줄러**: 지정 시간에 자동 Claude 실행 및 결과 알림
+- **Telegram Bot Interface**: Manage projects and run Claude from mobile
+- **CLI Client**: Same functionality from terminal
+- **Multi-Project Management**: Independent DB per project for task management
+- **Claude Code Integration**: PTY-based Claude Code execution and result return
+- **Task-Based Workflow**: Message → Task conversion → Execution → Report
+- **Cron Scheduler**: Automated Claude execution and result notifications at scheduled times
 
 ## Architecture
 
@@ -33,11 +35,11 @@ LLM 기반 프로젝트 자동화 시스템. Telegram 봇과 CLI로 Claude Code�
     [Telegram]                     [clari CLI]
 ```
 
-| 컴포넌트 | 역할 |
-|----------|------|
-| claribot | Telegram + CLI 핸들러, Claude 세션 관리 (systemd 서비스) |
-| clari | HTTP 클라이언트 CLI |
-| Claude Code | 프로젝트 폴더에서 실제 작업 수행 |
+| Component | Role |
+|-----------|------|
+| claribot | Telegram + CLI handler, Claude session management (systemd service) |
+| clari | HTTP client CLI |
+| Claude Code | Performs actual work in project folder |
 
 ## Requirements
 
@@ -56,9 +58,9 @@ cd claribot
 make install
 ```
 
-`make install`은 다음을 수행한다:
-- `clari` CLI를 `/usr/local/bin/`에 설치
-- `claribot` 서비스를 systemd에 등록 및 시작
+`make install` performs the following:
+- Installs `clari` CLI to `/usr/local/bin/`
+- Registers and starts `claribot` service with systemd
 
 ### Manual Installation
 
@@ -75,7 +77,7 @@ make install-bot
 
 ## Configuration
 
-설정 파일: `~/.claribot/config.yaml`
+Config file: `~/.claribot/config.yaml`
 
 ```yaml
 # HTTP Service
@@ -85,18 +87,18 @@ service:
 
 # Telegram Bot
 telegram:
-  token: "YOUR_BOT_TOKEN"    # @BotFather에서 발급
-  allowed_users: []          # 빈 배열 = 모두 허용, [123456789] = 특정 유저만
-  admin_chat_id: 0           # 스케줄 실행 결과 알림 대상 (0 = 비활성화)
+  token: "YOUR_BOT_TOKEN"    # Get from @BotFather
+  allowed_users: []          # Empty = allow all, [123456789] = specific users only
+  admin_chat_id: 0           # Schedule execution result notification target (0 = disabled)
 
 # Claude Code
 claude:
-  timeout: 1200              # 유휴 타임아웃 (초)
-  max: 3                     # 최대 동시 실행 수
+  timeout: 1200              # Idle timeout (seconds)
+  max: 3                     # Maximum concurrent executions
 
 # Project
 project:
-  path: ~/projects           # 프로젝트 생성 기본 경로
+  path: ~/projects           # Default project creation path
 
 # Pagination
 pagination:
@@ -108,89 +110,89 @@ log:
   file: ~/.claribot/claribot.log
 ```
 
-예제 파일: `deploy/config.example.yaml`
+Example file: `deploy/config.example.yaml`
 
 ## Usage
 
 ### Service Management
 
 ```bash
-make status     # 서비스 상태 확인
-make restart    # 서비스 재시작
-make logs       # 로그 확인 (journalctl)
+make status     # Check service status
+make restart    # Restart service
+make logs       # View logs (journalctl)
 ```
 
 ### CLI Commands
 
 ```bash
-# 프로젝트 관리
-clari project list              # 프로젝트 목록
-clari project create <id>       # 새 프로젝트 생성
-clari project add <path>        # 기존 폴더를 프로젝트로 등록
-clari project switch <id>       # 프로젝트 선택
-clari project delete <id>       # 프로젝트 삭제
+# Project management
+clari project list              # List projects
+clari project create <id>       # Create new project
+clari project add <path>        # Register existing folder as project
+clari project switch <id>       # Select project
+clari project delete <id>       # Delete project
 
-# 태스크 관리
-clari task list                 # 태스크 목록
-clari task add <title>          # 태스크 추가
-clari task get <id>             # 태스크 상세
-clari task run [id]             # 태스크 실행
+# Task management
+clari task list                 # List tasks
+clari task add <title>          # Add task
+clari task get <id>             # Task details
+clari task run [id]             # Run task
 
-# 메시지 (Claude 실행)
-clari send "코드 리뷰해줘"       # 메시지 전송 → Claude 실행
-clari message list              # 메시지 기록
-clari message status            # 메시지 상태 요약
+# Message (Claude execution)
+clari send "Review the code"    # Send message → Run Claude
+clari message list              # Message history
+clari message status            # Message status summary
 
-# 스케줄 관리
-clari schedule list             # 스케줄 목록
-clari schedule add "0 7 * * *" "아침 인사"  # 스케줄 추가
-clari schedule add --once "30 14 * * *" "1회 알림"  # 1회 실행
-clari schedule get <id>         # 스케줄 상세
-clari schedule enable <id>      # 활성화
-clari schedule disable <id>     # 비활성화
-clari schedule delete <id>      # 삭제
-clari schedule runs <id>        # 실행 기록
-clari schedule set project <id> <project>  # 프로젝트 변경
+# Schedule management
+clari schedule list             # List schedules
+clari schedule add "0 7 * * *" "Morning greeting"  # Add schedule
+clari schedule add --once "30 14 * * *" "One-time notification"  # Run once
+clari schedule get <id>         # Schedule details
+clari schedule enable <id>      # Enable
+clari schedule disable <id>     # Disable
+clari schedule delete <id>      # Delete
+clari schedule runs <id>        # Execution history
+clari schedule set project <id> <project>  # Change project
 
-# 상태
-clari status                    # 현재 프로젝트 상태
+# Status
+clari status                    # Current project status
 ```
 
 ### Telegram Commands
 
-| 명령어 | 설명 |
-|--------|------|
-| `/start` | 봇 시작, 메뉴 키보드 표시 |
-| `/project` | 프로젝트 목록 (선택 버튼) |
-| `/task` | 태스크 목록 |
-| `/status` | 현재 상태 |
-| 일반 메시지 | 선택된 프로젝트에서 Claude 실행 |
+| Command | Description |
+|---------|-------------|
+| `/start` | Start bot, show menu keyboard |
+| `/project` | Project list (selection buttons) |
+| `/task` | Task list |
+| `/status` | Current status |
+| Regular message | Run Claude in selected project |
 
 ## Project Structure
 
 ```
 claribot/
-├── bot/                    # claribot 서비스
-│   ├── cmd/claribot/       # 진입점
-│   ├── internal/           # 내부 패키지
-│   │   ├── config/         # 설정 로드
-│   │   ├── db/             # SQLite 래퍼
-│   │   ├── handler/        # 명령어 라우터
-│   │   ├── project/        # 프로젝트 관리
-│   │   ├── task/           # 태스크 관리
-│   │   ├── message/        # 메시지 처리
-│   │   ├── schedule/       # 스케줄 관리
-│   │   ├── prompts/        # 시스템 프롬프트 템플릿
-│   │   └── tghandler/      # Telegram 핸들러
-│   └── pkg/                # 공개 패키지
-│       ├── claude/         # Claude Code 실행
+├── bot/                    # claribot service
+│   ├── cmd/claribot/       # Entry point
+│   ├── internal/           # Internal packages
+│   │   ├── config/         # Config loader
+│   │   ├── db/             # SQLite wrapper
+│   │   ├── handler/        # Command router
+│   │   ├── project/        # Project management
+│   │   ├── task/           # Task management
+│   │   ├── message/        # Message processing
+│   │   ├── schedule/       # Schedule management
+│   │   ├── prompts/        # System prompt templates
+│   │   └── tghandler/      # Telegram handler
+│   └── pkg/                # Public packages
+│       ├── claude/         # Claude Code execution
 │       ├── telegram/       # Telegram Bot API
 │       ├── render/         # Markdown → HTML
-│       ├── logger/         # 로깅
-│       └── errors/         # 에러 타입
+│       ├── logger/         # Logging
+│       └── errors/         # Error types
 ├── cli/                    # clari CLI
 │   └── cmd/clari/
-├── deploy/                 # 배포 파일
+├── deploy/                 # Deployment files
 │   ├── claribot.service.template
 │   └── config.example.yaml
 └── Makefile
@@ -200,7 +202,7 @@ claribot/
 
 ### Global DB (`~/.claribot/db.clt`)
 
-프로젝트, 스케줄, 메시지 관리
+Manages projects, schedules, and messages
 
 ```sql
 projects (
@@ -215,11 +217,11 @@ projects (
 
 schedules (
     id INTEGER PRIMARY KEY,
-    project_id TEXT,          -- NULL이면 전역 실행
+    project_id TEXT,          -- NULL for global execution
     cron_expr TEXT,
     message TEXT,
     enabled INTEGER,
-    run_once INTEGER,         -- 1회 실행 후 자동 비활성화
+    run_once INTEGER,         -- Auto-disable after one-time execution
     last_run TEXT,
     next_run TEXT,
     created_at, updated_at
@@ -236,7 +238,7 @@ schedule_runs (
 
 messages (
     id INTEGER PRIMARY KEY,
-    project_id TEXT,          -- NULL이면 전역 실행
+    project_id TEXT,          -- NULL for global execution
     content TEXT,
     source TEXT,              -- 'telegram', 'cli', 'schedule'
     status TEXT,
@@ -248,16 +250,16 @@ messages (
 
 ### Local DB (`<project>/.claribot/db.clt`)
 
-프로젝트별 태스크 (git으로 관리 가능)
+Project-specific tasks (can be managed with git)
 
 ```sql
 tasks (
     id INTEGER PRIMARY KEY,
     parent_id INTEGER,
     title TEXT,
-    spec TEXT,                -- 요구사항 명세서
-    plan TEXT,                -- 실행 계획서
-    report TEXT,              -- 완료 보고서
+    spec TEXT,                -- Requirements specification
+    plan TEXT,                -- Execution plan
+    report TEXT,              -- Completion report
     status TEXT,              -- 'todo', 'planned', 'split', 'done', 'failed'
     error TEXT,
     created_at, updated_at
@@ -267,14 +269,14 @@ tasks (
 ## Development
 
 ```bash
-# 로컬 실행
-make run-bot    # claribot 실행
-make run-cli    # CLI 실행
+# Local execution
+make run-bot    # Run claribot
+make run-cli    # Run CLI
 
-# 테스트
+# Test
 make test
 
-# 클린 빌드
+# Clean build
 make clean && make build
 ```
 
@@ -286,16 +288,16 @@ make uninstall
 
 ## Disclaimer
 
-이 프로젝트는 Anthropic의 [Claude Code](https://claude.ai/claude-code) CLI를 필요로 한다.
+This project requires Anthropic's [Claude Code](https://claude.ai/claude-code) CLI.
 
-Claribot은 Claude Code를 subprocess로 호출하는 래퍼 프로그램이다. Claude Code 자체를 포함하거나 재배포하지 않으며, 사용자는 별도로 Claude Code를 설치하고 Anthropic 계정을 보유해야 한다.
+Claribot is a wrapper program that calls Claude Code as a subprocess. It does not include or redistribute Claude Code itself, and users must install Claude Code separately and have an Anthropic account.
 
-**사용자 책임:**
-- 사용자는 [Anthropic 이용약관](https://www.anthropic.com/legal)을 준수할 책임이 있다
-- Consumer 플랜(Free/Pro/Max)의 자동화 사용은 약관에 따라 제한될 수 있다
-- 상업적 사용 시 [Commercial Terms](https://www.anthropic.com/legal/commercial-terms) 확인을 권장한다
+**User Responsibility:**
+- Users are responsible for complying with [Anthropic Terms of Service](https://www.anthropic.com/legal)
+- Automated use on Consumer plans (Free/Pro/Max) may be restricted according to the terms
+- For commercial use, reviewing the [Commercial Terms](https://www.anthropic.com/legal/commercial-terms) is recommended
 
-이 프로젝트의 개발자는 사용자의 Anthropic 약관 위반에 대해 책임지지 않는다.
+The developers of this project are not responsible for users' violations of Anthropic terms.
 
 ## License
 

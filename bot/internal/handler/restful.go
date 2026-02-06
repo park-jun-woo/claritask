@@ -682,6 +682,7 @@ func (r *Router) HandleGetUsage(w http.ResponseWriter, req *http.Request) {
 type CycleStatusJSON struct {
 	Status        string `json:"status"`
 	Type          string `json:"type,omitempty"`
+	ProjectID     string `json:"project_id,omitempty"`
 	StartedAt     string `json:"started_at,omitempty"`
 	CurrentTaskID int    `json:"current_task_id,omitempty"`
 	ActiveWorkers int    `json:"active_workers,omitempty"`
@@ -696,13 +697,14 @@ func (r *Router) HandleStatus(w http.ResponseWriter, req *http.Request) {
 	ctx := r.SnapshotContext()
 	result := r.handleStatus(ctx)
 
-	// Build cycle_status JSON
+	// Build cycle_status JSON (backward compatibility - first active cycle)
 	cycleInfo := task.GetCycleStatus()
 	csJSON := CycleStatusJSON{
 		Status: cycleInfo.Status,
 	}
 	if cycleInfo.Status != "idle" {
 		csJSON.Type = cycleInfo.Type
+		csJSON.ProjectID = cycleInfo.ProjectID
 		if !cycleInfo.StartedAt.IsZero() {
 			csJSON.StartedAt = cycleInfo.StartedAt.Format(time.RFC3339)
 			csJSON.ElapsedSec = int(time.Since(cycleInfo.StartedAt).Seconds())
@@ -712,6 +714,27 @@ func (r *Router) HandleStatus(w http.ResponseWriter, req *http.Request) {
 		csJSON.Phase = cycleInfo.Phase
 		csJSON.TargetTotal = cycleInfo.TargetTotal
 		csJSON.Completed = cycleInfo.Completed
+	}
+
+	// Build all cycle statuses
+	allCycles := task.GetAllCycleStatuses()
+	var cycleStatusesJSON []CycleStatusJSON
+	for _, cs := range allCycles {
+		cj := CycleStatusJSON{
+			Status:        cs.Status,
+			Type:          cs.Type,
+			ProjectID:     cs.ProjectID,
+			CurrentTaskID: cs.CurrentTaskID,
+			ActiveWorkers: cs.ActiveWorkers,
+			Phase:         cs.Phase,
+			TargetTotal:   cs.TargetTotal,
+			Completed:     cs.Completed,
+		}
+		if !cs.StartedAt.IsZero() {
+			cj.StartedAt = cs.StartedAt.Format(time.RFC3339)
+			cj.ElapsedSec = int(time.Since(cs.StartedAt).Seconds())
+		}
+		cycleStatusesJSON = append(cycleStatusesJSON, cj)
 	}
 
 	// Build task_stats for current project
@@ -724,10 +747,11 @@ func (r *Router) HandleStatus(w http.ResponseWriter, req *http.Request) {
 
 	// Wrap into enriched response
 	resp := map[string]interface{}{
-		"success":      result.Success,
-		"message":      result.Message,
-		"data":         result.Data,
-		"cycle_status": csJSON,
+		"success":       result.Success,
+		"message":       result.Message,
+		"data":          result.Data,
+		"cycle_status":  csJSON,
+		"cycle_statuses": cycleStatusesJSON,
 	}
 	if taskStats != nil {
 		resp["task_stats"] = taskStats

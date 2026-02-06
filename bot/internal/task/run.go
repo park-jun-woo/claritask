@@ -218,20 +218,30 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 
 // RunAll runs all planned tasks (2회차 순회 전체 실행)
 func RunAll(projectPath string) types.Result {
+	// Check if already running for this project
+	if IsCycleRunning(projectPath) {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("이 프로젝트는 이미 순회 중입니다: %s", getProjectID(projectPath)),
+		}
+	}
+
 	ResetCancel()
 	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	startTime := time.Now()
-	SetCycleState(CycleState{
+	SetCycleState(projectPath, CycleState{
 		Running:     true,
 		Type:        "run",
 		StartedAt:   startTime,
 		ProjectPath: projectPath,
 		Phase:       "run",
 	})
-	SetCycleCancel(cancel)
-	defer ClearCycleState()
+	SetCycleCancel(projectPath, cancel)
+	defer func() {
+		cancel()
+		ClearCycleState(projectPath)
+	}()
 
 	// Insert traversal record
 	localDB, travErr := db.OpenLocal(projectPath)
@@ -340,7 +350,7 @@ func runAllInternal(ctx context.Context, projectPath string) types.Result {
 		}
 	}
 
-	UpdatePhase("run", len(tasks))
+	UpdatePhase(projectPath, "run", len(tasks))
 	log.Printf("[Task] RunAll: %d tasks, parallel=%d", len(tasks), parallel)
 
 	// Sequential execution when parallel=1 (original behavior)
@@ -364,9 +374,9 @@ func runAllSequential(ctx context.Context, projectPath string, tasks []Task) typ
 			break
 		}
 
-		UpdateCurrentTask(t.ID)
+		UpdateCurrentTask(projectPath, t.ID)
 		result := RunWithContext(ctx, projectPath, fmt.Sprintf("%d", t.ID))
-		IncrementCompleted()
+		IncrementCompleted(projectPath)
 		if result.Success {
 			success++
 			messages = append(messages, fmt.Sprintf("✅ #%d %s", t.ID, t.Title))
@@ -443,10 +453,10 @@ func runAllParallel(parentCtx context.Context, projectPath string, tasks []Task,
 				return
 			}
 
-			UpdateActiveWorkers(+1)
+			UpdateActiveWorkers(projectPath, +1)
 			log.Printf("[Task] Worker started task #%d (%s)", t.ID, t.Title)
 			defer func() {
-				UpdateActiveWorkers(-1)
+				UpdateActiveWorkers(projectPath, -1)
 				log.Printf("[Task] Worker finished task #%d (%s)", t.ID, t.Title)
 			}()
 
@@ -485,7 +495,7 @@ func runAllParallel(parentCtx context.Context, projectPath string, tasks []Task,
 			skipped++
 			continue
 		}
-		IncrementCompleted()
+		IncrementCompleted(projectPath)
 		if rr.Success {
 			success++
 			messages = append(messages, fmt.Sprintf("✅ #%d %s", rr.TaskID, rr.Title))

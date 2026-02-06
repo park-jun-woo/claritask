@@ -94,8 +94,6 @@ CREATE TABLE IF NOT EXISTS projects (
     id TEXT PRIMARY KEY,
     name TEXT NOT NULL,
     path TEXT NOT NULL UNIQUE,
-    type TEXT DEFAULT 'dev.platform'
-        CHECK(type IN ('dev.platform', 'dev.cli', 'write.webnovel', 'life.family')),
     description TEXT DEFAULT '',
     status TEXT DEFAULT 'active'
         CHECK(status IN ('active', 'archived')),
@@ -104,7 +102,6 @@ CREATE TABLE IF NOT EXISTS projects (
 );
 
 CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status);
-CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type);
 
 CREATE TABLE IF NOT EXISTS schedules (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -182,25 +179,23 @@ CREATE TABLE IF NOT EXISTS auth (
 		`ALTER TABLE schedules ADD COLUMN type TEXT NOT NULL DEFAULT 'claude'`,
 	}
 
-	// Recreate projects table to update CHECK constraint (add life.family type)
+	// Recreate projects table to remove type column
 	recreateProjects := []string{
 		`CREATE TABLE IF NOT EXISTS projects_new (
 			id TEXT PRIMARY KEY,
 			name TEXT NOT NULL,
 			path TEXT NOT NULL UNIQUE,
-			type TEXT DEFAULT 'dev.platform'
-				CHECK(type IN ('dev.platform', 'dev.cli', 'write.webnovel', 'life.family')),
 			description TEXT DEFAULT '',
 			status TEXT DEFAULT 'active'
 				CHECK(status IN ('active', 'archived')),
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
-		`INSERT OR IGNORE INTO projects_new SELECT * FROM projects`,
+		`INSERT OR IGNORE INTO projects_new (id, name, path, description, status, created_at, updated_at)
+			SELECT id, name, path, description, status, created_at, updated_at FROM projects`,
 		`DROP TABLE projects`,
 		`ALTER TABLE projects_new RENAME TO projects`,
 		`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`,
-		`CREATE INDEX IF NOT EXISTS idx_projects_type ON projects(type)`,
 	}
 
 	for _, migration := range migrations {
@@ -208,10 +203,10 @@ CREATE TABLE IF NOT EXISTS auth (
 		db.Exec(migration)
 	}
 
-	// Check if projects table needs CHECK constraint update
+	// Check if projects table has type column (needs migration to remove it)
 	var checkInfo string
 	err = db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='projects'`).Scan(&checkInfo)
-	if err == nil && !strings.Contains(checkInfo, "life.family") {
+	if err == nil && strings.Contains(checkInfo, "type TEXT") {
 		for _, stmt := range recreateProjects {
 			if _, err := db.Exec(stmt); err != nil {
 				return fmt.Errorf("projects migration failed: %w", err)
@@ -275,6 +270,50 @@ CREATE TABLE IF NOT EXISTS config (
 
 	// Drop removed tables
 	db.Exec(`DROP TABLE IF EXISTS task_edges`)
+
+	// Migrate old CHECK constraint: if tasks table has old status values, rebuild table
+	var taskSQL string
+	err = db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='tasks'`).Scan(&taskSQL)
+	if err == nil && strings.Contains(taskSQL, "spec_ready") {
+		db.Exec(`PRAGMA foreign_keys=OFF`)
+		db.Exec(`CREATE TABLE tasks_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			parent_id INTEGER,
+			title TEXT NOT NULL,
+			spec TEXT DEFAULT '',
+			plan TEXT DEFAULT '',
+			report TEXT DEFAULT '',
+			status TEXT DEFAULT 'todo'
+				CHECK(status IN ('todo', 'split', 'planned', 'done', 'failed')),
+			error TEXT DEFAULT '',
+			is_leaf INTEGER DEFAULT 1,
+			depth INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			priority INTEGER DEFAULT 0,
+			FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
+		)`)
+		db.Exec(`INSERT INTO tasks_new (id, parent_id, title, spec, plan, report, status, error, is_leaf, depth, created_at, updated_at, priority)
+			SELECT id, parent_id, title,
+				COALESCE(spec,''), COALESCE(plan,''), COALESCE(report,''),
+				CASE status
+					WHEN 'spec_ready' THEN 'todo'
+					WHEN 'plan_ready' THEN 'planned'
+					WHEN 'subdivided' THEN 'split'
+					ELSE status
+				END,
+				COALESCE(error,''),
+				COALESCE(is_leaf,1), COALESCE(depth,0),
+				created_at, updated_at,
+				COALESCE(priority,0)
+			FROM tasks`)
+		db.Exec(`DROP TABLE tasks`)
+		db.Exec(`ALTER TABLE tasks_new RENAME TO tasks`)
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)`)
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`)
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_leaf ON tasks(is_leaf)`)
+		db.Exec(`PRAGMA foreign_keys=ON`)
+	}
 
 	// Run migrations for existing tables (errors ignored: column/index already exists)
 	migrations := []string{

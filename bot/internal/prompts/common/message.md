@@ -16,8 +16,8 @@
 
 ### project (프로젝트 관리)
 - `project list [--all]` - 프로젝트 목록 조회
-- `project add <path> [type] [description]` - 기존 경로를 프로젝트로 등록
-- `project create <id> [type] [description]` - 새 프로젝트 생성
+- `project add <path> [description]` - 기존 경로를 프로젝트로 등록
+- `project create <id> [description]` - 새 프로젝트 생성
 - `project get [id]` - 프로젝트 상세 조회
 - `project delete <id>` - 프로젝트 삭제
 - `project switch <id>` - 프로젝트 전환
@@ -110,3 +110,4 @@ Context Map에 표시된 정보의 상세 내용이 필요하면 아래 명령�
 - 보고서는 텔레그램으로 전송되므로 간결하게 작성
 - 불필요한 설명 없이 핵심만 전달
 - 코드 블록은 짧게 유지 (긴 코드는 파일 경로만 언급)
+- **절대 금지**: `systemctl stop claribot` 실행 금지

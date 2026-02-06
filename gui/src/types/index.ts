@@ -101,6 +101,28 @@ export interface ProjectStats {
   stats: TaskStats & { in_progress: number }
 }
 
+// Cycle Status (from /api/status cycle_status field)
+export interface CycleStatus {
+  status: 'idle' | 'running' | 'interrupted'
+  type?: string
+  started_at?: string
+  current_task_id?: number
+  active_workers?: number
+  phase?: string
+  target_total?: number
+  completed?: number
+  elapsed_sec?: number
+}
+
+// Status API Response (enriched /api/status)
+export interface StatusResponse {
+  success: boolean
+  message: string
+  data?: ClaudeStatus
+  cycle_status: CycleStatus
+  task_stats?: TaskStats
+}
+
 // Pagination
 export interface PaginatedList<T> {
   items: T[]

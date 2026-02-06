@@ -4,14 +4,13 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
 )
 
 // Add adds an existing folder as a project
-func Add(path, projType, description string) types.Result {
+func Add(path, description string) types.Result {
 	// Require path
 	if path == "" {
 		return types.Result{
@@ -53,33 +52,6 @@ func Add(path, projType, description string) types.Result {
 		}
 	}
 
-	// Require type - ask for input if missing
-	if projType == "" {
-		return types.Result{
-			Success:    true,
-			Message:    fmt.Sprintf("Select project type:\n%s", FormatTypeList()),
-			NeedsInput: true,
-			Prompt:     "Type: ",
-			Context:    "project add " + absPath,
-		}
-	}
-
-	// Validate type
-	validType := false
-	typeIDs := GetTypeIDs()
-	for _, t := range typeIDs {
-		if t == projType {
-			validType = true
-			break
-		}
-	}
-	if !validType {
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("invalid type: %s\nvalid types: %s", projType, strings.Join(typeIDs, ", ")),
-		}
-	}
-
 	// Require description - ask for input if missing
 	if description == "" {
 		return types.Result{
@@ -87,7 +59,7 @@ func Add(path, projType, description string) types.Result {
 			Message:    "Enter project description:",
 			NeedsInput: true,
 			Prompt:     "Description: ",
-			Context:    "project add " + absPath + " " + projType,
+			Context:    "project add " + absPath,
 		}
 	}
 
@@ -117,9 +89,9 @@ func Add(path, projType, description string) types.Result {
 	// Register in global DB
 	now := db.TimeNow()
 	_, err = globalDB.Exec(`
-		INSERT INTO projects (id, name, path, type, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-	`, id, id, absPath, projType, description, now, now)
+		INSERT INTO projects (id, name, path, description, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'active', ?, ?)
+	`, id, id, absPath, description, now, now)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -150,12 +122,11 @@ func Add(path, projType, description string) types.Result {
 
 	return types.Result{
 		Success: true,
-		Message: fmt.Sprintf("프로젝트 추가됨: %s\nPath: %s\nType: %s\n%s\n[전환:project switch %s][삭제:project delete %s]", id, absPath, projType, description, id, id),
+		Message: fmt.Sprintf("프로젝트 추가됨: %s\nPath: %s\n%s\n[전환:project switch %s][삭제:project delete %s]", id, absPath, description, id, id),
 		Data: &Project{
 			ID:          id,
 			Name:        id,
 			Path:        absPath,
-			Type:        projType,
 			Description: description,
 		},
 	}

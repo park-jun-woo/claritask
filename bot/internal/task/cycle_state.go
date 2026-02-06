@@ -17,6 +17,9 @@ type CycleState struct {
 	CurrentTaskID int       `json:"current_task_id"`
 	ProjectPath   string    `json:"project_path"`
 	ActiveWorkers int       `json:"active_workers"`
+	Phase         string    `json:"phase"`           // "plan", "run"
+	TargetTotal   int       `json:"target_total"`    // total number of tasks in current phase
+	Completed     int       `json:"completed"`       // number of tasks completed in current phase
 }
 
 // activeWorkers tracks the number of currently running parallel workers
@@ -74,6 +77,22 @@ func UpdateCurrentTask(taskID int) {
 	currentCycleState.CurrentTaskID = taskID
 }
 
+// UpdatePhase updates the Phase, TargetTotal and resets Completed
+func UpdatePhase(phase string, targetTotal int) {
+	cycleMu.Lock()
+	defer cycleMu.Unlock()
+	currentCycleState.Phase = phase
+	currentCycleState.TargetTotal = targetTotal
+	currentCycleState.Completed = 0
+}
+
+// IncrementCompleted increments the Completed counter by 1
+func IncrementCompleted() {
+	cycleMu.Lock()
+	defer cycleMu.Unlock()
+	currentCycleState.Completed++
+}
+
 // UpdateActiveWorkers adjusts the active worker count by delta (+1 or -1)
 func UpdateActiveWorkers(delta int) {
 	activeWorkers.Add(int32(delta))
@@ -110,6 +129,9 @@ type CycleStatusInfo struct {
 	CurrentTaskID int
 	ProjectPath   string
 	ActiveWorkers int
+	Phase         string    // "plan", "run"
+	TargetTotal   int       // total number of tasks in current phase
+	Completed     int       // number of tasks completed in current phase
 }
 
 // GetCycleStatus returns the current cycle status by cross-checking CycleState and Claude semaphore
@@ -127,6 +149,9 @@ func GetCycleStatus() CycleStatusInfo {
 		CurrentTaskID: state.CurrentTaskID,
 		ProjectPath:   state.ProjectPath,
 		ActiveWorkers: int(activeWorkers.Load()),
+		Phase:         state.Phase,
+		TargetTotal:   state.TargetTotal,
+		Completed:     state.Completed,
 	}
 
 	if claudeStatus.Used > 0 {

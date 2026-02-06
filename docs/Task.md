@@ -1,86 +1,86 @@
-# Task 시스템 설계
+# Task System Design
 
-> Claribot의 Task 기반 분할 정복 시스템
-
----
-
-## 개요
-
-대규모 작업을 재귀적으로 분할하고, 연관 Task의 컨텍스트를 주입하여 일관성 있는 실행을 보장한다.
-
-**핵심 아이디어**: 1회차 순회에서 Claude가 분할/계획을 판단하고, DFS로 leaf까지 순회한다.
+> Claribot's Task-based divide-and-conquer system
 
 ---
 
-## Task 구조
+## Overview
+
+Recursively splits large tasks and injects context from related Tasks to ensure consistent execution.
+
+**Core Idea**: In the 1st pass, Claude decides whether to split or plan, traversing down to leaf nodes via DFS.
+
+---
+
+## Task Structure
 
 ```go
 Task {
     ID          int
-    ParentID    *int      // 상위 Task
-    Title       string    // 제목
-    Spec        string    // 요구사항 명세서 (불변)
-    Plan        string    // 계획서 (leaf만)
-    Report      string    // 완료 보고서 (2회차 순회 후)
+    ParentID    *int      // Parent Task
+    Title       string    // Title
+    Spec        string    // Requirement specification (immutable)
+    Plan        string    // Plan (leaf only)
+    Report      string    // Completion report (after 2nd pass)
     Status      string    // todo → split/planned → done
     Error       string
-    IsLeaf      bool      // true: 실행 대상, false: 분할됨
-    Depth       int       // 트리 깊이 (root=0)
+    IsLeaf      bool      // true: execution target, false: subdivided
+    Depth       int       // Tree depth (root=0)
     CreatedAt   string
     UpdatedAt   string
 }
 ```
 
-### 상태 전이
+### State Transitions
 
 ```
-todo ─┬─→ split (분할됨, is_leaf=false)
+todo ─┬─→ split (subdivided, is_leaf=false)
       │
-      └─→ planned (계획됨, is_leaf=true) → done
+      └─→ planned (plan ready, is_leaf=true) → done
 ```
 
-| 상태 | 설명 | is_leaf |
-|------|------|---------|
-| todo | 등록됨, 아직 처리 안됨 | true (기본값) |
-| split | 분할됨, 하위 Task 있음 | false |
-| planned | 계획 완료, 실행 대기 | true |
-| done | 실행 완료 | true |
-| failed | 실패 | - |
+| Status | Description | is_leaf |
+|--------|-------------|---------|
+| todo | Registered, not yet processed | true (default) |
+| split | Subdivided, has child Tasks | false |
+| planned | Planning complete, awaiting execution | true |
+| done | Execution complete | true |
+| failed | Failed | - |
 
 ---
 
-## 1회차 순회 (재귀 분할)
+## 1st Pass (Recursive Splitting)
 
-### 흐름
+### Flow
 
 ```
 Task A (todo)
-├─ Claude 판단: 분할 필요
-├─ clari task add로 하위 Task B, C 생성
+├─ Claude decides: needs splitting
+├─ Creates child Tasks B, C via clari task add
 ├─ Task A → split
-├─ 즉시 Task B 순회
-│   └─ Claude 판단: 계획 가능 → planned
-└─ 즉시 Task C 순회
-    ├─ Claude 판단: 분할 필요
-    ├─ Task D, E 생성
+├─ Immediately traverse Task B
+│   └─ Claude decides: can plan → planned
+└─ Immediately traverse Task C
+    ├─ Claude decides: needs splitting
+    ├─ Creates Tasks D, E
     ├─ Task C → split
-    ├─ Task D 순회 → planned
-    └─ Task E 순회 → planned
+    ├─ Traverse Task D → planned
+    └─ Traverse Task E → planned
 ```
 
-### Claude 판단 기준
+### Claude Decision Criteria
 
-**분할 조건** (하나라도 해당):
-- 3개 이상의 독립적 단계
-- 다중 도메인 (UI + API + DB)
-- 변경 파일 5개 초과 예상
+**Split conditions** (if any apply):
+- 3 or more independent steps
+- Multiple domains (UI + API + DB)
+- Expected file changes exceed 5
 
-**계획 조건** (모두 만족):
-- 단일 목적
-- 변경 파일 5개 이하
-- 독립 실행 가능
+**Plan conditions** (all must be met):
+- Single purpose
+- 5 or fewer file changes
+- Can be executed independently
 
-### 출력 형식
+### Output Format
 
 ```
 [SPLIT]
@@ -88,25 +88,25 @@ Task A (todo)
 - Task #<id>: <title>
 ```
 
-또는
+or
 
 ```
 [PLANNED]
-## 구현 방향
+## Implementation Approach
 ...
 ```
 
-### 깊이 제한
+### Depth Limit
 
-`MaxDepth = 5` 도달 시 강제로 계획 작성.
+Force plan creation when `MaxDepth = 5` is reached.
 
 ---
 
-## 2회차 순회 (실행)
+## 2nd Pass (Execution)
 
-**대상**: `is_leaf = true AND status = 'planned'`
+**Target**: `is_leaf = true AND status = 'planned'`
 
-**순서**: 깊이 깊은 것부터 (depth DESC)
+**Order**: Deepest first (depth DESC)
 
 ```sql
 SELECT * FROM tasks
@@ -116,44 +116,44 @@ ORDER BY depth DESC, id ASC
 
 ---
 
-## CLI 명령어
+## CLI Commands
 
 ### task add
 
 ```bash
-# 기본
-clari task add "제목"
+# Basic
+clari task add "title"
 
-# 부모 지정
-clari task add "제목" --parent 1
+# Specify parent
+clari task add "title" --parent 1
 
-# Spec 포함 (Claude 분할 시 사용)
-clari task add "제목" --parent 1 --spec "요구사항"
+# Include Spec (used during Claude splitting)
+clari task add "title" --parent 1 --spec "requirements"
 ```
 
 ### task plan
 
 ```bash
-# 단일 Task (재귀 분할)
+# Single Task (recursive splitting)
 clari task plan [id]
 
-# 전체 todo
+# All todo Tasks
 clari task plan --all
 ```
 
 ### task run
 
 ```bash
-# 단일 leaf Task 실행
+# Execute single leaf Task
 clari task run [id]
 
-# 전체 planned leaf 실행
+# Execute all planned leaf Tasks
 clari task run --all
 ```
 
 ---
 
-## DB 스키마
+## DB Schema
 
 ```sql
 CREATE TABLE tasks (
@@ -178,26 +178,26 @@ CREATE INDEX idx_tasks_leaf ON tasks(is_leaf);
 
 ---
 
-## 시스템 프롬프트
+## System Prompt
 
-1회차 순회 시 Claude에게 주입되는 프롬프트:
+Prompt injected to Claude during the 1st pass:
 
 `bot/internal/prompts/dev.platform/task.md`
 
 ---
 
-## 구현 현황
+## Implementation Status
 
-### Phase 1-5: 기존 기능 ✅
+### Phase 1-5: Existing Features ✅
 
-### Phase 6: 재귀 분할 시스템 ✅
-- [x] Task 구조체에 `IsLeaf`, `Depth` 추가
-- [x] DB 스키마에 `is_leaf`, `depth`, `split` 상태 추가
-- [x] `task add --spec` 플래그 추가
-- [x] 1회차 프롬프트 템플릿 (`task.md`)
-- [x] 출력 파서 (`[SPLIT]`, `[PLANNED]`)
-- [x] `planRecursive()` 재귀 순회
-- [x] 2회차 순회 leaf 조건 추가
+### Phase 6: Recursive Splitting System ✅
+- [x] Added `IsLeaf`, `Depth` to Task struct
+- [x] Added `is_leaf`, `depth`, `split` status to DB schema
+- [x] Added `task add --spec` flag
+- [x] 1st pass prompt template (`task.md`)
+- [x] Output parser (`[SPLIT]`, `[PLANNED]`)
+- [x] `planRecursive()` recursive traversal
+- [x] Added leaf condition for 2nd pass
 
 ---
 

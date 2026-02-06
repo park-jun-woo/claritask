@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"time"
 
 	"parkjunwoo.com/claribot/internal/config"
 	"parkjunwoo.com/claribot/internal/message"
@@ -12,6 +13,7 @@ import (
 	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
+	"parkjunwoo.com/claribot/pkg/claude"
 	"parkjunwoo.com/claribot/pkg/pagination"
 )
 
@@ -108,7 +110,6 @@ func (r *Router) HandleCreateProject(w http.ResponseWriter, req *http.Request) {
 	var body struct {
 		ID          string `json:"id"`
 		Path        string `json:"path"`
-		Type        string `json:"type"`
 		Description string `json:"description"`
 	}
 	if err := decodeBody(req, &body); err != nil {
@@ -118,9 +119,9 @@ func (r *Router) HandleCreateProject(w http.ResponseWriter, req *http.Request) {
 
 	var result types.Result
 	if body.Path != "" {
-		result = project.Add(body.Path, body.Type, body.Description)
+		result = project.Add(body.Path, body.Description)
 	} else if body.ID != "" {
-		result = project.Create(body.ID, body.Type, body.Description)
+		result = project.Create(body.ID, body.Description)
 	} else {
 		writeError(w, http.StatusBadRequest, "id or path required")
 		return
@@ -659,19 +660,88 @@ func (r *Router) HandleScheduleRunDetail(w http.ResponseWriter, req *http.Reques
 	writeResult(w, schedule.Run(runID))
 }
 
+// --- Usage handler ---
+
+// HandleGetUsage handles GET /api/usage
+func (r *Router) HandleGetUsage(w http.ResponseWriter, req *http.Request) {
+	stats, err := claude.GetUsage()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, fmt.Sprintf("사용량 조회 실패: %v", err))
+		return
+	}
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Message: claude.FormatUsage(stats),
+		Data:    stats,
+	})
+}
+
 // --- Status handler ---
+
+// CycleStatusJSON represents cycle status as structured JSON for the API
+type CycleStatusJSON struct {
+	Status        string `json:"status"`
+	Type          string `json:"type,omitempty"`
+	StartedAt     string `json:"started_at,omitempty"`
+	CurrentTaskID int    `json:"current_task_id,omitempty"`
+	ActiveWorkers int    `json:"active_workers,omitempty"`
+	Phase         string `json:"phase,omitempty"`
+	TargetTotal   int    `json:"target_total,omitempty"`
+	Completed     int    `json:"completed,omitempty"`
+	ElapsedSec    int    `json:"elapsed_sec,omitempty"`
+}
 
 // HandleStatus handles GET /api/status
 func (r *Router) HandleStatus(w http.ResponseWriter, req *http.Request) {
 	ctx := r.SnapshotContext()
-	writeResult(w, r.handleStatus(ctx))
+	result := r.handleStatus(ctx)
+
+	// Build cycle_status JSON
+	cycleInfo := task.GetCycleStatus()
+	csJSON := CycleStatusJSON{
+		Status: cycleInfo.Status,
+	}
+	if cycleInfo.Status != "idle" {
+		csJSON.Type = cycleInfo.Type
+		if !cycleInfo.StartedAt.IsZero() {
+			csJSON.StartedAt = cycleInfo.StartedAt.Format(time.RFC3339)
+			csJSON.ElapsedSec = int(time.Since(cycleInfo.StartedAt).Seconds())
+		}
+		csJSON.CurrentTaskID = cycleInfo.CurrentTaskID
+		csJSON.ActiveWorkers = cycleInfo.ActiveWorkers
+		csJSON.Phase = cycleInfo.Phase
+		csJSON.TargetTotal = cycleInfo.TargetTotal
+		csJSON.Completed = cycleInfo.Completed
+	}
+
+	// Build task_stats for current project
+	var taskStats *task.Stats
+	if ctx.ProjectPath != "" {
+		if s, err := task.GetStats(ctx.ProjectPath); err == nil {
+			taskStats = s
+		}
+	}
+
+	// Wrap into enriched response
+	resp := map[string]interface{}{
+		"success":      result.Success,
+		"message":      result.Message,
+		"data":         result.Data,
+		"cycle_status": csJSON,
+	}
+	if taskStats != nil {
+		resp["task_stats"] = taskStats
+	}
+
+	writeJSON(w, http.StatusOK, resp)
 }
 
 // RegisterRESTfulRoutes registers all RESTful API endpoints on the given mux.
 // The handlers are methods on Router so they share the same project context.
 func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
-	// Status
+	// Status & Usage
 	mux.HandleFunc("GET /api/status", r.HandleStatus)
+	mux.HandleFunc("GET /api/usage", r.HandleGetUsage)
 
 	// Projects - specific routes before parameterized
 	mux.HandleFunc("GET /api/projects/stats", r.HandleProjectsStats)

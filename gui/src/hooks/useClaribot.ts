@@ -1,5 +1,6 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { projectAPI, taskAPI, messageAPI, scheduleAPI, statusAPI, health } from '@/api/client'
+import type { StatusResponse } from '@/types'
 
 // --- Health ---
 export function useHealth() {
@@ -13,10 +14,14 @@ export function useHealth() {
 
 // --- Status ---
 export function useStatus() {
-  return useQuery({
+  return useQuery<StatusResponse>({
     queryKey: ['status'],
     queryFn: statusAPI.get,
-    refetchInterval: 15_000,
+    refetchInterval: (query) => {
+      const data = query.state.data
+      if (data?.cycle_status?.status === 'running') return 5_000
+      return 15_000
+    },
   })
 }
 

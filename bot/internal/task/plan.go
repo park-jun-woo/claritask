@@ -304,6 +304,7 @@ func PlanAll(projectPath string) types.Result {
 		Type:        "plan",
 		StartedAt:   startTime,
 		ProjectPath: projectPath,
+		Phase:       "plan",
 	})
 	SetCycleCancel(cancel)
 	defer ClearCycleState()
@@ -417,6 +418,7 @@ func planAllInternal(ctx context.Context, projectPath string) types.Result {
 		}
 	}
 
+	UpdatePhase("plan", len(tasks))
 	log.Printf("[Task] PlanAll: %d tasks, parallel=%d", len(tasks), parallel)
 
 	// Sequential execution when parallel=1 (original behavior)
@@ -457,6 +459,7 @@ func planAllSequential(ctx context.Context, projectPath string, tasks []Task) ty
 		}
 
 		result := planRecursive(ctx, localDB, projectPath, &t)
+		IncrementCompleted()
 		if result.Success {
 			success++
 			messages = append(messages, result.Message)
@@ -595,6 +598,7 @@ func planAllParallel(parentCtx context.Context, projectPath string, tasks []Task
 		if pr.Message == "이미 처리됨" {
 			continue
 		}
+		IncrementCompleted()
 		if pr.Success {
 			success++
 			messages = append(messages, pr.Message)

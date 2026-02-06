@@ -228,6 +228,7 @@ func RunAll(projectPath string) types.Result {
 		Type:        "run",
 		StartedAt:   startTime,
 		ProjectPath: projectPath,
+		Phase:       "run",
 	})
 	SetCycleCancel(cancel)
 	defer ClearCycleState()
@@ -339,6 +340,7 @@ func runAllInternal(ctx context.Context, projectPath string) types.Result {
 		}
 	}
 
+	UpdatePhase("run", len(tasks))
 	log.Printf("[Task] RunAll: %d tasks, parallel=%d", len(tasks), parallel)
 
 	// Sequential execution when parallel=1 (original behavior)
@@ -364,6 +366,7 @@ func runAllSequential(ctx context.Context, projectPath string, tasks []Task) typ
 
 		UpdateCurrentTask(t.ID)
 		result := RunWithContext(ctx, projectPath, fmt.Sprintf("%d", t.ID))
+		IncrementCompleted()
 		if result.Success {
 			success++
 			messages = append(messages, fmt.Sprintf("✅ #%d %s", t.ID, t.Title))
@@ -482,6 +485,7 @@ func runAllParallel(parentCtx context.Context, projectPath string, tasks []Task,
 			skipped++
 			continue
 		}
+		IncrementCompleted()
 		if rr.Success {
 			success++
 			messages = append(messages, fmt.Sprintf("✅ #%d %s", rr.TaskID, rr.Title))

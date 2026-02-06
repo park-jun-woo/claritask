@@ -24,8 +24,8 @@ export function Header() {
   const switchProject = useSwitchProject()
   const logout = useLogout()
 
-  // Parse current project from status message
-  const currentProject = status?.message?.match(/\u{1F4C1} \uD504\uB85C\uC81D\uD2B8: (.+)/u)?.[1] || '(none)'
+  // Parse current project from status message (📌 project-id — ...)
+  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || '(none)'
   const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
   const claudeUsed = claudeInfo?.[1] || '0'
   const claudeMax = claudeInfo?.[2] || '3'

@@ -176,6 +176,8 @@ func (r *Router) Execute(ctx *Context, input string) types.Result {
 		return r.handleMessage(ctx, "send", []string{content})
 	case "status":
 		return r.handleStatus(ctx)
+	case "usage":
+		return r.handleUsage()
 	default:
 		return r.handleClaude(ctx, input)
 	}
@@ -211,17 +213,14 @@ func (r *Router) handleProject(ctx *Context, cmd string, args []string) types.Re
 			Message: "project 명령어:\n  [목록:project list]\n  [생성:project create]\n  [추가:project add]\n  [설정:project set]",
 		}
 	case "add":
-		var path, projType, desc string
+		var path, desc string
 		if len(args) > 0 {
 			path = args[0]
 		}
 		if len(args) > 1 {
-			projType = args[1]
+			desc = strings.Join(args[1:], " ")
 		}
-		if len(args) > 2 {
-			desc = strings.Join(args[2:], " ")
-		}
-		result := project.Add(path, projType, desc)
+		result := project.Add(path, desc)
 		// Auto-switch to added project
 		if result.Success && !result.NeedsInput {
 			if p, ok := result.Data.(*project.Project); ok {
@@ -239,14 +238,11 @@ func (r *Router) handleProject(ctx *Context, cmd string, args []string) types.Re
 				Context:    "project create",
 			}
 		}
-		var projType, desc string
+		var desc string
 		if len(args) > 1 {
-			projType = args[1]
+			desc = strings.Join(args[1:], " ")
 		}
-		if len(args) > 2 {
-			desc = strings.Join(args[2:], " ")
-		}
-		result := project.Create(args[0], projType, desc)
+		result := project.Create(args[0], desc)
 		// Auto-switch to created project
 		if result.Success && !result.NeedsInput {
 			if p, ok := result.Data.(*project.Project); ok {
@@ -530,15 +526,29 @@ func (r *Router) handleStatus(ctx *Context) types.Result {
 		if typeLabel == "" {
 			typeLabel = cycleStatus.Type
 		}
+		// Phase label
+		phaseLabel := ""
+		if cycleStatus.Phase == "plan" {
+			phaseLabel = "📋 Planning"
+		} else if cycleStatus.Phase == "run" {
+			phaseLabel = "🚀 Running"
+		}
+
 		switch cycleStatus.Status {
 		case "running":
 			sb.WriteString(fmt.Sprintf("   ▶️ %s 진행 중", typeLabel))
+			if phaseLabel != "" && cycleStatus.TargetTotal > 0 {
+				sb.WriteString(fmt.Sprintf(" — %s 단계 (%d/%d)", phaseLabel, cycleStatus.Completed, cycleStatus.TargetTotal))
+			}
 			if cycleStatus.CurrentTaskID > 0 {
 				sb.WriteString(fmt.Sprintf(" (Task #%d)", cycleStatus.CurrentTaskID))
 			}
 			sb.WriteString("\n")
 		case "interrupted":
 			sb.WriteString(fmt.Sprintf("   ⚠️ %s 중단됨", typeLabel))
+			if phaseLabel != "" && cycleStatus.TargetTotal > 0 {
+				sb.WriteString(fmt.Sprintf(" — %s 단계 (%d/%d)", phaseLabel, cycleStatus.Completed, cycleStatus.TargetTotal))
+			}
 			if cycleStatus.CurrentTaskID > 0 {
 				sb.WriteString(fmt.Sprintf(" (Task #%d에서 중단)", cycleStatus.CurrentTaskID))
 			}
@@ -595,6 +605,18 @@ func (r *Router) handleStatus(ctx *Context) types.Result {
 		Success: true,
 		Message: sb.String(),
 		Data:    claudeStatus,
+	}
+}
+
+func (r *Router) handleUsage() types.Result {
+	stats, err := claude.GetUsage()
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("사용량 조회 실패: %v", err)}
+	}
+	return types.Result{
+		Success: true,
+		Message: claude.FormatUsage(stats),
+		Data:    stats,
 	}
 }
 

@@ -2,14 +2,14 @@
 
 ## Overview
 
-Claribot은 HTTP API를 통해 CLI와 통신합니다. 기본 포트는 `9847`입니다.
+Claribot communicates with the CLI via HTTP API. The default port is `9847`.
 
 - **Base URL**: `http://127.0.0.1:9847`
 - **Content-Type**: `application/json`
 
 ## Request Format
 
-### POST (권장)
+### POST (Recommended)
 
 ```json
 {
@@ -23,7 +23,7 @@ Claribot은 HTTP API를 통해 CLI와 통신합니다. 기본 포트는 `9847`�
 }
 ```
 
-### GET (하위 호환)
+### GET (Backward Compatible)
 
 ```
 GET /?args=project+list
@@ -34,7 +34,7 @@ GET /?args=project+list
 ```json
 {
   "success": true,
-  "message": "응답 메시지",
+  "message": "Response message",
   "data": { ... },
   "needs_input": false,
   "prompt": "",
@@ -44,18 +44,18 @@ GET /?args=project+list
 
 | Field | Type | Description |
 |-------|------|-------------|
-| success | bool | 성공 여부 |
-| message | string | 사용자에게 표시할 메시지 |
-| data | any | 구조화된 응답 데이터 (선택) |
-| needs_input | bool | 추가 입력 필요 여부 |
-| prompt | string | 입력 프롬프트 (needs_input=true 시) |
-| context | string | 다음 요청에 포함할 컨텍스트 |
+| success | bool | Whether the request succeeded |
+| message | string | Message to display to the user |
+| data | any | Structured response data (optional) |
+| needs_input | bool | Whether additional input is required |
+| prompt | string | Input prompt (when needs_input=true) |
+| context | string | Context to include in the next request |
 
 ## Commands
 
 ### Project
 
-프로젝트 관리 명령어
+Project management commands
 
 #### project list
 
@@ -113,7 +113,7 @@ POST { "command": "project", "subcommand": "delete", "args": ["project-id", "yes
 
 ### Task
 
-작업 관리 명령어. 프로젝트 선택 필요.
+Task management commands. Requires a project to be selected.
 
 #### task list
 
@@ -122,9 +122,9 @@ POST { "command": "task", "subcommand": "list", "flags": { "page": 1 } }
 ```
 
 **Query Parameters**:
-- `parent_id` (int, optional): 부모 Task ID
-- `-p` (int): 페이지 번호
-- `-n` (int): 페이지 크기
+- `parent_id` (int, optional): Parent Task ID
+- `-p` (int): Page number
+- `-n` (int): Page size
 
 #### task add
 
@@ -145,9 +145,9 @@ POST { "command": "task", "subcommand": "set", "args": ["1", "status", "done"] }
 ```
 
 **Fields**:
-- `title`: 제목
-- `status`: 상태 (todo, in_progress, done)
-- `description`: 설명
+- `title`: Title
+- `status`: Status (todo, in_progress, done)
+- `description`: Description
 
 #### task delete
 
@@ -157,7 +157,7 @@ POST { "command": "task", "subcommand": "delete", "args": ["1", "yes"] }
 
 #### task plan
 
-Claude를 사용하여 Task 계획 생성
+Generate a Task plan using Claude
 
 ```
 POST { "command": "task", "subcommand": "plan", "args": ["1"] }
@@ -166,7 +166,7 @@ POST { "command": "task", "subcommand": "plan", "args": ["--all"] }
 
 #### task run
 
-Claude를 사용하여 Task 실행
+Execute a Task using Claude
 
 ```
 POST { "command": "task", "subcommand": "run", "args": ["1"] }
@@ -175,7 +175,7 @@ POST { "command": "task", "subcommand": "run", "args": ["--all"] }
 
 #### task cycle
 
-전체 Task 순회 (plan + run)
+Full Task traversal (plan + run)
 
 ```
 POST { "command": "task", "subcommand": "cycle" }
@@ -183,19 +183,19 @@ POST { "command": "task", "subcommand": "cycle" }
 
 ### Message
 
-메시지 관리 명령어
+Message management commands
 
 #### message send
 
-Claude에 메시지 전송
+Send a message to Claude
 
 ```
 POST { "command": "message", "subcommand": "send", "args": ["telegram", "Hello Claude"] }
 ```
 
 **Source**:
-- `telegram`: 텔레그램에서 전송
-- `cli`: CLI에서 전송 (기본값)
+- `telegram`: Sent from Telegram
+- `cli`: Sent from CLI (default)
 
 #### message list
 
@@ -228,7 +228,7 @@ POST { "command": "message", "subcommand": "status" }
 
 ### Schedule
 
-스케줄 관리 명령어
+Schedule management commands
 
 #### schedule add
 
@@ -237,8 +237,8 @@ POST { "command": "schedule", "subcommand": "add", "args": ["0 9 * * *", "Daily 
 ```
 
 **Flags**:
-- `--project <id>`: 프로젝트 지정 (선택)
-- `--once`: 1회 실행 후 자동 비활성화
+- `--project <id>`: Specify project (optional)
+- `--once`: Auto-disable after single execution
 
 #### schedule list
 
@@ -267,7 +267,7 @@ POST { "command": "schedule", "subcommand": "delete", "args": ["1", "yes"] }
 
 #### schedule runs
 
-실행 기록 조회
+Query execution history
 
 ```
 POST { "command": "schedule", "subcommand": "runs", "args": ["1"], "flags": { "page": 1 } }
@@ -275,7 +275,7 @@ POST { "command": "schedule", "subcommand": "runs", "args": ["1"], "flags": { "p
 
 #### schedule run
 
-특정 실행 기록 조회
+Query a specific execution record
 
 ```
 POST { "command": "schedule", "subcommand": "run", "args": ["run_id"] }
@@ -289,7 +289,7 @@ POST { "command": "schedule", "subcommand": "set", "args": ["1", "project", "myp
 
 ### Status
 
-시스템 상태 조회
+Query system status
 
 ```
 POST { "command": "status" }
@@ -310,16 +310,16 @@ GET /?args=status
 
 | HTTP Status | Description |
 |-------------|-------------|
-| 200 | 성공 |
-| 400 | 잘못된 요청 (success=false) |
+| 200 | Success |
+| 400 | Bad request (success=false) |
 
 ## Pagination
 
-리스트 명령어에서 페이지네이션 지원
+List commands support pagination
 
 **Flags**:
-- `-p <page>`: 페이지 번호 (1부터 시작)
-- `-n <size>`: 페이지 크기 (기본값: 10)
+- `-p <page>`: Page number (starts from 1)
+- `-n <size>`: Page size (default: 10)
 
 **Response**:
 ```json
@@ -335,6 +335,6 @@ GET /?args=status
 
 ## HTTP Timeout Settings
 
-- **ReadTimeout**: 10초
-- **WriteTimeout**: 30분 (Claude 실행 고려)
-- **IdleTimeout**: 60초
+- **ReadTimeout**: 10 seconds
+- **WriteTimeout**: 30 minutes (considering Claude execution time)
+- **IdleTimeout**: 60 seconds

@@ -19,7 +19,7 @@ export default function Projects() {
 
   const handleAdd = async () => {
     if (!addForm.path) return
-    await projectAPI.add(addForm.path, addForm.type || undefined, addForm.description || undefined)
+    await projectAPI.add(addForm.path, addForm.description || undefined)
     setAddForm({ path: '', type: '', description: '' })
     setShowAdd(false)
     refetch()

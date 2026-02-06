@@ -1,27 +1,27 @@
-# Claribot 무비밀번호 재설치 가이드
+# Claribot Passwordless Reinstall Guide
 
-## 문제
+## Problem
 
-현재 `make install`은 모든 단계에서 `sudo`를 사용한다:
-- 바이너리 복사 (`sudo cp` → `/usr/local/bin/`)
-- 서비스 파일 이동 (`sudo mv` → `/etc/systemd/system/`)
-- systemctl 명령 (`sudo systemctl daemon-reload/enable/start/restart`)
+Currently, `make install` uses `sudo` at every step:
+- Binary copy (`sudo cp` → `/usr/local/bin/`)
+- Service file move (`sudo mv` → `/etc/systemd/system/`)
+- systemctl commands (`sudo systemctl daemon-reload/enable/start/restart`)
 
-Claude Code 에이전트는 `sudo` 비밀번호를 입력할 수 없으므로, 이 구조에서는 에이전트가 서비스를 재설치/재시작할 수 없다.
+The Claude Code agent cannot enter a `sudo` password, so in this setup the agent cannot reinstall or restart the service.
 
-## 해결 방안: sudoers NOPASSWD 설정
+## Solution: sudoers NOPASSWD Configuration
 
-특정 명령어에 대해서만 비밀번호 없이 sudo를 허용하는 sudoers 규칙을 등록한다. 시스템 보안을 최소한으로 개방하면서 에이전트가 필요한 작업을 수행할 수 있게 한다.
+Register sudoers rules that allow passwordless sudo for specific commands only. This opens system security minimally while enabling the agent to perform necessary operations.
 
-## 사전 설정 (1회, 사용자가 직접 수행)
+## Initial Setup (One-time, performed manually by the user)
 
-### 1단계: sudoers 파일 생성
+### Step 1: Create the sudoers file
 
 ```bash
 sudo visudo -f /etc/sudoers.d/claribot
 ```
 
-아래 내용을 입력한다. `<username>`을 실제 사용자명으로 교체:
+Enter the following content. Replace `<username>` with your actual username:
 
 ```
 # Claribot service management - no password required
@@ -43,108 +43,108 @@ sudo visudo -f /etc/sudoers.d/claribot
 <username> ALL=(root) NOPASSWD: /usr/bin/journalctl -u claribot.service *
 ```
 
-### 2단계: 권한 확인
+### Step 2: Verify permissions
 
 ```bash
-# 파일 권한이 자동으로 올바르게 설정되었는지 확인
+# Verify that file permissions are correctly set
 ls -la /etc/sudoers.d/claribot
-# -r--r----- 1 root root ... 이어야 함
+# Should be: -r--r----- 1 root root ...
 
-# visudo로 문법 검증 (visudo -f 사용 시 자동 검증되지만 한번 더)
+# Validate syntax with visudo (already validated when using visudo -f, but double-check)
 sudo visudo -c
 ```
 
-### 3단계: 동작 확인
+### Step 3: Test
 
 ```bash
-# 비밀번호 없이 실행되는지 테스트
+# Test that commands run without a password prompt
 sudo systemctl status claribot.service
-sudo cp /dev/null /dev/null  # 간단한 cp 테스트 (실제 복사 아님)
+sudo cp /dev/null /dev/null  # Simple cp test (not an actual copy)
 ```
 
-비밀번호 프롬프트 없이 실행되면 설정 완료.
+If the commands execute without a password prompt, the setup is complete.
 
-## 설정 후 에이전트가 수행 가능한 작업
+## Operations Available to the Agent After Setup
 
-sudoers 설정 완료 후 Claude Code 에이전트는 다음을 비밀번호 없이 실행할 수 있다:
+Once the sudoers configuration is complete, the Claude Code agent can execute the following without a password:
 
-| 작업 | 명령어 |
-|------|--------|
-| 빌드 | `make build` (sudo 불필요) |
-| CLI 설치 | `make install-cli` |
-| Bot 설치 | `make install-bot` |
-| 전체 설치 | `make install` |
-| 서비스 재시작 | `make restart` |
-| 서비스 상태 | `make status` |
-| 서비스 로그 | `make logs` |
-| 전체 제거 | `make uninstall` |
+| Operation | Command |
+|-----------|---------|
+| Build | `make build` (no sudo required) |
+| CLI install | `make install-cli` |
+| Bot install | `make install-bot` |
+| Full install | `make install` |
+| Restart service | `make restart` |
+| Service status | `make status` |
+| Service logs | `make logs` |
+| Full uninstall | `make uninstall` |
 
-기존 Makefile을 수정할 필요 없다. Makefile의 `sudo` 명령이 sudoers 규칙에 의해 비밀번호 없이 통과된다.
+No modifications to the existing Makefile are needed. The `sudo` commands in the Makefile will pass through without a password thanks to the sudoers rules.
 
-## 보안 고려사항
+## Security Considerations
 
-### 허용 범위
+### Allowed Scope
 
-- claribot 서비스 관련 systemctl 명령만 허용 (다른 서비스 제어 불가)
-- 바이너리 복사 경로가 `/usr/local/bin/claribot`과 `/usr/local/bin/clari`로 한정
-- 서비스 파일 이동 경로가 `/etc/systemd/system/claribot.service`로 한정
+- Only systemctl commands related to the claribot service are allowed (cannot control other services)
+- Binary copy paths are limited to `/usr/local/bin/claribot` and `/usr/local/bin/clari`
+- Service file move path is limited to `/etc/systemd/system/claribot.service`
 
-### 허용하지 않는 것
+### Not Allowed
 
-- 다른 시스템 서비스 제어
-- 임의 경로에 파일 복사
-- 패키지 설치/삭제 (apt, yum 등)
-- 사용자 관리
-- 기타 시스템 관리 명령
+- Controlling other system services
+- Copying files to arbitrary paths
+- Installing/removing packages (apt, yum, etc.)
+- User management
+- Other system administration commands
 
-### 제거 방법
+### Removal
 
-더 이상 필요 없을 때:
+When no longer needed:
 
 ```bash
 sudo rm /etc/sudoers.d/claribot
 ```
 
-## 참고: systemctl 경로 확인
+## Note: Verifying systemctl Paths
 
-배포판에 따라 systemctl, cp, chmod, mv, rm의 경로가 다를 수 있다:
+Paths for systemctl, cp, chmod, mv, rm may differ depending on the distribution:
 
 ```bash
-which systemctl  # /usr/bin/systemctl 또는 /bin/systemctl
-which cp         # /usr/bin/cp 또는 /bin/cp
-which chmod      # /usr/bin/chmod 또는 /bin/chmod
-which mv         # /usr/bin/mv 또는 /bin/mv
-which rm         # /usr/bin/rm 또는 /bin/rm
-which journalctl # /usr/bin/journalctl 또는 /bin/journalctl
+which systemctl  # /usr/bin/systemctl or /bin/systemctl
+which cp         # /usr/bin/cp or /bin/cp
+which chmod      # /usr/bin/chmod or /bin/chmod
+which mv         # /usr/bin/mv or /bin/mv
+which rm         # /usr/bin/rm or /bin/rm
+which journalctl # /usr/bin/journalctl or /bin/journalctl
 ```
 
-sudoers 파일의 경로를 실제 시스템에 맞게 수정해야 한다. Ubuntu/Debian 기준으로 작성되었다.
+The paths in the sudoers file must be adjusted to match your actual system. This document is written based on Ubuntu/Debian.
 
-## 자동 설정 스크립트
+## Automated Setup Script
 
-위 과정을 한 번에 수행하는 스크립트를 제공한다. **이 스크립트만 사용자가 직접 1회 실행**하면 된다:
+A script is provided that performs all the above steps at once. **The user only needs to run this script once manually**:
 
 ```bash
 #!/bin/bash
 # deploy/setup-sudoers.sh
-# 사용법: sudo bash deploy/setup-sudoers.sh
+# Usage: sudo bash deploy/setup-sudoers.sh
 
 set -e
 
 if [ "$EUID" -ne 0 ]; then
-    echo "Error: sudo로 실행하세요: sudo bash $0"
+    echo "Error: Run with sudo: sudo bash $0"
     exit 1
 fi
 
-# 실제 사용자 (sudo 호출자)
+# Actual user (sudo caller)
 REAL_USER="${SUDO_USER:-$(whoami)}"
 
 if [ "$REAL_USER" = "root" ]; then
-    echo "Error: 일반 사용자 계정에서 sudo로 실행하세요"
+    echo "Error: Run with sudo from a regular user account"
     exit 1
 fi
 
-# 명령어 경로 탐지
+# Detect command paths
 SYSTEMCTL=$(which systemctl)
 CP=$(which cp)
 CHMOD=$(which chmod)
@@ -178,31 +178,31 @@ EOF
 
 chmod 0440 "$SUDOERS_FILE"
 
-# 문법 검증
+# Validate syntax
 if visudo -c -f "$SUDOERS_FILE" > /dev/null 2>&1; then
-    echo "sudoers 설정 완료: ${SUDOERS_FILE}"
-    echo "사용자: ${REAL_USER}"
+    echo "sudoers configuration complete: ${SUDOERS_FILE}"
+    echo "User: ${REAL_USER}"
     echo ""
-    echo "이제 Claude Code 에이전트가 비밀번호 없이 다음을 실행할 수 있습니다:"
-    echo "  make install    - 전체 빌드 및 설치"
-    echo "  make restart    - 서비스 재시작"
-    echo "  make uninstall  - 전체 제거"
+    echo "The Claude Code agent can now execute the following without a password:"
+    echo "  make install    - Full build and install"
+    echo "  make restart    - Restart service"
+    echo "  make uninstall  - Full uninstall"
     echo ""
-    echo "제거하려면: sudo rm ${SUDOERS_FILE}"
+    echo "To remove: sudo rm ${SUDOERS_FILE}"
 else
-    echo "Error: sudoers 문법 오류 발생. 파일을 제거합니다."
+    echo "Error: sudoers syntax error detected. Removing the file."
     rm -f "$SUDOERS_FILE"
     exit 1
 fi
 ```
 
-## 운용 흐름
+## Operational Flow
 
 ```
-[1회] 사용자가 sudo bash deploy/setup-sudoers.sh 실행
-  ↓
-[이후] Claude Code 에이전트가 자유롭게:
-  make build → make install → make restart
-  또는
-  make uninstall → make install
+[One-time] User runs: sudo bash deploy/setup-sudoers.sh
+  |
+[Thereafter] Claude Code agent freely executes:
+  make build -> make install -> make restart
+  or
+  make uninstall -> make install
 ```

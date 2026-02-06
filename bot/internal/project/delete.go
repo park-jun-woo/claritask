@@ -21,9 +21,9 @@ func Delete(id string, confirmed bool) types.Result {
 
 	var p Project
 	err = globalDB.QueryRow(`
-		SELECT id, name, path, type, description, status, created_at, updated_at
+		SELECT id, name, path, description, status, created_at, updated_at
 		FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Type, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 
 	if err != nil {
 		return types.Result{

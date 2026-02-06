@@ -43,6 +43,8 @@ claribot/
 - [docs/Schedule.md](docs/Schedule.md) - Schedule 시스템 설계 (cron 기반 자동 실행)
 - [docs/webui.md](docs/webui.md) - Web UI 기획 및 구현 현황
 
+> 한글 버전은 [docs/kr/](docs/kr/) 디렉토리를 참고하세요.
+
 ## Coding Conventions
 
 ### Go Style

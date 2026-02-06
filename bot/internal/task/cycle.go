@@ -56,6 +56,7 @@ func Cycle(projectPath string) types.Result {
 			break
 		}
 
+		UpdatePhase("plan", todoCount)
 		messages = append(messages, fmt.Sprintf("📋 Plan 순회 %d회차: %d개 작업 Plan 생성 시작", i+1, todoCount))
 		planResult := planAllInternal(ctx, projectPath)
 		messages = append(messages, planResult.Message)
@@ -87,6 +88,7 @@ func Cycle(projectPath string) types.Result {
 	localDB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE status = 'planned'`).Scan(&plannedCount)
 
 	if plannedCount > 0 {
+		UpdatePhase("run", plannedCount)
 		messages = append(messages, fmt.Sprintf("🔄 2회차 순회: %d개 작업 실행 시작", plannedCount))
 		runResult := runAllInternal(ctx, projectPath)
 		messages = append(messages, runResult.Message)

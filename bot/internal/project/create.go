@@ -4,46 +4,18 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
 )
 
 // Create creates a new project
-func Create(id, projType, description string) types.Result {
+func Create(id, description string) types.Result {
 	// Check default path
 	if DefaultPath == "" {
 		return types.Result{
 			Success: false,
 			Message: "project.path not configured in config.yaml",
-		}
-	}
-
-	// Require type - ask for input if missing
-	if projType == "" {
-		return types.Result{
-			Success:    true,
-			Message:    fmt.Sprintf("Select project type:\n%s", FormatTypeList()),
-			NeedsInput: true,
-			Prompt:     "Type: ",
-			Context:    "project create " + id,
-		}
-	}
-
-	// Validate type
-	validType := false
-	typeIDs := GetTypeIDs()
-	for _, t := range typeIDs {
-		if t == projType {
-			validType = true
-			break
-		}
-	}
-	if !validType {
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("invalid type: %s\nvalid types: %s", projType, strings.Join(typeIDs, ", ")),
 		}
 	}
 
@@ -54,7 +26,7 @@ func Create(id, projType, description string) types.Result {
 			Message:    "Enter project description:",
 			NeedsInput: true,
 			Prompt:     "Description: ",
-			Context:    "project create " + id + " " + projType,
+			Context:    "project create " + id,
 		}
 	}
 
@@ -90,9 +62,9 @@ func Create(id, projType, description string) types.Result {
 
 	now := db.TimeNow()
 	_, err = globalDB.Exec(`
-		INSERT INTO projects (id, name, path, type, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, ?, 'active', ?, ?)
-	`, id, id, projectPath, projType, description, now, now)
+		INSERT INTO projects (id, name, path, description, status, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'active', ?, ?)
+	`, id, id, projectPath, description, now, now)
 	if err != nil {
 		os.RemoveAll(projectPath) // rollback
 		return types.Result{
@@ -124,12 +96,11 @@ func Create(id, projType, description string) types.Result {
 
 	return types.Result{
 		Success: true,
-		Message: fmt.Sprintf("프로젝트 생성됨: %s\nType: %s\n%s\n[삭제:project delete %s]", id, projType, description, id),
+		Message: fmt.Sprintf("프로젝트 생성됨: %s\n%s\n[삭제:project delete %s]", id, description, id),
 		Data: &Project{
 			ID:          id,
 			Name:        id,
 			Path:        projectPath,
-			Type:        projType,
 			Description: description,
 		},
 	}

@@ -85,6 +85,7 @@ func New(bot *telegram.Bot, router *handler.Router, allowedUsers []int64) *Handl
 		{Command: "project", Description: "프로젝트 관리"},
 		{Command: "task", Description: "작업 관리"},
 		{Command: "message", Description: "메시지 관리"},
+		{Command: "usage", Description: "Claude 사용량"},
 	})
 
 	return h
@@ -217,6 +218,7 @@ var quickCommands = []string{
 	"message list", "message get", "message status",
 	"schedule list", "schedule get", "schedule runs", "schedule run",
 	"status",
+	"usage",
 }
 
 // needsClaudeExecution checks if a command requires Claude execution

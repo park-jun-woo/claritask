@@ -1,4 +1,4 @@
-import type { ClaribotResponse } from '@/types'
+import type { ClaribotResponse, StatusResponse } from '@/types'
 
 const API_BASE = '/api'
 
@@ -75,10 +75,10 @@ export const projectAPI = {
     apiGet(`/projects${all ? '?all=true' : ''}`),
   get: (id?: string) =>
     apiGet(`/projects/${id}`),
-  add: (path: string, type?: string, desc?: string) =>
-    apiPost('/projects', { path, type, description: desc }),
-  create: (id: string, type?: string, desc?: string) =>
-    apiPost('/projects', { id, type, description: desc }),
+  add: (path: string, desc?: string) =>
+    apiPost('/projects', { path, description: desc }),
+  create: (id: string, desc?: string) =>
+    apiPost('/projects', { id, description: desc }),
   delete: (id: string) =>
     apiDelete(`/projects/${id}`),
   switch: (id: string) =>
@@ -186,7 +186,7 @@ export const configAPI = {
 // --- Status API ---
 
 export const statusAPI = {
-  get: () => apiGet('/status'),
+  get: () => apiGet<StatusResponse>('/status'),
 }
 
 // --- Auth API ---

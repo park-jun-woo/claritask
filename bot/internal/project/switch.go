@@ -21,9 +21,9 @@ func Switch(id string) types.Result {
 
 	var p Project
 	err = globalDB.QueryRow(`
-		SELECT id, name, path, type, description, status, created_at, updated_at
+		SELECT id, name, path, description, status, created_at, updated_at
 		FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Type, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -38,7 +38,7 @@ func Switch(id string) types.Result {
 		}
 	}
 
-	msg := fmt.Sprintf("프로젝트 선택됨: %s\nType: %s\nPath: %s\n  [삭제:project delete %s]", p.ID, p.Type, p.Path, p.ID)
+	msg := fmt.Sprintf("프로젝트 선택됨: %s\nPath: %s\n  [삭제:project delete %s]", p.ID, p.Path, p.ID)
 
 	return types.Result{
 		Success: true,

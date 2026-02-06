@@ -18,7 +18,7 @@ func ListAll() ([]Project, error) {
 	defer globalDB.Close()
 
 	rows, err := globalDB.Query(`
-		SELECT id, name, path, type, description, status, created_at, updated_at
+		SELECT id, name, path, description, status, created_at, updated_at
 		FROM projects
 		ORDER BY created_at DESC
 	`)
@@ -30,7 +30,7 @@ func ListAll() ([]Project, error) {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Path, &p.Type, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("failed to scan project: %w", err)
 		}
 		projects = append(projects, p)
@@ -70,7 +70,7 @@ func List(req pagination.PageRequest) types.Result {
 	}
 
 	rows, err := globalDB.Query(`
-		SELECT id, name, path, type, description, status, created_at, updated_at
+		SELECT id, name, path, description, status, created_at, updated_at
 		FROM projects
 		ORDER BY created_at DESC
 		LIMIT ? OFFSET ?
@@ -86,7 +86,7 @@ func List(req pagination.PageRequest) types.Result {
 	var projects []Project
 	for rows.Next() {
 		var p Project
-		if err := rows.Scan(&p.ID, &p.Name, &p.Path, &p.Type, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
+		if err := rows.Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt); err != nil {
 			return types.Result{
 				Success: false,
 				Message: fmt.Sprintf("failed to scan project: %v", err),

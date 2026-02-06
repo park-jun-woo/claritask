@@ -12,8 +12,8 @@
 | 명령어 | 설명 |
 |--------|------|
 | `project list [--all]` | 프로젝트 목록 조회 |
-| `project add <path> [type] [desc]` | 기존 경로를 프로젝트로 등록 |
-| `project create <id> [type] [desc]` | 새 프로젝트 생성 |
+| `project add <path> [desc]` | 기존 경로를 프로젝트로 등록 |
+| `project create <id> [desc]` | 새 프로젝트 생성 |
 | `project get [id]` | 프로젝트 상세 조회 |
 | `project delete <id>` | 프로젝트 삭제 |
 | `project switch <id>` | 프로젝트 전환 |

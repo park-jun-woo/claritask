@@ -8,8 +8,9 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
-  useTasks, useTask, useAddTask, useDeleteTask, useTaskPlan, useTaskRun, useTaskCycle, useSetTask
+  useTasks, useTask, useAddTask, useDeleteTask, useTaskPlan, useTaskRun, useTaskCycle, useSetTask, useStatus
 } from '@/hooks/useClaribot'
+import type { StatusResponse } from '@/types'
 import {
   Plus, Play, RefreshCw, ChevronRight, ChevronDown, X, TreePine, List, FileText
 } from 'lucide-react'
@@ -39,7 +40,7 @@ export default function Tasks() {
   const taskCycle = useTaskCycle()
   const setTask = useSetTask()
 
-  const [viewMode, setViewMode] = useState<ViewMode>('tree')
+  const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState({ title: '', parentId: '', spec: '' })
   const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
@@ -484,6 +485,9 @@ function TreeView({
 }
 
 function TaskStatusBar({ items }: { items: any[] }) {
+  const { data: status } = useStatus() as { data: StatusResponse | undefined }
+  const cycleStatus = status?.cycle_status
+
   const statuses = ['todo', 'split', 'planned', 'done', 'failed'] as const
   const colors: Record<string, string> = {
     todo: 'bg-gray-400',
@@ -502,21 +506,72 @@ function TaskStatusBar({ items }: { items: any[] }) {
     return map
   }, [items])
 
+  // leaf count & done ratio
+  const leafItems = items.filter((t: any) => t.is_leaf || t.IsLeaf)
+  const leafDone = leafItems.filter((t: any) => (t.status || t.Status) === 'done').length
+  const leafTotal = leafItems.length
+  const progress = leafTotal > 0 ? Math.round((leafDone / leafTotal) * 100) : 0
+
   return (
-    <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
-      {statuses.map(s => (
-        <div key={s} className="flex items-center gap-1">
-          <span className={`w-2 h-2 rounded-full ${colors[s]}`} />
-          <span>{s}</span>
-          <span className="font-medium text-foreground">{counts[s]}</span>
+    <div className="space-y-1">
+      {/* Cycle status row */}
+      {cycleStatus && cycleStatus.status !== 'idle' && (
+        <div className={cn(
+          "flex flex-wrap items-center gap-2 px-2 py-1 rounded-md border text-xs",
+          cycleStatus.status === 'running'
+            ? 'bg-green-50 dark:bg-green-950 border-green-200 dark:border-green-800'
+            : 'bg-yellow-50 dark:bg-yellow-950 border-yellow-200 dark:border-yellow-800'
+        )}>
+          <RefreshCw className={`h-3 w-3 ${cycleStatus.status === 'running' ? 'animate-spin text-green-600' : 'text-yellow-600'}`} />
+          <span className="font-medium">
+            {cycleStatus.status === 'running' ? 'Running' : 'Interrupted'}
+          </span>
+          <span className="text-muted-foreground">{cycleStatus.type}</span>
+          {cycleStatus.phase && (
+            <Badge variant="outline" className="text-[10px] h-4 px-1">{cycleStatus.phase}</Badge>
+          )}
+          {cycleStatus.current_task_id ? (
+            <span>Task #{cycleStatus.current_task_id}</span>
+          ) : null}
+          {cycleStatus.target_total != null && cycleStatus.target_total > 0 && (
+            <span className="text-muted-foreground">
+              {cycleStatus.completed ?? 0}/{cycleStatus.target_total}
+            </span>
+          )}
+          {cycleStatus.elapsed_sec != null && (
+            <span className="text-muted-foreground ml-auto">
+              {formatElapsed(cycleStatus.elapsed_sec)}
+            </span>
+          )}
         </div>
-      ))}
-      <div className="flex items-center gap-1 ml-auto">
-        <span>total</span>
-        <span className="font-medium text-foreground">{items.length}</span>
+      )}
+
+      {/* Status counts row */}
+      <div className="flex flex-wrap gap-2 text-xs text-muted-foreground">
+        {statuses.map(s => (
+          <div key={s} className="flex items-center gap-1">
+            <span className={`w-2 h-2 rounded-full ${colors[s]}`} />
+            <span>{s}</span>
+            <span className="font-medium text-foreground">{counts[s]}</span>
+          </div>
+        ))}
+        <div className="flex items-center gap-1 ml-auto">
+          <span>done/leaf</span>
+          <span className="font-medium text-foreground">{leafDone}/{leafTotal}</span>
+          <span className="text-muted-foreground">({progress}%)</span>
+        </div>
       </div>
     </div>
   )
+}
+
+function formatElapsed(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m < 60) return `${m}m ${s}s`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m % 60}m`
 }
 
 function StatusDot({ status }: { status: string }) {

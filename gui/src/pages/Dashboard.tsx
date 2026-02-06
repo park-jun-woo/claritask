@@ -2,11 +2,11 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules } from '@/hooks/useClaribot'
 import { useNavigate } from 'react-router-dom'
-import { Bot, MessageSquare, Clock, FolderOpen } from 'lucide-react'
-import type { ProjectStats } from '@/types'
+import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw } from 'lucide-react'
+import type { ProjectStats, StatusResponse } from '@/types'
 
 export default function Dashboard() {
-  const { data: status } = useStatus()
+  const { data: status } = useStatus() as { data: StatusResponse | undefined }
   const { data: statsData } = useProjectStats()
   const { data: messagesData } = useMessages()
   const { data: schedulesData } = useSchedules()
@@ -17,6 +17,9 @@ export default function Dashboard() {
   const claudeMatch = status?.message?.match(/Claude: (\d+)\/(\d+)/)
   const claudeUsed = claudeMatch?.[1] || '0'
   const claudeMax = claudeMatch?.[2] || '3'
+
+  // Cycle status
+  const cycleStatus = status?.cycle_status
 
   const messageItems = parseItems(messagesData?.data)
   const scheduleItems = parseItems(schedulesData?.data)
@@ -39,7 +42,7 @@ export default function Dashboard() {
       <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
 
       {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
         <Card>
           <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
             <CardTitle className="text-sm font-medium">Claude</CardTitle>
@@ -49,6 +52,42 @@ export default function Dashboard() {
             <div className="text-2xl font-bold">{claudeUsed}/{claudeMax}</div>
             <p className="text-xs text-muted-foreground">
               {Number(claudeUsed) > 0 ? 'Running' : 'Idle'}
+            </p>
+          </CardContent>
+        </Card>
+
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+            <CardTitle className="text-sm font-medium">Cycle</CardTitle>
+            <RefreshCw className={`h-4 w-4 text-muted-foreground ${cycleStatus?.status === 'running' ? 'animate-spin' : ''}`} />
+          </CardHeader>
+          <CardContent>
+            <div className="text-2xl font-bold">
+              {cycleStatus?.status === 'running' && (
+                <span className="text-green-600 dark:text-green-400">Running</span>
+              )}
+              {cycleStatus?.status === 'interrupted' && (
+                <span className="text-yellow-600 dark:text-yellow-400">Interrupted</span>
+              )}
+              {(!cycleStatus || cycleStatus.status === 'idle') && (
+                <span className="text-muted-foreground">Idle</span>
+              )}
+            </div>
+            <p className="text-xs text-muted-foreground">
+              {cycleStatus?.status === 'running' && (
+                <>
+                  {cycleStatus.type} {cycleStatus.phase && `(${cycleStatus.phase})`}
+                  {cycleStatus.current_task_id ? ` Task #${cycleStatus.current_task_id}` : ''}
+                  {cycleStatus.elapsed_sec != null && ` ${formatElapsed(cycleStatus.elapsed_sec)}`}
+                </>
+              )}
+              {cycleStatus?.status === 'interrupted' && (
+                <>
+                  {cycleStatus.type}
+                  {cycleStatus.current_task_id ? ` stopped at #${cycleStatus.current_task_id}` : ''}
+                </>
+              )}
+              {(!cycleStatus || cycleStatus.status === 'idle') && 'No active cycle'}
             </p>
           </CardContent>
         </Card>
@@ -179,4 +218,13 @@ function parseItems(data: any): any[] {
   if (Array.isArray(data)) return data
   if (data.items && Array.isArray(data.items)) return data.items
   return []
+}
+
+function formatElapsed(sec: number): string {
+  if (sec < 60) return `${sec}s`
+  const m = Math.floor(sec / 60)
+  const s = sec % 60
+  if (m < 60) return `${m}m ${s}s`
+  const h = Math.floor(m / 60)
+  return `${h}h ${m % 60}m`
 }

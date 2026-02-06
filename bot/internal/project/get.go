@@ -25,9 +25,9 @@ func Get(id string) types.Result {
 
 	var p Project
 	err = globalDB.QueryRow(`
-		SELECT id, name, path, type, description, status, created_at, updated_at
+		SELECT id, name, path, description, status, created_at, updated_at
 		FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Type, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -56,8 +56,8 @@ func Get(id string) types.Result {
 		}
 	}
 
-	msg := fmt.Sprintf("Project: %s\nType: %s\nPath: %s\nDescription: %s\nStatus: %s\nParallel: %d\nCreated: %s",
-		p.ID, p.Type, p.Path, p.Description, p.Status, p.Parallel, p.CreatedAt)
+	msg := fmt.Sprintf("Project: %s\nPath: %s\nDescription: %s\nStatus: %s\nParallel: %d\nCreated: %s",
+		p.ID, p.Path, p.Description, p.Status, p.Parallel, p.CreatedAt)
 
 	return types.Result{
 		Success: true,

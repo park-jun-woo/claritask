@@ -1,78 +1,78 @@
-# Schedule 시스템 설계
+# Schedule System Design
 
-> Claribot의 Cron 기반 스케줄링 시스템
-
----
-
-## 개요
-
-지정된 시간에 자동으로 Claude Code를 실행하고 결과를 저장하는 스케줄링 기능. `robfig/cron` 라이브러리를 활용하여 claribot 데몬 내부에서 스케줄을 관리한다.
-
-**핵심 결정**: 외부 cron 대신 자체 루틴 사용
-- 통합 관리 (CLI/텔레그램으로 제어)
-- 동적 추가/삭제 가능
-- DB 기반 영속성
-- 실행 결과 이력 관리
+> Claribot's Cron-based Scheduling System
 
 ---
 
-## 데이터 구조
+## Overview
 
-### Schedule (스케줄 정의)
+A scheduling feature that automatically executes Claude Code at specified times and stores the results. Manages schedules internally within the claribot daemon using the `robfig/cron` library.
+
+**Key Decision**: Use internal routines instead of external cron
+- Unified management (controllable via CLI/Telegram)
+- Dynamic add/remove capability
+- DB-based persistence
+- Execution history management
+
+---
+
+## Data Structures
+
+### Schedule (Schedule Definition)
 
 ```go
 Schedule {
     ID         int
-    ProjectID  *string   // 프로젝트 ID (NULL이면 전역)
-    CronExpr   string    // "0 7 * * *" (매일 7시)
-    Message    string    // Claude Code에 전달할 프롬프트
-    Enabled    bool      // 활성화 여부
-    RunOnce    bool      // 1회 실행 후 자동 비활성화
-    LastRun    *string   // 마지막 실행 시간
-    NextRun    *string   // 다음 실행 예정 시간
+    ProjectID  *string   // Project ID (NULL means global)
+    CronExpr   string    // "0 7 * * *" (daily at 7 AM)
+    Message    string    // Prompt to pass to Claude Code
+    Enabled    bool      // Whether enabled
+    RunOnce    bool      // Auto-disable after single execution
+    LastRun    *string   // Last execution time
+    NextRun    *string   // Next scheduled execution time
     CreatedAt  string
     UpdatedAt  string
 }
 ```
 
-### ScheduleRun (실행 결과)
+### ScheduleRun (Execution Result)
 
 ```go
 ScheduleRun {
     ID          int
-    ScheduleID  int       // 스케줄 ID
+    ScheduleID  int       // Schedule ID
     Status      string    // 'running', 'done', 'failed'
-    Result      string    // Claude Code 실행 결과 (보고서)
-    Error       string    // 에러 메시지
-    StartedAt   string    // 실행 시작 시간
-    CompletedAt *string   // 실행 완료 시간
+    Result      string    // Claude Code execution result (report)
+    Error       string    // Error message
+    StartedAt   string    // Execution start time
+    CompletedAt *string   // Execution completion time
 }
 ```
 
-### Cron 표현식
+### Cron Expression
 
 ```
-┌───────────── 분 (0-59)
-│ ┌───────────── 시 (0-23)
-│ │ ┌───────────── 일 (1-31)
-│ │ │ ┌───────────── 월 (1-12)
-│ │ │ │ ┌───────────── 요일 (0-6, 일요일=0)
+┌───────────── minute (0-59)
+│ ┌───────────── hour (0-23)
+│ │ ┌───────────── day of month (1-31)
+│ │ │ ┌───────────── month (1-12)
+│ │ │ │ ┌───────────── day of week (0-6, Sunday=0)
 │ │ │ │ │
 * * * * *
 ```
 
-| 예시 | 설명 |
-|------|------|
-| `0 7 * * *` | 매일 07:00 |
-| `30 9 * * 1-5` | 평일 09:30 |
-| `0 */2 * * *` | 2시간마다 |
-| `0 0 1 * *` | 매월 1일 00:00 |
+| Example | Description |
+|---------|-------------|
+| `0 7 * * *` | Daily at 07:00 |
+| `30 9 * * 1-5` | Weekdays at 09:30 |
+| `0 */2 * * *` | Every 2 hours |
+| `0 0 1 * *` | 1st of every month at 00:00 |
 
 ---
 
-## DB 스키마
+## DB Schema
 
-### schedules (스케줄 정의)
+### schedules (Schedule Definitions)
 
 ```sql
 CREATE TABLE IF NOT EXISTS schedules (
@@ -92,7 +92,7 @@ CREATE INDEX IF NOT EXISTS idx_schedules_enabled ON schedules(enabled);
 CREATE INDEX IF NOT EXISTS idx_schedules_project ON schedules(project_id);
 ```
 
-### schedule_runs (실행 결과)
+### schedule_runs (Execution Results)
 
 ```sql
 CREATE TABLE IF NOT EXISTS schedule_runs (
@@ -113,79 +113,79 @@ CREATE INDEX IF NOT EXISTS idx_schedule_runs_status ON schedule_runs(status);
 
 ---
 
-## CLI 명령어
+## CLI Commands
 
-### 스케줄 관리
+### Schedule Management
 ```bash
-# 스케줄 추가
-schedule add "0 7 * * *" "오늘의 할일 목록을 정리해줘"
-schedule add --project claribot "0 9 * * 1-5" "코드 품질 리포트 작성해줘"
-schedule add --once "30 14 * * *" "5분 뒤 알림 테스트"  # 1회 실행 후 자동 비활성화
+# Add schedule
+schedule add "0 7 * * *" "Organize today's todo list"
+schedule add --project claribot "0 9 * * 1-5" "Generate code quality report"
+schedule add --once "30 14 * * *" "Notification test in 5 minutes"  # Auto-disable after single execution
 
-# 스케줄 목록
-schedule list              # 현재 프로젝트 스케줄
-schedule list --all        # 전체 스케줄
+# List schedules
+schedule list              # Current project schedules
+schedule list --all        # All schedules
 
-# 스케줄 조회
+# View schedule
 schedule get <id>
 
-# 스케줄 삭제
+# Delete schedule
 schedule delete <id>
 
-# 활성화/비활성화
+# Enable/Disable
 schedule enable <id>
 schedule disable <id>
 
-# 프로젝트 변경
-schedule set project <id> <project_id>   # 스케줄의 프로젝트 변경
-schedule set project <id> none           # 전역 실행으로 변경
+# Change project
+schedule set project <id> <project_id>   # Change schedule's project
+schedule set project <id> none           # Switch to global execution
 ```
 
-### 실행 기록 조회
+### Execution History
 ```bash
-# 특정 스케줄의 실행 기록
+# Execution history of a specific schedule
 schedule runs <schedule_id>
 
-# 특정 실행 결과 상세 조회
+# Detailed view of a specific execution result
 schedule run <run_id>
 ```
 
 ---
 
-## 실행 흐름
+## Execution Flow
 
-### 시작 시
+### On Startup
 ```
-[claribot 시작]
-    └─ Scheduler 초기화
-    └─ DB에서 enabled=1인 스케줄 로드
-    └─ 각 스케줄을 cron에 등록
-    └─ cron 시작
-```
-
-### 스케줄 실행 시
-```
-[cron 트리거]
-    └─ schedule_runs에 'running' 상태로 레코드 생성
-    └─ 해당 스케줄의 message 조회
-    └─ project_id로 프로젝트 경로 조회
-    └─ Claude Code 실행 (message를 프롬프트로 전달)
-    └─ 실행 결과(보고서)를 schedule_runs에 저장
-    └─ status를 'done' 또는 'failed'로 업데이트
-    └─ schedules의 last_run, next_run 업데이트
-    └─ 텔레그램으로 결과 알림 전송
+[claribot starts]
+    └─ Initialize Scheduler
+    └─ Load schedules with enabled=1 from DB
+    └─ Register each schedule with cron
+    └─ Start cron
 ```
 
-### 동적 변경 시
+### On Schedule Execution
+```
+[cron trigger]
+    └─ Create record in schedule_runs with 'running' status
+    └─ Retrieve the schedule's message
+    └─ Look up project path by project_id
+    └─ Execute Claude Code (pass message as prompt)
+    └─ Store execution result (report) in schedule_runs
+    └─ Update status to 'done' or 'failed'
+    └─ Update last_run, next_run in schedules
+    └─ Send result notification via Telegram
+```
+
+### On Dynamic Changes
 ```
 [schedule add/delete/enable/disable]
-    └─ DB 업데이트
-    └─ cron에서 해당 job 추가/제거
+    └─ Update DB
+    └─ Add/remove the job from cron
 ```
 
 ---
 
-## 아키텍처
+## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────┐
@@ -204,7 +204,7 @@ schedule run <run_id>
 │       └────┬─────┘                                  │
 │            │                                        │
 │       ┌────▼─────────────┐                          │
-│       │  schedule_runs   │  ← 실행 결과 저장        │
+│       │  schedule_runs   │  ← Store execution results│
 │       │     (DB)         │                          │
 │       └──────────────────┘                          │
 └─────────────────────────────────────────────────────┘
@@ -212,29 +212,29 @@ schedule run <run_id>
 
 ---
 
-## 구현 파일
+## Implementation Files
 
 ```
 bot/internal/
 ├── schedule/
-│   ├── schedule.go      # Schedule, ScheduleRun 구조체
-│   ├── add.go           # 스케줄 추가
-│   ├── get.go           # 스케줄 조회
-│   ├── list.go          # 스케줄 목록
-│   ├── delete.go        # 스케줄 삭제
-│   ├── toggle.go        # 활성화/비활성화
-│   ├── runs.go          # 실행 기록 조회
-│   ├── set.go           # 스케줄 속성 변경
-│   └── scheduler.go     # cron 매니저 + 실행 로직
+│   ├── schedule.go      # Schedule, ScheduleRun structs
+│   ├── add.go           # Add schedule
+│   ├── get.go           # View schedule
+│   ├── list.go          # List schedules
+│   ├── delete.go        # Delete schedule
+│   ├── toggle.go        # Enable/Disable
+│   ├── runs.go          # View execution history
+│   ├── set.go           # Change schedule properties
+│   └── scheduler.go     # Cron manager + execution logic
 ├── handler/
-│   └── router.go        # schedule 명령어
+│   └── router.go        # Schedule commands
 └── db/
-    └── db.go            # schedules, schedule_runs 테이블
+    └── db.go            # schedules, schedule_runs tables
 ```
 
 ---
 
-## 의존성
+## Dependencies
 
 ```go
 import "github.com/robfig/cron/v3"
@@ -242,16 +242,16 @@ import "github.com/robfig/cron/v3"
 
 ---
 
-## run_once 동작
+## run_once Behavior
 
-1회 실행 옵션(`--once`)이 설정된 스케줄은:
+Schedules with the one-time execution option (`--once`):
 
-1. cron 시간 도달 시 정상 실행
-2. Claude Code 실행 **전에** 스케줄 자동 비활성화 (enabled=0)
-3. cron에서 해당 job 제거
-4. 실행 결과는 정상적으로 저장
+1. Execute normally when the cron time is reached
+2. Auto-disable the schedule (enabled=0) **before** Claude Code execution
+3. Remove the job from cron
+4. Execution results are stored normally
 
-**실행 전 비활성화 이유**: Claude Code 실행 중 오류가 발생해도 재실행되지 않도록 방지
+**Reason for disabling before execution**: Prevents re-execution even if an error occurs during Claude Code execution
 
 ---
 

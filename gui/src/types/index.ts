@@ -17,6 +17,9 @@ export interface Project {
   type: string
   description: string
   status: string
+  category: string
+  pinned: boolean
+  last_accessed: string
   created_at: string
   updated_at: string
 }
@@ -133,6 +136,7 @@ export interface StatusResponse {
   message: string
   data?: ClaudeStatus
   cycle_status: CycleStatus
+  cycle_statuses?: CycleStatus[]
   task_stats?: TaskStats
 }
 

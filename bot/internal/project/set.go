@@ -24,8 +24,77 @@ func Set(id, field, value string) types.Result {
 		return setParallel(id, value)
 	case "description":
 		return setDescription(id, value)
+	case "category":
+		return setCategory(id, value)
+	case "pinned":
+		return setPinned(id, value)
 	default:
-		return types.Result{Success: false, Message: fmt.Sprintf("알 수 없는 필드: %s (지원: parallel, description)", field)}
+		return types.Result{Success: false, Message: fmt.Sprintf("알 수 없는 필드: %s (지원: parallel, description, category, pinned)", field)}
+	}
+}
+
+// setCategory sets the category of a project
+func setCategory(id, value string) types.Result {
+	globalDB, err := db.OpenGlobal()
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("전역 DB 열기 실패: %v", err)}
+	}
+	defer globalDB.Close()
+
+	now := db.TimeNow()
+	result, err := globalDB.Exec(
+		"UPDATE projects SET category = ?, updated_at = ? WHERE id = ?",
+		value, now, id,
+	)
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("카테고리 저장 실패: %v", err)}
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return types.Result{Success: false, Message: fmt.Sprintf("프로젝트를 찾을 수 없습니다: %s", id)}
+	}
+
+	return types.Result{
+		Success: true,
+		Message: fmt.Sprintf("✅ 프로젝트 '%s' category = '%s'", id, value),
+	}
+}
+
+// setPinned sets the pinned status of a project
+func setPinned(id, value string) types.Result {
+	pinned := 0
+	if value == "1" || value == "true" {
+		pinned = 1
+	}
+
+	globalDB, err := db.OpenGlobal()
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("전역 DB 열기 실패: %v", err)}
+	}
+	defer globalDB.Close()
+
+	now := db.TimeNow()
+	result, err := globalDB.Exec(
+		"UPDATE projects SET pinned = ?, updated_at = ? WHERE id = ?",
+		pinned, now, id,
+	)
+	if err != nil {
+		return types.Result{Success: false, Message: fmt.Sprintf("핀 설정 저장 실패: %v", err)}
+	}
+
+	rows, _ := result.RowsAffected()
+	if rows == 0 {
+		return types.Result{Success: false, Message: fmt.Sprintf("프로젝트를 찾을 수 없습니다: %s", id)}
+	}
+
+	status := "해제"
+	if pinned == 1 {
+		status = "고정"
+	}
+	return types.Result{
+		Success: true,
+		Message: fmt.Sprintf("✅ 프로젝트 '%s' 핀 %s", id, status),
 	}
 }
 

@@ -89,8 +89,8 @@ func Add(path, description string) types.Result {
 	// Register in global DB
 	now := db.TimeNow()
 	_, err = globalDB.Exec(`
-		INSERT INTO projects (id, name, path, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'active', ?, ?)
+		INSERT INTO projects (id, name, path, description, status, category, pinned, last_accessed, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'active', '', 0, '', ?, ?)
 	`, id, id, absPath, description, now, now)
 	if err != nil {
 		return types.Result{

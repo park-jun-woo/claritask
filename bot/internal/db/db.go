@@ -97,6 +97,9 @@ CREATE TABLE IF NOT EXISTS projects (
     description TEXT DEFAULT '',
     status TEXT DEFAULT 'active'
         CHECK(status IN ('active', 'archived')),
+    category TEXT DEFAULT '',
+    pinned INTEGER DEFAULT 0,
+    last_accessed TEXT DEFAULT '',
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
@@ -177,6 +180,13 @@ CREATE TABLE IF NOT EXISTS auth (
 		`ALTER TABLE messages ADD COLUMN project_id TEXT`,
 		// Add type column to schedules if not exists
 		`ALTER TABLE schedules ADD COLUMN type TEXT NOT NULL DEFAULT 'claude'`,
+		// Add category, pinned, last_accessed columns to projects
+		`ALTER TABLE projects ADD COLUMN category TEXT DEFAULT ''`,
+		`ALTER TABLE projects ADD COLUMN pinned INTEGER DEFAULT 0`,
+		`ALTER TABLE projects ADD COLUMN last_accessed TEXT DEFAULT ''`,
+		// Create indexes for new columns (must be after ALTER TABLE)
+		`CREATE INDEX IF NOT EXISTS idx_projects_category ON projects(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_projects_pinned ON projects(pinned)`,
 	}
 
 	// Recreate projects table to remove type column
@@ -188,14 +198,19 @@ CREATE TABLE IF NOT EXISTS auth (
 			description TEXT DEFAULT '',
 			status TEXT DEFAULT 'active'
 				CHECK(status IN ('active', 'archived')),
+			category TEXT DEFAULT '',
+			pinned INTEGER DEFAULT 0,
+			last_accessed TEXT DEFAULT '',
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL
 		)`,
-		`INSERT OR IGNORE INTO projects_new (id, name, path, description, status, created_at, updated_at)
-			SELECT id, name, path, description, status, created_at, updated_at FROM projects`,
+		`INSERT OR IGNORE INTO projects_new (id, name, path, description, status, category, pinned, last_accessed, created_at, updated_at)
+			SELECT id, name, path, description, status, '', 0, '', created_at, updated_at FROM projects`,
 		`DROP TABLE projects`,
 		`ALTER TABLE projects_new RENAME TO projects`,
 		`CREATE INDEX IF NOT EXISTS idx_projects_status ON projects(status)`,
+		`CREATE INDEX IF NOT EXISTS idx_projects_category ON projects(category)`,
+		`CREATE INDEX IF NOT EXISTS idx_projects_pinned ON projects(pinned)`,
 	}
 
 	for _, migration := range migrations {

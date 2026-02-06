@@ -154,8 +154,8 @@ export const messageAPI = {
     apiGet(`/messages${all ? '?all=true' : ''}`),
   get: (id: number | string) =>
     apiGet(`/messages/${id}`),
-  send: (content: string) =>
-    apiPost('/messages', { content, source: 'gui' }),
+  send: (content: string, projectId?: string) =>
+    apiPost('/messages', { content, source: 'gui', project_id: projectId || null }),
   status: () =>
     apiGet('/messages/status'),
   processing: () =>

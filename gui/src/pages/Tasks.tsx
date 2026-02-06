@@ -8,11 +8,11 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
-  useTasks, useTask, useAddTask, useDeleteTask, useTaskPlan, useTaskRun, useTaskCycle, useSetTask, useStatus
+  useTasks, useTask, useAddTask, useDeleteTask, useTaskPlan, useTaskRun, useTaskCycle, useTaskStop, useSetTask, useStatus
 } from '@/hooks/useClaribot'
 import type { StatusResponse } from '@/types'
 import {
-  Plus, Play, RefreshCw, ChevronRight, ChevronDown, X, TreePine, List, FileText
+  Plus, Play, RefreshCw, ChevronRight, ChevronDown, X, TreePine, List, FileText, Square
 } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 
@@ -38,6 +38,7 @@ export default function Tasks() {
   const taskPlan = useTaskPlan()
   const taskRun = useTaskRun()
   const taskCycle = useTaskCycle()
+  const taskStop = useTaskStop()
   const setTask = useSetTask()
 
   const [viewMode, setViewMode] = useState<ViewMode>('list')
@@ -52,8 +53,13 @@ export default function Tasks() {
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
 
   // Get current project from status
-  const { data: statusData } = useStatus()
+  const { data: statusData } = useStatus() as { data: StatusResponse | undefined }
   const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
+
+  // Check if current project is running
+  const isProjectRunning = statusData?.cycle_statuses?.some(
+    c => c.status === 'running' && c.project_id === currentProject
+  ) || (statusData?.cycle_status?.status === 'running' && statusData?.cycle_status?.project_id === currentProject)
 
   // Reset selection when project changes
   useEffect(() => {
@@ -238,42 +244,18 @@ export default function Tasks() {
             <Button size="icon" className="h-8 w-8" onClick={() => setShowAdd(!showAdd)}>
               <Plus className="h-4 w-4" />
             </Button>
+            {/* Cycle/Stop Toggle */}
+            {isProjectRunning ? (
+              <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => taskStop.mutate()} disabled={taskStop.isPending}>
+                <RefreshCw className="h-4 w-4 animate-spin" />
+              </Button>
+            ) : (
+              <Button size="icon" variant="outline" className="h-8 w-8" onClick={() => taskCycle.mutate()} disabled={taskCycle.isPending}>
+                <Play className="h-4 w-4" />
+              </Button>
+            )}
           </div>
         </div>
-
-        {/* Bulk Actions */}
-        <div className="flex flex-wrap gap-1">
-          <Button size="sm" variant="outline" className="flex-1 text-xs h-7 min-w-0" onClick={() => taskPlan.mutate(undefined)} disabled={taskPlan.isPending}>
-            <Play className="h-3 w-3 shrink-0" /> <span className="hidden sm:inline ml-1">Plan</span>
-          </Button>
-          <Button size="sm" variant="outline" className="flex-1 text-xs h-7 min-w-0" onClick={() => taskRun.mutate(undefined)} disabled={taskRun.isPending}>
-            <Play className="h-3 w-3 shrink-0" /> <span className="hidden sm:inline ml-1">Run</span>
-          </Button>
-          <Button size="sm" variant="outline" className="flex-1 text-xs h-7 min-w-0" onClick={() => taskCycle.mutate()} disabled={taskCycle.isPending}>
-            <RefreshCw className="h-3 w-3 shrink-0" /> <span className="hidden sm:inline ml-1">Cycle</span>
-          </Button>
-        </div>
-
-        {/* Action Status */}
-        {(taskPlan.isPending || taskRun.isPending || taskCycle.isPending) && (
-          <div className="flex items-center gap-2 px-2 py-1 bg-yellow-50 dark:bg-yellow-950 rounded-md border border-yellow-200 dark:border-yellow-800">
-            <RefreshCw className="h-3 w-3 animate-spin" />
-            <span className="text-xs">
-              {taskPlan.isPending && 'Planning...'}
-              {taskRun.isPending && 'Running...'}
-              {taskCycle.isPending && 'Cycling...'}
-            </span>
-          </div>
-        )}
-
-        {/* Task Status Bar */}
-        {taskItems.length > 0 && (
-          <TaskStatusBar
-            items={taskItems}
-            statusFilter={statusFilter}
-            onFilterChange={setStatusFilter}
-          />
-        )}
 
         {/* Add Form */}
         {showAdd && (
@@ -303,6 +285,26 @@ export default function Tasks() {
               </div>
             </CardContent>
           </Card>
+        )}
+
+        {/* Action Status */}
+        {(taskCycle.isPending || taskStop.isPending) && (
+          <div className="flex items-center gap-2 px-2 py-1 bg-yellow-50 dark:bg-yellow-950 rounded-md border border-yellow-200 dark:border-yellow-800">
+            <RefreshCw className="h-3 w-3 animate-spin" />
+            <span className="text-xs">
+              {taskCycle.isPending && 'Starting cycle...'}
+              {taskStop.isPending && 'Stopping...'}
+            </span>
+          </div>
+        )}
+
+        {/* Task Status Bar */}
+        {taskItems.length > 0 && (
+          <TaskStatusBar
+            items={taskItems}
+            statusFilter={statusFilter}
+            onFilterChange={setStatusFilter}
+          />
         )}
 
         {/* Task View */}

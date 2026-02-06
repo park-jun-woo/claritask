@@ -4,7 +4,7 @@ import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { useMessages, useMessage, useSendMessage } from '@/hooks/useClaribot'
+import { useMessages, useMessage, useSendMessage, useStatus } from '@/hooks/useClaribot'
 import { Send, MessageSquare, ArrowLeft } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ChatBubble } from '@/components/ChatBubble'
@@ -13,16 +13,36 @@ type MobileView = 'chat' | 'detail'
 
 export default function Messages() {
   const { data: messagesData } = useMessages()
+  const { data: statusData } = useStatus()
   const sendMessage = useSendMessage()
   const [input, setInput] = useState('')
   const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null)
   const [mobileView, setMobileView] = useState<MobileView>('chat')
+  const [pendingMessages, setPendingMessages] = useState<Array<{ id: string; content: string; created_at: string }>>([])
 
   const { data: messageDetail } = useMessage(selectedMessageId ?? undefined)
   const selectedMessage = messageDetail?.data ?? null
 
+  // Get current project from status (📌 project-id — ...)
+  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1]
+
   const messageItems = parseItems(messagesData?.data)
-  const sortedMessages = [...messageItems].sort((a, b) => {
+
+  // Merge pending messages with actual messages
+  const allMessages = [
+    ...messageItems,
+    ...pendingMessages.map(pm => ({
+      id: pm.id,
+      content: pm.content,
+      status: 'pending',
+      source: 'gui',
+      created_at: pm.created_at,
+      result: '',
+      error: '',
+    }))
+  ]
+
+  const sortedMessages = [...allMessages].sort((a, b) => {
     const ta = new Date(a.created_at || a.CreatedAt || 0).getTime()
     const tb = new Date(b.created_at || b.CreatedAt || 0).getTime()
     return ta - tb
@@ -39,8 +59,28 @@ export default function Messages() {
 
   const handleSend = () => {
     if (!input.trim()) return
-    sendMessage.mutate(input.trim())
+    const content = input.trim()
+    const tempId = `pending-${Date.now()}`
+    const now = new Date().toISOString()
+
+    // Add to pending messages immediately
+    setPendingMessages(prev => [...prev, { id: tempId, content, created_at: now }])
     setInput('')
+
+    // Send to server
+    sendMessage.mutate(
+      { content, projectId: currentProject },
+      {
+        onSuccess: () => {
+          // Remove from pending after successful send (actual message will appear from query)
+          setPendingMessages(prev => prev.filter(m => m.id !== tempId))
+        },
+        onError: () => {
+          // Remove from pending on error
+          setPendingMessages(prev => prev.filter(m => m.id !== tempId))
+        },
+      }
+    )
   }
 
   const handleKeyDown = (e: React.KeyboardEvent) => {

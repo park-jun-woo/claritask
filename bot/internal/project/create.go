@@ -62,8 +62,8 @@ func Create(id, description string) types.Result {
 
 	now := db.TimeNow()
 	_, err = globalDB.Exec(`
-		INSERT INTO projects (id, name, path, description, status, created_at, updated_at)
-		VALUES (?, ?, ?, ?, 'active', ?, ?)
+		INSERT INTO projects (id, name, path, description, status, category, pinned, last_accessed, created_at, updated_at)
+		VALUES (?, ?, ?, ?, 'active', '', 0, '', ?, ?)
 	`, id, id, projectPath, description, now, now)
 	if err != nil {
 		os.RemoveAll(projectPath) // rollback

@@ -2,34 +2,104 @@
 
 ## Overview
 
-Claribot communicates with the CLI via HTTP API. The default port is `9847`.
+Claribot provides a RESTful HTTP API for CLI, Web UI, and Telegram integration. The default port is `9847`.
 
 - **Base URL**: `http://127.0.0.1:9847`
 - **Content-Type**: `application/json`
+- **Middleware**: CORS → Auth → Router
 
-## Request Format
+## Authentication
 
-### POST (Recommended)
+Remote (non-localhost) requests require authentication via JWT cookie. Localhost requests (`127.0.0.1`, `::1`) bypass authentication.
 
+### Auth Endpoints
+
+Auth endpoints are exempt from the auth middleware.
+
+#### POST /api/auth/setup
+
+Initial password setup. Called once when the system is first configured.
+
+**Request**:
 ```json
 {
-  "command": "project",
-  "subcommand": "list",
-  "args": ["arg1", "arg2"],
-  "flags": {
-    "page": 1,
-    "pageSize": 10
-  }
+  "password": "your-password",
+  "totp_code": "123456"
 }
 ```
 
-### GET (Backward Compatible)
-
+**Response** (first call - returns TOTP URI for QR setup):
+```json
+{
+  "totp_uri": "otpauth://totp/Claribot?secret=..."
+}
 ```
-GET /?args=project+list
+
+**Response** (second call with TOTP code - completes setup):
+```json
+{
+  "success": true
+}
+```
+Sets `auth_token` cookie on success.
+
+#### POST /api/auth/login
+
+Authenticate with password and TOTP code.
+
+**Request**:
+```json
+{
+  "password": "your-password",
+  "totp_code": "123456"
+}
+```
+
+**Response**:
+```json
+{
+  "success": true
+}
+```
+Sets `auth_token` cookie on success.
+
+#### GET /api/auth/status
+
+Check authentication status.
+
+**Response**:
+```json
+{
+  "setup_completed": true,
+  "authenticated": true
+}
+```
+
+#### POST /api/auth/logout
+
+Clear authentication cookie.
+
+**Response**:
+```json
+{
+  "success": true
+}
+```
+
+#### GET /api/auth/totp-setup
+
+Get TOTP setup URI for QR code generation.
+
+**Response**:
+```json
+{
+  "totp_uri": "otpauth://totp/Claribot?secret=..."
+}
 ```
 
 ## Response Format
+
+All RESTful endpoints return this structure:
 
 ```json
 {
@@ -38,7 +108,8 @@ GET /?args=project+list
   "data": { ... },
   "needs_input": false,
   "prompt": "",
-  "context": ""
+  "context": "",
+  "error_type": ""
 }
 ```
 
@@ -50,19 +121,114 @@ GET /?args=project+list
 | needs_input | bool | Whether additional input is required |
 | prompt | string | Input prompt (when needs_input=true) |
 | context | string | Context to include in the next request |
+| error_type | string | Error type identifier (e.g., `auth_error`) (optional) |
 
-## Commands
+## Pagination
 
-### Project
-
-Project management commands
-
-#### project list
+All list endpoints support pagination via query parameters:
 
 ```
-GET /?args=project+list
-POST { "command": "project", "subcommand": "list" }
+GET /api/projects?page=2&page_size=20
+GET /api/tasks?all=true
 ```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| page | int | 1 | Page number (starts from 1) |
+| page_size | int | 10 | Items per page |
+| all | bool | false | Fetch all items (ignores pagination) |
+
+**Response wrapper**:
+```json
+{
+  "items": [...],
+  "page": 1,
+  "page_size": 10,
+  "total_items": 25,
+  "total_pages": 3,
+  "has_next": true,
+  "has_prev": false
+}
+```
+
+---
+
+## Status & Usage
+
+### GET /api/status
+
+Get system status including Claude sessions, cycle status, and task statistics.
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "...",
+  "data": {
+    "max": 3,
+    "used": 1,
+    "available": 2,
+    "sessions": 1
+  },
+  "cycle_status": {
+    "status": "idle",
+    "type": "cycle",
+    "project_id": "myproject",
+    "started_at": "2025-01-01T00:00:00Z",
+    "elapsed_sec": 120,
+    "current_task_id": 5,
+    "active_workers": 2,
+    "phase": "running",
+    "target_total": 10,
+    "completed": 3
+  },
+  "cycle_statuses": [...],
+  "task_stats": {
+    "total": 50,
+    "leaf": 25,
+    "todo": 10,
+    "planned": 5,
+    "done": 30,
+    "failed": 1
+  }
+}
+```
+
+### GET /api/usage
+
+Get Claude API usage statistics.
+
+**Response**:
+```json
+{
+  "success": true,
+  "message": "formatted stats output",
+  "live": "live usage output",
+  "updated_at": "2025-01-01T00:00:00Z"
+}
+```
+
+### POST /api/usage/refresh
+
+Trigger async refresh of live usage data.
+
+**Response**: `202 Accepted`
+```json
+{
+  "success": true,
+  "message": "Usage refresh started"
+}
+```
+
+---
+
+## Projects
+
+### GET /api/projects
+
+List all projects (paginated).
+
+**Query Parameters**: `page`, `page_size`, `all`
 
 **Response Data**:
 ```json
@@ -71,7 +237,6 @@ POST { "command": "project", "subcommand": "list" }
     {
       "id": "myproject",
       "path": "/path/to/project",
-      "type": "go",
       "description": "My Project"
     }
   ],
@@ -81,139 +246,199 @@ POST { "command": "project", "subcommand": "list" }
 }
 ```
 
-#### project add
+### POST /api/projects
 
-```
-POST { "command": "project", "subcommand": "add", "args": ["/path/to/project", "go", "Description"] }
-```
+Create a new project.
 
-#### project create
-
-```
-POST { "command": "project", "subcommand": "create", "args": ["project-id", "go", "Description"] }
-```
-
-#### project switch
-
-```
-POST { "command": "project", "subcommand": "switch", "args": ["project-id"] }
+**Request**:
+```json
+{
+  "id": "project-id",
+  "path": "/path/to/project",
+  "description": "Project description"
+}
 ```
 
-#### project get
+### GET /api/projects/stats
 
+Get task statistics for all projects.
+
+**Response Data**:
+```json
+{
+  "stats": [
+    {
+      "project_id": "myproject",
+      "total": 20,
+      "done": 15,
+      "todo": 3,
+      "planned": 1,
+      "running": 1
+    }
+  ]
+}
 ```
-POST { "command": "project", "subcommand": "get", "args": ["project-id"] }
+
+### GET /api/projects/{id}
+
+Get specific project details.
+
+### PATCH /api/projects/{id}
+
+Update project fields.
+
+**Request** (field/value format):
+```json
+{
+  "field": "parallel",
+  "value": "2"
+}
 ```
 
-#### project delete
-
+**Request** (direct format):
+```json
+{
+  "description": "New description",
+  "parallel": 2
+}
 ```
-POST { "command": "project", "subcommand": "delete", "args": ["project-id", "yes"] }
-```
 
-### Task
+**Supported Fields** (single field format):
+- `description`: Project description
+- `parallel`: Number of concurrent Claude instances
+- `category`: Project category
+- `pinned`: Pin/unpin project
 
-Task management commands. Requires a project to be selected.
+### DELETE /api/projects/{id}
 
-#### task list
+Delete a project.
 
-```
-POST { "command": "task", "subcommand": "list", "flags": { "page": 1 } }
-```
+### POST /api/projects/{id}/switch
+
+Switch to a project (set as active context). All subsequent project-scoped API calls use this context.
+
+---
+
+## Tasks
+
+Task endpoints require a project to be selected.
+
+### GET /api/tasks
+
+List tasks (supports tree view and flat list with pagination).
 
 **Query Parameters**:
-- `parent_id` (int, optional): Parent Task ID
-- `-p` (int): Page number
-- `-n` (int): Page size
 
-#### task add
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| tree | bool | Return full task tree structure |
+| parent_id | int | Filter by parent task ID |
+| page | int | Page number |
+| page_size | int | Items per page |
+| all | bool | Fetch all items |
 
+### POST /api/tasks
+
+Create a new task.
+
+**Request**:
+```json
+{
+  "title": "Task title",
+  "parent_id": 1,
+  "spec": "Task specification"
+}
 ```
-POST { "command": "task", "subcommand": "add", "args": ["Task Title", "--parent", "1"] }
+
+**Response**: `201 Created`
+
+### GET /api/tasks/{id}
+
+Get specific task details (includes spec, plan, report).
+
+### PATCH /api/tasks/{id}
+
+Update task fields.
+
+**Request**:
+```json
+{
+  "field": "status",
+  "value": "done"
+}
 ```
 
-#### task get
-
-```
-POST { "command": "task", "subcommand": "get", "args": ["1"] }
-```
-
-#### task set
-
-```
-POST { "command": "task", "subcommand": "set", "args": ["1", "status", "done"] }
-```
-
-**Fields**:
+**Updatable Fields**:
 - `title`: Title
-- `status`: Status (todo, in_progress, done)
-- `description`: Description
+- `spec`: Specification
+- `plan`: Execution plan
+- `report`: Execution report
+- `status`: Status (`todo`, `planned`, `split`, `done`, `failed`)
+- `priority`: Execution order priority (integer)
 
-#### task delete
+### DELETE /api/tasks/{id}
 
+Delete a task.
+
+### POST /api/tasks/{id}/plan
+
+Generate a plan for a single task using Claude.
+
+### POST /api/tasks/{id}/run
+
+Execute a single task using Claude.
+
+### POST /api/tasks/plan-all
+
+Generate plans for all eligible tasks.
+
+### POST /api/tasks/run-all
+
+Execute all eligible tasks.
+
+### POST /api/tasks/cycle
+
+Run full cycle (plan + run) for all tasks.
+
+### POST /api/tasks/stop
+
+Stop currently running task traversal.
+
+---
+
+## Messages
+
+### GET /api/messages
+
+List all messages (paginated).
+
+**Query Parameters**: `page`, `page_size`, `all`
+
+### POST /api/messages
+
+Send a message to Claude.
+
+**Request**:
+```json
+{
+  "content": "Message content",
+  "source": "gui"
+}
 ```
-POST { "command": "task", "subcommand": "delete", "args": ["1", "yes"] }
-```
 
-#### task plan
-
-Generate a Task plan using Claude
-
-```
-POST { "command": "task", "subcommand": "plan", "args": ["1"] }
-POST { "command": "task", "subcommand": "plan", "args": ["--all"] }
-```
-
-#### task run
-
-Execute a Task using Claude
-
-```
-POST { "command": "task", "subcommand": "run", "args": ["1"] }
-POST { "command": "task", "subcommand": "run", "args": ["--all"] }
-```
-
-#### task cycle
-
-Full Task traversal (plan + run)
-
-```
-POST { "command": "task", "subcommand": "cycle" }
-```
-
-### Message
-
-Message management commands
-
-#### message send
-
-Send a message to Claude
-
-```
-POST { "command": "message", "subcommand": "send", "args": ["telegram", "Hello Claude"] }
-```
-
-**Source**:
+**Source values**:
 - `telegram`: Sent from Telegram
-- `cli`: Sent from CLI (default)
+- `cli`: Sent from CLI
+- `gui`: Sent from Web UI
+- `api`: Default (when source is omitted)
 
-#### message list
+### GET /api/messages/{id}
 
-```
-POST { "command": "message", "subcommand": "list", "flags": { "page": 1 } }
-```
+Get specific message details.
 
-#### message get
+### GET /api/messages/status
 
-```
-POST { "command": "message", "subcommand": "get", "args": ["1"] }
-```
-
-#### message status
-
-```
-POST { "command": "message", "subcommand": "status" }
-```
+Get message queue status.
 
 **Response Data**:
 ```json
@@ -226,112 +451,212 @@ POST { "command": "message", "subcommand": "status" }
 }
 ```
 
-### Schedule
+### GET /api/messages/processing
 
-Schedule management commands
+Get the currently processing message.
 
-#### schedule add
+---
 
-```
-POST { "command": "schedule", "subcommand": "add", "args": ["0 9 * * *", "Daily task", "--project", "myproject", "--once"] }
-```
+## Configs
 
-**Flags**:
-- `--project <id>`: Specify project (optional)
-- `--once`: Auto-disable after single execution
+Global configuration key-value store.
 
-#### schedule list
+### GET /api/configs
 
-```
-POST { "command": "schedule", "subcommand": "list", "args": ["--all"] }
-```
+List all config key-value pairs.
 
-#### schedule get
+### GET /api/configs/{key}
 
-```
-POST { "command": "schedule", "subcommand": "get", "args": ["1"] }
-```
+Get specific config value.
 
-#### schedule enable/disable
+### PUT /api/configs/{key}
 
-```
-POST { "command": "schedule", "subcommand": "enable", "args": ["1"] }
-POST { "command": "schedule", "subcommand": "disable", "args": ["1"] }
-```
+Set a config value.
 
-#### schedule delete
-
-```
-POST { "command": "schedule", "subcommand": "delete", "args": ["1", "yes"] }
-```
-
-#### schedule runs
-
-Query execution history
-
-```
-POST { "command": "schedule", "subcommand": "runs", "args": ["1"], "flags": { "page": 1 } }
-```
-
-#### schedule run
-
-Query a specific execution record
-
-```
-POST { "command": "schedule", "subcommand": "run", "args": ["run_id"] }
-```
-
-#### schedule set
-
-```
-POST { "command": "schedule", "subcommand": "set", "args": ["1", "project", "myproject"] }
-```
-
-### Status
-
-Query system status
-
-```
-POST { "command": "status" }
-GET /?args=status
-```
-
-**Response Data**:
+**Request**:
 ```json
 {
-  "max": 3,
-  "used": 1,
-  "available": 2,
-  "sessions": 1
+  "value": "config-value"
 }
 ```
 
-## Error Codes
+### DELETE /api/configs/{key}
+
+Delete a config entry.
+
+### GET /api/config-yaml
+
+Get raw config YAML file content.
+
+### PUT /api/config-yaml
+
+Update raw config YAML file.
+
+**Request**:
+```json
+{
+  "content": "key1: value1\nkey2: value2"
+}
+```
+
+---
+
+## Schedules
+
+### GET /api/schedules
+
+List schedules (filtered by current project context).
+
+**Query Parameters**:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| all | bool | Show schedules from all projects |
+| project_id | string | Filter by project ID |
+
+### POST /api/schedules
+
+Create a new schedule.
+
+**Request**:
+```json
+{
+  "cron_expr": "0 9 * * *",
+  "message": "Daily task",
+  "type": "claude",
+  "project_id": "myproject",
+  "run_once": false
+}
+```
+
+| Field | Type | Default | Description |
+|-------|------|---------|-------------|
+| cron_expr | string | required | Cron expression |
+| message | string | required | Command/message to execute |
+| type | string | `"claude"` | Execution type: `claude` (Claude Code) or `bash` (shell command) |
+| project_id | string | current | Target project (defaults to active project) |
+| run_once | bool | false | Auto-disable after single execution |
+
+**Response**: `201 Created`
+
+### GET /api/schedules/{id}
+
+Get specific schedule details.
+
+### PATCH /api/schedules/{id}
+
+Update schedule fields.
+
+**Request**:
+```json
+{
+  "field": "project",
+  "value": "new-project-id"
+}
+```
+
+**Updatable Fields**:
+- `project`: Assign schedule to a project (use empty string or `"none"` to unassign)
+
+### DELETE /api/schedules/{id}
+
+Delete a schedule.
+
+### POST /api/schedules/{id}/enable
+
+Enable a schedule.
+
+### POST /api/schedules/{id}/disable
+
+Disable a schedule.
+
+### GET /api/schedules/{id}/runs
+
+List execution history for a schedule (paginated).
+
+### GET /api/schedule-runs/{runId}
+
+Get a specific execution record.
+
+---
+
+## Specs
+
+Specification management for project requirements. Requires a project to be selected.
+
+### GET /api/specs
+
+List all specifications (paginated).
+
+**Query Parameters**: `page`, `page_size`, `all`
+
+### POST /api/specs
+
+Create a new specification.
+
+**Request**:
+```json
+{
+  "title": "Specification title",
+  "content": "Specification content"
+}
+```
+
+**Response**: `201 Created`
+
+### GET /api/specs/{id}
+
+Get specific specification details.
+
+### PATCH /api/specs/{id}
+
+Update specification fields.
+
+**Request**:
+```json
+{
+  "field": "content",
+  "value": "Updated content"
+}
+```
+
+**Updatable Fields**:
+- `title`: Specification title
+- `content`: Specification content
+- `status`: Status (`draft`, `review`, `approved`, `deprecated`)
+- `priority`: Priority (integer)
+
+### DELETE /api/specs/{id}
+
+Delete a specification.
+
+---
+
+## Legacy API
+
+For backward compatibility, the old command-style API is still available:
+
+```
+GET /?args=project+list
+POST /api { "command": "project", "subcommand": "list" }
+GET /api/health
+```
+
+These endpoints are used by the CLI (`clari`) and Telegram handler.
+
+---
+
+## Error Handling
 
 | HTTP Status | Description |
 |-------------|-------------|
 | 200 | Success |
+| 201 | Resource created |
+| 202 | Async operation accepted |
 | 400 | Bad request (success=false) |
-
-## Pagination
-
-List commands support pagination
-
-**Flags**:
-- `-p <page>`: Page number (starts from 1)
-- `-n <size>`: Page size (default: 10)
-
-**Response**:
-```json
-{
-  "page": 1,
-  "page_size": 10,
-  "total_items": 25,
-  "total_pages": 3,
-  "has_next": true,
-  "has_prev": false
-}
-```
+| 401 | Authentication required |
+| 405 | Method not allowed |
+| 500 | Internal server error |
 
 ## HTTP Timeout Settings
 

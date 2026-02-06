@@ -1,17 +1,17 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
-import { Layers, Wifi, WifiOff, Menu, LogOut, ChevronDown, FolderOpen } from 'lucide-react'
+import { Layers, Wifi, WifiOff, Menu, LogOut } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet'
 import { globalNavItems, projectNavItems } from '@/components/layout/Sidebar'
-import { useStatus, useHealth, useProjects, useSwitchProject } from '@/hooks/useClaribot'
+import { useStatus, useHealth } from '@/hooks/useClaribot'
 import { useLogout } from '@/hooks/useAuth'
+import { ProjectSelector } from '@/components/ProjectSelector'
 
 export function Header() {
   const [drawerOpen, setDrawerOpen] = useState(false)
-  const [showProjects, setShowProjects] = useState(false)
   const location = useLocation()
 
   // Close drawer on navigation
@@ -19,18 +19,8 @@ export function Header() {
     setDrawerOpen(false)
   }, [location.pathname])
 
-  // Close project dropdown on outside click
-  useEffect(() => {
-    if (!showProjects) return
-    const handler = () => setShowProjects(false)
-    document.addEventListener('click', handler)
-    return () => document.removeEventListener('click', handler)
-  }, [showProjects])
-
   const { data: status } = useStatus()
   const { data: healthData } = useHealth()
-  const { data: projects } = useProjects()
-  const switchProject = useSwitchProject()
   const logout = useLogout()
 
   const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
@@ -40,22 +30,6 @@ export function Header() {
 
   // Parse current project from status message (📌 project-id — ...)
   const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
-
-  // Parse project list from data
-  const projectList: { id: string; description: string }[] = []
-  if (projects?.data) {
-    const data = projects.data as any
-    if (Array.isArray(data)) {
-      data.forEach((p: any) => projectList.push({ id: p.id || p.ID, description: p.description || p.Description || '' }))
-    } else if (data.items && Array.isArray(data.items)) {
-      data.items.forEach((p: any) => projectList.push({ id: p.id || p.ID, description: p.description || p.Description || '' }))
-    }
-  }
-
-  const handleSwitch = (id: string) => {
-    switchProject.mutate(id)
-    setShowProjects(false)
-  }
 
   return (
     <header className="sticky top-0 z-50 w-full border-b bg-background/95 backdrop-blur supports-[backdrop-filter]:bg-background/60">
@@ -135,44 +109,7 @@ export function Header() {
         </Link>
 
         {/* Project Selector */}
-        <div className="relative ml-2" onClick={e => e.stopPropagation()}>
-          <Button
-            variant="outline"
-            size="sm"
-            className="gap-1 h-8"
-            onClick={() => setShowProjects(!showProjects)}
-          >
-            <FolderOpen className="h-4 w-4" />
-            <span className="hidden sm:inline max-w-[100px] truncate">{currentProject}</span>
-            <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
-          </Button>
-          {showProjects && (
-            <div className="absolute top-full mt-1 left-0 z-50 min-w-[150px] rounded-md border bg-popover p-1 shadow-md">
-              <button
-                className={cn(
-                  "w-full text-left px-2 py-2 text-xs rounded-sm hover:bg-accent truncate",
-                  currentProject === 'GLOBAL' && "bg-accent"
-                )}
-                onClick={() => handleSwitch('none')}
-              >
-                GLOBAL
-              </button>
-              {projectList.map(p => (
-                <button
-                  key={p.id}
-                  className={cn(
-                    "w-full text-left px-2 py-2 text-xs rounded-sm hover:bg-accent truncate",
-                    currentProject === p.id && "bg-accent"
-                  )}
-                  onClick={() => handleSwitch(p.id)}
-                  title={p.description || p.id}
-                >
-                  {p.id}
-                </button>
-              ))}
-            </div>
-          )}
-        </div>
+        <ProjectSelector />
 
         {/* Global Navigation - desktop only */}
         <nav className="hidden md:flex items-center gap-1 ml-4">

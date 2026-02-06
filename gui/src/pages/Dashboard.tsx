@@ -1,19 +1,30 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules, useTaskCycle } from '@/hooks/useClaribot'
+import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules, useTaskCycle, useTaskStop, useProjects } from '@/hooks/useClaribot'
 import { useNavigate } from 'react-router-dom'
-import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw, Pencil, ListTodo, Play, ArrowRight } from 'lucide-react'
+import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw, Pencil, ListTodo, Play, ArrowRight, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ProjectStats, StatusResponse } from '@/types'
 
 export default function Dashboard() {
   const { data: status } = useStatus() as { data: StatusResponse | undefined }
   const { data: statsData } = useProjectStats()
+  const { data: projectsData } = useProjects()
   const { data: messagesData } = useMessages()
   const { data: schedulesData } = useSchedules()
   const switchProject = useSwitchProject()
   const taskCycle = useTaskCycle()
+  const taskStop = useTaskStop()
   const navigate = useNavigate()
+
+  // Create category map from projects data
+  const categoryMap = new Map<string, string>()
+  const projectItems = parseItems(projectsData?.data)
+  projectItems.forEach((p: any) => {
+    const id = p.id || p.ID
+    const cat = p.category || p.Category || ''
+    if (cat) categoryMap.set(id, cat)
+  })
 
   // Parse status
   const claudeMatch = status?.message?.match(/Claude: (\d+)\/(\d+)/)
@@ -161,25 +172,28 @@ export default function Dashboard() {
               const leafDone = s.done
               const leafTotal = s.leaf || 1
               const progress = leafTotal > 0 ? Math.round((leafDone / leafTotal) * 100) : 0
-              const isRunning = cycleStatus?.status === 'running' && cycleStatus?.project_id === p.project_id
+              const isRunning = status?.cycle_statuses?.some(
+                c => c.status === 'running' && c.project_id === p.project_id
+              ) || (cycleStatus?.status === 'running' && cycleStatus?.project_id === p.project_id)
+              const category = categoryMap.get(p.project_id)
               return (
                 <Card
                   key={p.project_id}
                   className="hover:border-primary/50 transition-colors"
                 >
                   <CardHeader className="pb-2">
-                    <CardTitle className="text-base flex items-center justify-between">
-                      <span className="flex items-center gap-2 truncate">
-                        {isRunning ? (
-                          <RefreshCw className="h-4 w-4 text-green-500 animate-spin shrink-0" />
-                        ) : (
-                          <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
-                        )}
-                        <span className="truncate">{p.project_name || p.project_id}</span>
-                      </span>
-                      <Badge variant="outline" className="ml-2 shrink-0 text-xs">
-                        {s.total} tasks
-                      </Badge>
+                    <CardTitle className="text-base flex items-center gap-2">
+                      {isRunning ? (
+                        <RefreshCw className="h-4 w-4 text-green-500 animate-spin shrink-0" />
+                      ) : (
+                        <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                      )}
+                      <span className="truncate">{p.project_name || p.project_id}</span>
+                      {category && (
+                        <Badge variant="outline" className="text-[10px] shrink-0">
+                          {category}
+                        </Badge>
+                      )}
                     </CardTitle>
                     {p.project_description && (
                       <p className="text-xs text-muted-foreground truncate">{p.project_description}</p>
@@ -225,6 +239,15 @@ export default function Dashboard() {
                         variant="outline"
                         size="sm"
                         className="flex-1 h-8 text-xs"
+                        onClick={() => navigate(`/projects/${p.project_id}/edit`)}
+                      >
+                        <Pencil className="h-3 w-3 mr-1" />
+                        Edit
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        className="flex-1 h-8 text-xs"
                         onClick={() => {
                           switchProject.mutate(p.project_id, {
                             onSuccess: () => navigate('/tasks'),
@@ -234,28 +257,31 @@ export default function Dashboard() {
                         <ListTodo className="h-3 w-3 mr-1" />
                         Tasks
                       </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 h-8 text-xs"
-                        onClick={() => {
-                          switchProject.mutate(p.project_id, {
-                            onSuccess: () => taskCycle.mutate(),
-                          })
-                        }}
-                      >
-                        <Play className="h-3 w-3 mr-1" />
-                        Cycle
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        className="flex-1 h-8 text-xs"
-                        onClick={() => navigate(`/projects/${p.project_id}/edit`)}
-                      >
-                        <Pencil className="h-3 w-3 mr-1" />
-                        Edit
-                      </Button>
+                      {isRunning ? (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-8 text-xs"
+                          onClick={() => taskStop.mutate()}
+                        >
+                          <Square className="h-3 w-3 mr-1" />
+                          Stop
+                        </Button>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="flex-1 h-8 text-xs"
+                          onClick={() => {
+                            switchProject.mutate(p.project_id, {
+                              onSuccess: () => taskCycle.mutate(),
+                            })
+                          }}
+                        >
+                          <Play className="h-3 w-3 mr-1" />
+                          Cycle
+                        </Button>
+                      )}
                     </div>
                   </CardContent>
                 </Card>

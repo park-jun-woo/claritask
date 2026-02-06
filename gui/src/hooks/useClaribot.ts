@@ -159,6 +159,17 @@ export function useTaskCycle() {
   })
 }
 
+export function useTaskStop() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: () => taskAPI.stop(),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['tasks'] })
+      qc.invalidateQueries({ queryKey: ['status'] })
+    },
+  })
+}
+
 // --- Messages ---
 export function useMessages(all = true) {
   return useQuery({
@@ -188,7 +199,8 @@ export function useMessageStatus() {
 export function useSendMessage() {
   const qc = useQueryClient()
   return useMutation({
-    mutationFn: (content: string) => messageAPI.send(content),
+    mutationFn: ({ content, projectId }: { content: string; projectId?: string }) =>
+      messageAPI.send(content, projectId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ['messages'] })
       qc.invalidateQueries({ queryKey: ['messageStatus'] })

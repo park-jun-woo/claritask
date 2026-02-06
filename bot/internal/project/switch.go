@@ -20,10 +20,11 @@ func Switch(id string) types.Result {
 	defer globalDB.Close()
 
 	var p Project
+	var pinned int
 	err = globalDB.QueryRow(`
-		SELECT id, name, path, description, status, created_at, updated_at
+		SELECT id, name, path, description, status, category, pinned, last_accessed, created_at, updated_at
 		FROM projects WHERE id = ?
-	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.CreatedAt, &p.UpdatedAt)
+	`, id).Scan(&p.ID, &p.Name, &p.Path, &p.Description, &p.Status, &p.Category, &pinned, &p.LastAccessed, &p.CreatedAt, &p.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -37,6 +38,12 @@ func Switch(id string) types.Result {
 			Message: fmt.Sprintf("failed to query project: %v", err),
 		}
 	}
+	p.Pinned = pinned == 1
+
+	// Update last_accessed
+	now := db.TimeNow()
+	globalDB.Exec(`UPDATE projects SET last_accessed = ? WHERE id = ?`, now, id)
+	p.LastAccessed = now
 
 	msg := fmt.Sprintf("프로젝트 선택됨: %s\nPath: %s\n  [삭제:project delete %s]", p.ID, p.Path, p.ID)
 

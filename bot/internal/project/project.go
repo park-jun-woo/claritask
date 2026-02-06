@@ -7,14 +7,17 @@ import (
 
 // Project represents a project
 type Project struct {
-	ID          string `json:"id"`
-	Name        string `json:"name"`
-	Path        string `json:"path"`
-	Description string `json:"description"`
-	Status      string `json:"status"`
-	Parallel    int    `json:"parallel"`
-	CreatedAt   string `json:"created_at"`
-	UpdatedAt   string `json:"updated_at"`
+	ID           string `json:"id"`
+	Name         string `json:"name"`
+	Path         string `json:"path"`
+	Description  string `json:"description"`
+	Status       string `json:"status"`
+	Parallel     int    `json:"parallel"`
+	Category     string `json:"category"`
+	Pinned       bool   `json:"pinned"`
+	LastAccessed string `json:"last_accessed"`
+	CreatedAt    string `json:"created_at"`
+	UpdatedAt    string `json:"updated_at"`
 }
 
 // DefaultPath is the default project creation path

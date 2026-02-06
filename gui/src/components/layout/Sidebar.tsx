@@ -36,6 +36,8 @@ export const globalNavItems = [
 export const projectNavItems = [
   { to: '/specs', icon: BookOpen, label: 'Specs' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
+  { to: '/messages', icon: MessageSquare, label: 'Messages' },
+  { to: '/schedules', icon: Clock, label: 'Schedules' },
 ]
 
 // Combined for Header mobile menu

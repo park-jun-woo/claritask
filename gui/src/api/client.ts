@@ -150,8 +150,13 @@ export const taskAPI = {
 // --- Message API ---
 
 export const messageAPI = {
-  list: (all = false) =>
-    apiGet(`/messages${all ? '?all=true' : ''}`),
+  list: (all = false, projectId?: string) => {
+    const params = new URLSearchParams()
+    if (all) params.set('all', 'true')
+    if (projectId) params.set('project_id', projectId)
+    const qs = params.toString()
+    return apiGet(`/messages${qs ? '?' + qs : ''}`)
+  },
   get: (id: number | string) =>
     apiGet(`/messages/${id}`),
   send: (content: string, projectId?: string) =>
@@ -165,8 +170,13 @@ export const messageAPI = {
 // --- Schedule API ---
 
 export const scheduleAPI = {
-  list: (all = false) =>
-    apiGet(`/schedules${all ? '?all=true' : ''}`),
+  list: (all = false, projectId?: string) => {
+    const params = new URLSearchParams()
+    if (all) params.set('all', 'true')
+    if (projectId) params.set('project_id', projectId)
+    const qs = params.toString()
+    return apiGet(`/schedules${qs ? '?' + qs : ''}`)
+  },
   get: (id: number | string) =>
     apiGet(`/schedules/${id}`),
   add: (cronExpr: string, message: string, projectId?: string, once = false, type: 'claude' | 'bash' = 'claude') =>

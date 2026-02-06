@@ -495,10 +495,10 @@ func (r *Router) handleMessage(ctx *Context, cmd string, args []string) types.Re
 		return message.Send(projectPath, content, source)
 	case "list":
 		page, pageSize := r.parsePagination(args)
-		return message.List(projectPath, pagination.NewPageRequest(page, pageSize))
+		return message.List(nil, true, pagination.NewPageRequest(page, pageSize))
 	case "get":
 		if len(args) < 1 {
-			return message.List(projectPath, pagination.NewPageRequest(1, r.pageSize))
+			return message.List(nil, true, pagination.NewPageRequest(1, r.pageSize))
 		}
 		return message.Get(projectPath, args[0])
 	case "status":

@@ -10,8 +10,8 @@ import (
 	"parkjunwoo.com/claribot/pkg/pagination"
 )
 
-// List lists messages with pagination
-func List(projectPath string, req pagination.PageRequest) types.Result {
+// List lists messages with pagination, optionally filtered by project
+func List(projectID *string, showAll bool, req pagination.PageRequest) types.Result {
 	globalDB, err := db.OpenGlobal()
 	if err != nil {
 		return types.Result{
@@ -21,9 +21,17 @@ func List(projectPath string, req pagination.PageRequest) types.Result {
 	}
 	defer globalDB.Close()
 
+	// Build WHERE clause for project filtering
+	where := ""
+	var filterArgs []any
+	if !showAll && projectID != nil {
+		where = " WHERE project_id = ?"
+		filterArgs = append(filterArgs, *projectID)
+	}
+
 	// Count total
 	var total int
-	if err := globalDB.QueryRow(`SELECT COUNT(*) FROM messages`).Scan(&total); err != nil {
+	if err := globalDB.QueryRow(`SELECT COUNT(*) FROM messages`+where, filterArgs...).Scan(&total); err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("카운트 실패: %v", err),
@@ -37,12 +45,13 @@ func List(projectPath string, req pagination.PageRequest) types.Result {
 		}
 	}
 
+	queryArgs := append(filterArgs, req.Limit(), req.Offset())
 	rows, err := globalDB.Query(`
-		SELECT id, content, source, status, created_at
-		FROM messages
+		SELECT id, project_id, content, source, status, created_at
+		FROM messages`+where+`
 		ORDER BY id DESC
 		LIMIT ? OFFSET ?
-	`, req.Limit(), req.Offset())
+	`, queryArgs...)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -54,7 +63,7 @@ func List(projectPath string, req pagination.PageRequest) types.Result {
 	var messages []Message
 	for rows.Next() {
 		var m Message
-		if err := rows.Scan(&m.ID, &m.Content, &m.Source, &m.Status, &m.CreatedAt); err != nil {
+		if err := rows.Scan(&m.ID, &m.ProjectID, &m.Content, &m.Source, &m.Status, &m.CreatedAt); err != nil {
 			return types.Result{
 				Success: false,
 				Message: fmt.Sprintf("스캔 실패: %v", err),

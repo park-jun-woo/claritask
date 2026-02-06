@@ -6,7 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet'
 import { globalNavItems, projectNavItems } from '@/components/layout/Sidebar'
-import { useStatus, useHealth } from '@/hooks/useClaribot'
+import { useStatus, useHealth, useSwitchProject } from '@/hooks/useClaribot'
 import { useLogout } from '@/hooks/useAuth'
 import { ProjectSelector } from '@/components/ProjectSelector'
 
@@ -22,6 +22,7 @@ export function Header() {
   const { data: status } = useStatus()
   const { data: healthData } = useHealth()
   const logout = useLogout()
+  const switchProject = useSwitchProject()
 
   const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
   const claudeUsed = claudeInfo?.[1] || '0'
@@ -53,6 +54,11 @@ export function Header() {
                   key={to}
                   to={to}
                   end={to === '/'}
+                  onClick={() => {
+                    if (currentProject !== 'GLOBAL') {
+                      switchProject.mutate('none')
+                    }
+                  }}
                   className={({ isActive }) =>
                     cn(
                       "flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors",
@@ -118,6 +124,11 @@ export function Header() {
               key={to}
               to={to}
               end={to === '/'}
+              onClick={() => {
+                if (currentProject !== 'GLOBAL') {
+                  switchProject.mutate('none')
+                }
+              }}
               className={({ isActive }) =>
                 cn(
                   "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",

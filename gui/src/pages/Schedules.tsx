@@ -5,12 +5,19 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  useSchedules, useAddSchedule, useDeleteSchedule, useToggleSchedule, useScheduleRuns, useProjects
+  useSchedules, useAddSchedule, useDeleteSchedule, useToggleSchedule, useScheduleRuns, useProjects, useStatus
 } from '@/hooks/useClaribot'
 import { Plus, Trash2, Clock, History, Power, PowerOff, Bot, Terminal } from 'lucide-react'
 
 export default function Schedules() {
-  const { data: schedulesData } = useSchedules()
+  const { data: statusData } = useStatus()
+
+  // Get current project from status (📌 project-id — ...)
+  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1]
+  const isGlobal = !currentProject
+
+  // When global: show all schedules; when project selected: filter by project
+  const { data: schedulesData } = useSchedules(isGlobal, isGlobal ? undefined : currentProject)
   const { data: projectsData } = useProjects()
   const addSchedule = useAddSchedule()
   const deleteSchedule = useDeleteSchedule()
@@ -45,7 +52,14 @@ export default function Schedules() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-2xl md:text-3xl font-bold">Schedules</h1>
+        <div className="flex items-center gap-2">
+          <h1 className="text-2xl md:text-3xl font-bold">Schedules</h1>
+          {currentProject && (
+            <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded">
+              {currentProject}
+            </span>
+          )}
+        </div>
         <Button onClick={() => setShowAdd(!showAdd)} size="sm" className="min-h-[44px]">
           <Plus className="h-4 w-4 mr-1" /> Add Schedule
         </Button>

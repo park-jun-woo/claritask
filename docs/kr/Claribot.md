@@ -198,7 +198,7 @@ tasks (
     error TEXT DEFAULT '',
     is_leaf INTEGER DEFAULT 1,   -- 리프 노드 플래그
     depth INTEGER DEFAULT 0,     -- 트리 깊이
-    priority INTEGER DEFAULT 0,  -- 실행 순서 (낮을수록 먼저)
+    priority INTEGER DEFAULT 0,  -- 실행 순서 (높을수록 먼저)
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE

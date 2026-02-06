@@ -416,6 +416,25 @@ CREATE TABLE traversals (
 
 CREATE INDEX idx_traversals_type ON traversals(type);
 CREATE INDEX idx_traversals_status ON traversals(status);
+
+CREATE TABLE config (
+    key TEXT PRIMARY KEY,
+    value TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE TABLE specs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT DEFAULT '',
+    status TEXT DEFAULT 'draft'
+        CHECK(status IN ('draft', 'review', 'approved', 'deprecated')),
+    priority INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX idx_specs_status ON specs(status);
 ```
 
 ---
@@ -445,7 +464,7 @@ Both prompts include the Context Map and a report file path. The report file is 
 | `delete.go` | Task deletion with confirmation |
 | `stats.go` | GetStats - task statistics query (COALESCE for NULL safety) |
 | `plan.go` | Plan/PlanAll - 1st pass recursive splitting (sequential + parallel) |
-| `run.go` | Run/RunAll - 2nd pass execution (sequential + parallel), getParallel config |
+| `run.go` | Run/RunAll/RunWithContext - 2nd pass execution (sequential + parallel), getParallel config |
 | `cycle.go` | Cycle - full plan+run orchestration (maxCycleIterations=10) |
 | `cycle_state.go` | Per-project cycle state, CycleStatusInfo, GetCycleStatus/GetAllCycleStatuses |
 | `state.go` | Cancel flag and Stop/StopProject |
@@ -457,4 +476,4 @@ Both prompts include the Context Map and a report file path. The report file is 
 
 ---
 
-*Claribot Task System v0.6*
+*Claribot Task System v0.7*

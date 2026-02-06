@@ -435,9 +435,23 @@ func (r *Router) HandleStopTask(w http.ResponseWriter, req *http.Request) {
 
 // HandleListMessages handles GET /api/messages
 func (r *Router) HandleListMessages(w http.ResponseWriter, req *http.Request) {
-	// Messages are stored in global DB, no project path required
+	ctx := r.SnapshotContext()
+	showAll := req.URL.Query().Get("all") == "true"
 	page, pageSize := r.parsePage(req)
-	writeResult(w, message.List("", pagination.NewPageRequest(page, pageSize)))
+
+	var projectID *string
+	if !showAll && ctx.ProjectID != "" {
+		projectID = &ctx.ProjectID
+	}
+	// Override with explicit query param
+	if pid := req.URL.Query().Get("project_id"); pid != "" {
+		if pid == "none" {
+			projectID = nil
+		} else {
+			projectID = &pid
+		}
+	}
+	writeResult(w, message.List(projectID, showAll, pagination.NewPageRequest(page, pageSize)))
 }
 
 // HandleSendMessage handles POST /api/messages

@@ -3,6 +3,7 @@ package message
 // Message represents a user message
 type Message struct {
 	ID          int     `json:"id"`
+	ProjectID   *string `json:"project_id,omitempty"`
 	Content     string  `json:"content"`
 	Source      string  `json:"source"`
 	Status      string  `json:"status"`

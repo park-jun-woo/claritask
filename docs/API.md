@@ -189,7 +189,8 @@ Get system status including Claude sessions, cycle status, and task statistics.
     "todo": 10,
     "planned": 5,
     "done": 30,
-    "failed": 1
+    "failed": 1,
+    "in_progress": 2
   }
 }
 ```
@@ -265,18 +266,22 @@ Get task statistics for all projects.
 
 **Response Data**:
 ```json
-{
-  "stats": [
-    {
-      "project_id": "myproject",
+[
+  {
+    "project_id": "myproject",
+    "project_name": "My Project",
+    "project_description": "Project description",
+    "stats": {
       "total": 20,
-      "done": 15,
+      "leaf": 15,
       "todo": 3,
       "planned": 1,
-      "running": 1
+      "done": 10,
+      "failed": 0,
+      "in_progress": 1
     }
-  ]
-}
+  }
+]
 ```
 
 ### GET /api/projects/{id}

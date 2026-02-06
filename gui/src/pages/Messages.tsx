@@ -12,8 +12,14 @@ import { ChatBubble } from '@/components/ChatBubble'
 type MobileView = 'chat' | 'detail'
 
 export default function Messages() {
-  const { data: messagesData } = useMessages()
   const { data: statusData } = useStatus()
+
+  // Get current project from status (📌 project-id — ...)
+  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1]
+  const isGlobal = !currentProject
+
+  // When global: show all messages; when project selected: filter by project
+  const { data: messagesData } = useMessages(isGlobal, isGlobal ? undefined : currentProject)
   const sendMessage = useSendMessage()
   const [input, setInput] = useState('')
   const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null)
@@ -22,9 +28,6 @@ export default function Messages() {
 
   const { data: messageDetail } = useMessage(selectedMessageId ?? undefined)
   const selectedMessage = messageDetail?.data ?? null
-
-  // Get current project from status (📌 project-id — ...)
-  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1]
 
   const messageItems = parseItems(messagesData?.data)
 
@@ -110,6 +113,11 @@ export default function Messages() {
           <h1 className="text-lg font-semibold flex items-center gap-2">
             <MessageSquare className="h-5 w-5" />
             Messages
+            {currentProject && (
+              <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded">
+                {currentProject}
+              </span>
+            )}
           </h1>
         </div>
 

@@ -30,9 +30,9 @@ func Get(projectPath, idStr string) types.Result {
 	var m Message
 	var completedAt *string
 	err = globalDB.QueryRow(`
-		SELECT id, content, source, status, result, error, created_at, completed_at
+		SELECT id, project_id, content, source, status, result, error, created_at, completed_at
 		FROM messages WHERE id = ?
-	`, id).Scan(&m.ID, &m.Content, &m.Source, &m.Status, &m.Result, &m.Error, &m.CreatedAt, &completedAt)
+	`, id).Scan(&m.ID, &m.ProjectID, &m.Content, &m.Source, &m.Status, &m.Result, &m.Error, &m.CreatedAt, &completedAt)
 	if err != nil {
 		return types.Result{
 			Success: false,

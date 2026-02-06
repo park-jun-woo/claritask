@@ -58,6 +58,7 @@ export function useSwitchProject() {
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['task'] })
       qc.invalidateQueries({ queryKey: ['messages'] })
+      qc.invalidateQueries({ queryKey: ['schedules'] })
       qc.invalidateQueries({ queryKey: ['specs'] })
       qc.invalidateQueries({ queryKey: ['spec'] })
       qc.invalidateQueries({ queryKey: ['project'] })
@@ -171,10 +172,10 @@ export function useTaskStop() {
 }
 
 // --- Messages ---
-export function useMessages(all = true) {
+export function useMessages(all = true, projectId?: string) {
   return useQuery({
-    queryKey: ['messages', { all }],
-    queryFn: () => messageAPI.list(all),
+    queryKey: ['messages', { all, projectId }],
+    queryFn: () => messageAPI.list(all, projectId),
     refetchInterval: 10_000,
   })
 }
@@ -209,10 +210,10 @@ export function useSendMessage() {
 }
 
 // --- Schedules ---
-export function useSchedules(all = true) {
+export function useSchedules(all = true, projectId?: string) {
   return useQuery({
-    queryKey: ['schedules', { all }],
-    queryFn: () => scheduleAPI.list(all),
+    queryKey: ['schedules', { all, projectId }],
+    queryFn: () => scheduleAPI.list(all, projectId),
   })
 }
 

@@ -198,7 +198,7 @@ tasks (
     error TEXT DEFAULT '',
     is_leaf INTEGER DEFAULT 1,   -- Leaf node flag
     depth INTEGER DEFAULT 0,     -- Tree depth
-    priority INTEGER DEFAULT 0,  -- Execution order (lower = first)
+    priority INTEGER DEFAULT 0,  -- Execution order (higher = first)
     created_at TEXT NOT NULL,
     updated_at TEXT NOT NULL,
     FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE

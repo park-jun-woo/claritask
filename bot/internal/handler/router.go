@@ -13,6 +13,7 @@ import (
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
+	"parkjunwoo.com/claribot/internal/spec"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
@@ -164,6 +165,8 @@ func (r *Router) Execute(ctx *Context, input string) types.Result {
 		return r.handleProject(ctx, cmd, args)
 	case "task":
 		return r.handleTask(ctx, cmd, args)
+	case "spec":
+		return r.handleSpec(ctx, cmd, args)
 	case "message":
 		return r.handleMessage(ctx, cmd, args)
 	case "config":
@@ -809,5 +812,84 @@ func (r *Router) handleSchedule(ctx *Context, cmd string, args []string) types.R
 
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown schedule command: %s", cmd)}
+	}
+}
+
+func (r *Router) handleSpec(ctx *Context, cmd string, args []string) types.Result {
+	if cmd == "" {
+		return types.Result{
+			Success: true,
+			Message: "spec 명령어:\n[목록:spec list] [추가:spec add]\n[조회:spec get] [수정:spec set]\n[삭제:spec delete]",
+		}
+	}
+
+	if ctx.ProjectPath == "" {
+		return types.Result{Success: false, Message: "프로젝트를 먼저 선택하세요: /project switch <id>"}
+	}
+
+	switch cmd {
+	case "add":
+		if len(args) < 1 {
+			return types.Result{
+				Success:    true,
+				Message:    "스펙 제목을 입력하세요:",
+				NeedsInput: true,
+				Prompt:     "Title: ",
+				Context:    "spec add",
+			}
+		}
+		title := strings.Join(args, " ")
+		result := spec.Add(ctx.ProjectPath, title, "")
+		if result.Success {
+			if s, ok := result.Data.(*spec.Spec); ok {
+				result.Message += fmt.Sprintf("\n\n내용을 입력하세요 (건너뛰려면 /spec_list):")
+				result.NeedsInput = true
+				result.Prompt = "Content: "
+				result.Context = fmt.Sprintf("spec set %d content", s.ID)
+			}
+		}
+		return result
+	case "list":
+		page, pageSize := r.parsePagination(args)
+		return spec.List(ctx.ProjectPath, pagination.NewPageRequest(page, pageSize))
+	case "get":
+		if len(args) < 1 {
+			return spec.List(ctx.ProjectPath, pagination.NewPageRequest(1, r.pageSize))
+		}
+		return spec.Get(ctx.ProjectPath, args[0])
+	case "set":
+		if len(args) < 2 {
+			return types.Result{Success: false, Message: "usage: spec set <id> <field> <value>"}
+		}
+		// If field is "status" and no value, show status choice buttons
+		if args[1] == "status" && len(args) < 3 {
+			return types.Result{
+				Success: true,
+				Message: fmt.Sprintf("스펙 #%s 상태를 선택하세요:\n[📝 draft:spec set %s status draft][🔍 review:spec set %s status review]\n[✅ approved:spec set %s status approved][🗄️ deprecated:spec set %s status deprecated]",
+					args[0], args[0], args[0], args[0], args[0]),
+			}
+		}
+		if len(args) < 3 {
+			return types.Result{
+				Success:    true,
+				Message:    fmt.Sprintf("스펙 #%s의 %s 값을 입력하세요:", args[0], args[1]),
+				NeedsInput: true,
+				Prompt:     "Value: ",
+				Context:    fmt.Sprintf("spec set %s %s", args[0], args[1]),
+			}
+		}
+		value := strings.Join(args[2:], " ")
+		return spec.Set(ctx.ProjectPath, args[0], args[1], value)
+	case "delete":
+		if len(args) < 1 {
+			return types.Result{Success: false, Message: "usage: spec delete <id>"}
+		}
+		confirmed := len(args) > 1 && args[1] == "yes"
+		if len(args) > 1 && args[1] == "no" {
+			return types.Result{Success: true, Message: "삭제 취소됨"}
+		}
+		return spec.Delete(ctx.ProjectPath, args[0], confirmed)
+	default:
+		return types.Result{Success: false, Message: fmt.Sprintf("unknown spec command: %s", cmd)}
 	}
 }

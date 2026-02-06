@@ -84,6 +84,7 @@ func New(bot *telegram.Bot, router *handler.Router, allowedUsers []int64) *Handl
 		{Command: "status", Description: "현재 상태"},
 		{Command: "project", Description: "프로젝트 관리"},
 		{Command: "task", Description: "작업 관리"},
+		{Command: "spec", Description: "스펙 관리"},
 		{Command: "message", Description: "메시지 관리"},
 		{Command: "usage", Description: "Claude 사용량"},
 	})
@@ -215,6 +216,7 @@ func (h *Handler) cleanExpiredContexts() {
 // quickCommands are commands that don't require Claude execution (fast response)
 var quickCommands = []string{
 	"project", "task list", "task get", "task stop",
+	"spec",
 	"message list", "message get", "message status",
 	"schedule list", "schedule get", "schedule runs", "schedule run",
 	"status",

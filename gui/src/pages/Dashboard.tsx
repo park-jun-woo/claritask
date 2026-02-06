@@ -2,7 +2,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules, useTaskCycle } from '@/hooks/useClaribot'
 import { useNavigate } from 'react-router-dom'
-import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw, Pencil, ListTodo, Play } from 'lucide-react'
+import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw, Pencil, ListTodo, Play, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import type { ProjectStats, StatusResponse } from '@/types'
 
@@ -32,12 +32,6 @@ export default function Dashboard() {
 
   // Project stats from API
   const projects: ProjectStats[] = parseItems(statsData?.data)
-
-  const handleProjectClick = (projectId: string) => {
-    switchProject.mutate(projectId, {
-      onSuccess: () => navigate('/tasks'),
-    })
-  }
 
   return (
     <div className="space-y-6">
@@ -121,6 +115,37 @@ export default function Dashboard() {
         </Card>
       </div>
 
+      {/* Recent Messages */}
+      <Card>
+        <CardHeader className="flex flex-row items-center justify-between">
+          <CardTitle className="text-lg">Recent Messages</CardTitle>
+          <Button variant="ghost" size="sm" onClick={() => navigate('/messages')}>
+            <ArrowRight className="h-4 w-4" />
+          </Button>
+        </CardHeader>
+        <CardContent>
+          <div className="space-y-2">
+            {messageItems.slice(0, 5).map((msg: any, i: number) => {
+              const s = msg.status || msg.Status || 'pending'
+              const content = msg.content || msg.Content || ''
+              const source = msg.source || msg.Source || 'cli'
+              return (
+                <div key={i} className="flex items-center gap-2 text-sm">
+                  <Badge variant={s === 'done' ? 'success' : s === 'processing' ? 'warning' : 'secondary'} className="text-xs">
+                    {s}
+                  </Badge>
+                  <span className="text-xs text-muted-foreground">[{source}]</span>
+                  <span className="truncate flex-1">{content}</span>
+                </div>
+              )
+            })}
+            {messageItems.length === 0 && (
+              <p className="text-sm text-muted-foreground">No messages yet</p>
+            )}
+          </div>
+        </CardContent>
+      </Card>
+
       {/* Project Stats Board */}
       <div>
         <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
@@ -136,15 +161,22 @@ export default function Dashboard() {
               const leafDone = s.done
               const leafTotal = s.leaf || 1
               const progress = leafTotal > 0 ? Math.round((leafDone / leafTotal) * 100) : 0
+              const isRunning = cycleStatus?.status === 'running' && cycleStatus?.project_id === p.project_id
               return (
                 <Card
                   key={p.project_id}
-                  className="cursor-pointer hover:border-primary/50 transition-colors"
-                  onClick={() => handleProjectClick(p.project_id)}
+                  className="hover:border-primary/50 transition-colors"
                 >
                   <CardHeader className="pb-2">
                     <CardTitle className="text-base flex items-center justify-between">
-                      <span className="truncate">{p.project_name || p.project_id}</span>
+                      <span className="flex items-center gap-2 truncate">
+                        {isRunning ? (
+                          <RefreshCw className="h-4 w-4 text-green-500 animate-spin shrink-0" />
+                        ) : (
+                          <FolderOpen className="h-4 w-4 text-muted-foreground shrink-0" />
+                        )}
+                        <span className="truncate">{p.project_name || p.project_id}</span>
+                      </span>
                       <Badge variant="outline" className="ml-2 shrink-0 text-xs">
                         {s.total} tasks
                       </Badge>
@@ -193,8 +225,7 @@ export default function Dashboard() {
                         variant="outline"
                         size="sm"
                         className="flex-1 h-8 text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
+                        onClick={() => {
                           switchProject.mutate(p.project_id, {
                             onSuccess: () => navigate('/tasks'),
                           })
@@ -207,8 +238,7 @@ export default function Dashboard() {
                         variant="outline"
                         size="sm"
                         className="flex-1 h-8 text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
+                        onClick={() => {
                           switchProject.mutate(p.project_id, {
                             onSuccess: () => taskCycle.mutate(),
                           })
@@ -221,10 +251,7 @@ export default function Dashboard() {
                         variant="outline"
                         size="sm"
                         className="flex-1 h-8 text-xs"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          navigate(`/projects/${p.project_id}/edit`)
-                        }}
+                        onClick={() => navigate(`/projects/${p.project_id}/edit`)}
                       >
                         <Pencil className="h-3 w-3 mr-1" />
                         Edit
@@ -237,34 +264,6 @@ export default function Dashboard() {
           </div>
         )}
       </div>
-
-      {/* Recent Messages */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg">Recent Messages</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {messageItems.slice(0, 5).map((msg: any, i: number) => {
-              const s = msg.status || msg.Status || 'pending'
-              const content = msg.content || msg.Content || ''
-              const source = msg.source || msg.Source || 'cli'
-              return (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <Badge variant={s === 'done' ? 'success' : s === 'processing' ? 'warning' : 'secondary'} className="text-xs">
-                    {s}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">[{source}]</span>
-                  <span className="truncate flex-1">{content}</span>
-                </div>
-              )
-            })}
-            {messageItems.length === 0 && (
-              <p className="text-sm text-muted-foreground">No messages yet</p>
-            )}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }

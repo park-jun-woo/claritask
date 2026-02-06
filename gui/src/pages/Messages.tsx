@@ -37,9 +37,9 @@ export default function Messages() {
     isInitialLoad.current = false
   }, [sortedMessages.length])
 
-  const handleSend = async () => {
+  const handleSend = () => {
     if (!input.trim()) return
-    await sendMessage.mutateAsync(input.trim())
+    sendMessage.mutate(input.trim())
     setInput('')
   }
 
@@ -62,7 +62,7 @@ export default function Messages() {
   const groupedMessages = groupByDate(sortedMessages)
 
   return (
-    <div className="flex gap-0 md:gap-4 h-[calc(100vh-8rem)]">
+    <div className="flex gap-0 md:gap-4 flex-1 min-h-0 h-full overflow-hidden">
       {/* Left Panel: Chat Area */}
       <div className={`w-full md:w-1/2 flex flex-col border rounded-lg ${mobileView === 'detail' ? 'hidden md:flex' : 'flex'}`}>
         {/* Chat Header */}
@@ -148,7 +148,7 @@ export default function Messages() {
             <Button
               size="sm"
               onClick={handleSend}
-              disabled={sendMessage.isPending || !input.trim()}
+              disabled={!input.trim()}
               className="h-[52px] px-4 shrink-0"
             >
               <Send className="h-4 w-4" />
@@ -235,7 +235,7 @@ function MessageDetail({ message, onBack }: { message: any; onBack: () => void }
               <Separator />
               <div>
                 <h5 className="text-sm font-medium text-muted-foreground mb-1">Result</h5>
-                <div className="bg-muted rounded p-3 max-h-[600px] overflow-auto">
+                <div className="bg-muted rounded p-3">
                   <MarkdownRenderer content={result} />
                 </div>
               </div>
@@ -248,7 +248,7 @@ function MessageDetail({ message, onBack }: { message: any; onBack: () => void }
               <Separator />
               <div>
                 <h5 className="text-sm font-medium text-destructive mb-1">Error</h5>
-                <pre className="text-sm whitespace-pre-wrap bg-destructive/10 rounded p-3 max-h-[400px] overflow-auto text-destructive">
+                <pre className="text-sm whitespace-pre-wrap bg-destructive/10 rounded p-3 text-destructive">
                   {error}
                 </pre>
               </div>
@@ -264,6 +264,7 @@ function SourceBadge({ source }: { source: string }) {
   const icons: Record<string, string> = {
     telegram: '\uD83D\uDCE8',
     cli: '\uD83D\uDCBB',
+    gui: '\uD83D\uDDA5\uFE0F',
     schedule: '\u23F0',
   }
   return (

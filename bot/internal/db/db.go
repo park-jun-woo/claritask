@@ -141,7 +141,7 @@ CREATE TABLE IF NOT EXISTS messages (
     project_id TEXT,
     content TEXT NOT NULL,
     source TEXT DEFAULT ''
-        CHECK(source IN ('', 'telegram', 'cli', 'schedule')),
+        CHECK(source IN ('', 'telegram', 'cli', 'gui', 'schedule')),
     status TEXT DEFAULT 'pending'
         CHECK(status IN ('pending', 'processing', 'done', 'failed')),
     result TEXT DEFAULT '',
@@ -214,6 +214,37 @@ CREATE TABLE IF NOT EXISTS auth (
 		}
 	}
 
+	// Check if messages table needs 'gui' source type migration
+	var msgInfo string
+	err = db.QueryRow(`SELECT sql FROM sqlite_master WHERE type='table' AND name='messages'`).Scan(&msgInfo)
+	if err == nil && !strings.Contains(msgInfo, "'gui'") {
+		recreateMessages := []string{
+			`CREATE TABLE IF NOT EXISTS messages_new (
+				id INTEGER PRIMARY KEY AUTOINCREMENT,
+				project_id TEXT,
+				content TEXT NOT NULL,
+				source TEXT DEFAULT ''
+					CHECK(source IN ('', 'telegram', 'cli', 'gui', 'schedule')),
+				status TEXT DEFAULT 'pending'
+					CHECK(status IN ('pending', 'processing', 'done', 'failed')),
+				result TEXT DEFAULT '',
+				error TEXT DEFAULT '',
+				created_at TEXT NOT NULL,
+				completed_at TEXT
+			)`,
+			`INSERT INTO messages_new SELECT * FROM messages`,
+			`DROP TABLE messages`,
+			`ALTER TABLE messages_new RENAME TO messages`,
+			`CREATE INDEX IF NOT EXISTS idx_messages_status ON messages(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_messages_project ON messages(project_id)`,
+		}
+		for _, stmt := range recreateMessages {
+			if _, err := db.Exec(stmt); err != nil {
+				return fmt.Errorf("messages migration failed: %w", err)
+			}
+		}
+	}
+
 	return nil
 }
 
@@ -262,6 +293,19 @@ CREATE TABLE IF NOT EXISTS config (
     value TEXT NOT NULL,
     updated_at TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS specs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    title TEXT NOT NULL,
+    content TEXT DEFAULT '',
+    status TEXT DEFAULT 'draft'
+        CHECK(status IN ('draft', 'review', 'approved', 'deprecated')),
+    priority INTEGER DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+);
+
+CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
 `
 	_, err := db.Exec(schema)
 	if err != nil {

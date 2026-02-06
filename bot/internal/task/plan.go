@@ -103,6 +103,15 @@ func Plan(projectPath, id string) types.Result {
 func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *Task) types.Result {
 	UpdateCurrentTask(projectPath, t.ID)
 
+	// Check spec - skip if empty
+	if t.Spec == "" {
+		log.Printf("[Task] Plan skip: task #%d (%s) has empty spec", t.ID, t.Title)
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("작업 #%d에 Spec이 없습니다. 'task set %d spec <내용>'으로 명세서를 작성하세요.", t.ID, t.ID),
+		}
+	}
+
 	// Check depth limit - force plan if at max depth
 	forceLeaf := t.Depth >= MaxDepth
 
@@ -222,6 +231,21 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 			return types.Result{
 				Success: false,
 				Message: fmt.Sprintf("행 순회 오류: %v", err),
+			}
+		}
+
+		// If no children were created, revert to todo with error
+		if len(children) == 0 {
+			log.Printf("[Task] Split failed: task #%d (%s) has no children after [SPLIT], reverting to todo", t.ID, t.Title)
+			_, err = localDB.Exec(`
+				UPDATE tasks SET status = 'todo', error = ?, updated_at = ? WHERE id = ?
+			`, "분할 실패: Claude가 [SPLIT]을 출력했지만 하위 Task를 생성하지 않음", db.TimeNow(), t.ID)
+			if err != nil {
+				log.Printf("[Task] Failed to revert split status for task #%d: %v", t.ID, err)
+			}
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("분할 실패: 작업 #%d (%s)의 하위 Task가 생성되지 않았습니다. Claude 출력을 확인하세요.", t.ID, t.Title),
 			}
 		}
 

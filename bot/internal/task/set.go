@@ -42,13 +42,14 @@ func Set(projectPath, id, field, value string) types.Result {
 		validStatus := map[string]bool{
 			"todo":    true,
 			"planned": true,
+			"split":   true,
 			"done":    true,
 			"failed":  true,
 		}
 		if !validStatus[value] {
 			return types.Result{
 				Success: false,
-				Message: "허용되지 않는 상태: " + value + "\n허용: todo, planned, done, failed",
+				Message: "허용되지 않는 상태: " + value + "\n허용: todo, planned, split, done, failed",
 			}
 		}
 	}
@@ -62,13 +63,21 @@ func Set(projectPath, id, field, value string) types.Result {
 	}
 	defer localDB.Close()
 
-	// Check if task exists
-	var exists int
-	localDB.QueryRow("SELECT COUNT(*) FROM tasks WHERE id = ?", id).Scan(&exists)
-	if exists == 0 {
+	// Check if task exists and get current status
+	var currentStatus string
+	err = localDB.QueryRow("SELECT status FROM tasks WHERE id = ?", id).Scan(&currentStatus)
+	if err != nil {
 		return types.Result{
 			Success: false,
 			Message: fmt.Sprintf("작업을 찾을 수 없습니다: #%s", id),
+		}
+	}
+
+	// Prevent changing from 'split' status (has children, cannot revert)
+	if field == "status" && currentStatus == "split" && value != "split" {
+		return types.Result{
+			Success: false,
+			Message: fmt.Sprintf("작업 #%s는 하위 작업이 있어 split 상태를 변경할 수 없습니다", id),
 		}
 	}
 

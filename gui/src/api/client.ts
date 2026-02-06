@@ -155,7 +155,7 @@ export const messageAPI = {
   get: (id: number | string) =>
     apiGet(`/messages/${id}`),
   send: (content: string) =>
-    apiPost('/messages', { content }),
+    apiPost('/messages', { content, source: 'gui' }),
   status: () =>
     apiGet('/messages/status'),
   processing: () =>
@@ -191,6 +191,21 @@ export const scheduleAPI = {
     apiGet(`/schedules/${scheduleId}/runs`),
   run: (runId: number | string) =>
     apiGet(`/schedule-runs/${runId}`),
+}
+
+// --- Spec API ---
+
+export const specAPI = {
+  list: (all = false) =>
+    apiGet(`/specs${all ? '?all=true' : ''}`),
+  get: (id: number | string) =>
+    apiGet(`/specs/${id}`),
+  add: (title: string, content?: string) =>
+    apiPost('/specs', { title, content }),
+  set: (id: number | string, field: string, value: string) =>
+    apiPatch(`/specs/${id}`, { field, value }),
+  delete: (id: number | string) =>
+    apiDelete(`/specs/${id}`),
 }
 
 // --- Config API ---

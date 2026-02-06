@@ -8,6 +8,7 @@ import Tasks from '@/pages/Tasks'
 import Messages from '@/pages/Messages'
 import Schedules from '@/pages/Schedules'
 import Settings from '@/pages/Settings'
+import Specs from '@/pages/Specs'
 import Setup from '@/pages/Setup'
 import Login from '@/pages/Login'
 import { Loader2 } from 'lucide-react'
@@ -64,6 +65,7 @@ export default function App() {
         <Route path="tasks" element={<Tasks />} />
         <Route path="messages" element={<Messages />} />
         <Route path="schedules" element={<Schedules />} />
+        <Route path="specs" element={<Specs />} />
         <Route path="settings" element={<Settings />} />
       </Route>
       <Route path="*" element={<Navigate to="/" replace />} />

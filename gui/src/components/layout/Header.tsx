@@ -1,12 +1,12 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Link, useLocation } from 'react-router-dom'
-import { Layers, ChevronDown, Wifi, WifiOff, Menu, LogOut } from 'lucide-react'
+import { Layers, Wifi, WifiOff, Menu, LogOut, ChevronDown, FolderOpen } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet'
-import { navItems } from '@/components/layout/Sidebar'
-import { useProjects, useSwitchProject, useStatus, useHealth } from '@/hooks/useClaribot'
+import { globalNavItems, projectNavItems } from '@/components/layout/Sidebar'
+import { useStatus, useHealth, useProjects, useSwitchProject } from '@/hooks/useClaribot'
 import { useLogout } from '@/hooks/useAuth'
 
 export function Header() {
@@ -18,31 +18,28 @@ export function Header() {
   useEffect(() => {
     setDrawerOpen(false)
   }, [location.pathname])
-  const { data: projects } = useProjects()
-  const { data: status } = useStatus()
-  const { data: healthData } = useHealth()
-  const switchProject = useSwitchProject()
-  const logout = useLogout()
 
-  // Parse current project from status message (📌 project-id — ...)
-  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
-  const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
-  const claudeUsed = claudeInfo?.[1] || '0'
-  const claudeMax = claudeInfo?.[2] || '3'
-  const isConnected = !!healthData
-
-  const handleSwitch = (id: string) => {
-    switchProject.mutate(id)
-    setShowProjects(false)
-  }
-
-  // Close dropdown on outside click
+  // Close project dropdown on outside click
   useEffect(() => {
     if (!showProjects) return
     const handler = () => setShowProjects(false)
     document.addEventListener('click', handler)
     return () => document.removeEventListener('click', handler)
   }, [showProjects])
+
+  const { data: status } = useStatus()
+  const { data: healthData } = useHealth()
+  const { data: projects } = useProjects()
+  const switchProject = useSwitchProject()
+  const logout = useLogout()
+
+  const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
+  const claudeUsed = claudeInfo?.[1] || '0'
+  const claudeMax = claudeInfo?.[2] || '3'
+  const isConnected = !!healthData
+
+  // Parse current project from status message (📌 project-id — ...)
+  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
 
   // Parse project list from data
   const projectList: { id: string; description: string }[] = []
@@ -53,6 +50,11 @@ export function Header() {
     } else if (data.items && Array.isArray(data.items)) {
       data.items.forEach((p: any) => projectList.push({ id: p.id || p.ID, description: p.description || p.Description || '' }))
     }
+  }
+
+  const handleSwitch = (id: string) => {
+    switchProject.mutate(id)
+    setShowProjects(false)
   }
 
   return (
@@ -67,8 +69,12 @@ export function Header() {
             </Button>
           </SheetTrigger>
           <SheetContent side="left" className="w-[260px] p-0 pt-12">
-            <nav className="flex flex-col gap-1 px-3">
-              {navItems.map(({ to, icon: Icon, label }) => (
+            <nav className="flex flex-col px-3">
+              {/* Global Section */}
+              <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                Global
+              </div>
+              {globalNavItems.map(({ to, icon: Icon, label }) => (
                 <NavLink
                   key={to}
                   to={to}
@@ -87,6 +93,37 @@ export function Header() {
                   <span>{label}</span>
                 </NavLink>
               ))}
+
+              {/* Project Section - only show when a project is selected */}
+              {currentProject !== 'GLOBAL' && (
+                <>
+                  {/* Separator */}
+                  <div className="my-3 mx-3 h-px bg-border" />
+
+                  <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
+                    Project
+                  </div>
+                  {projectNavItems.map(({ to, icon: Icon, label }) => (
+                    <NavLink
+                      key={to}
+                      to={to}
+                      end={to === '/'}
+                      className={({ isActive }) =>
+                        cn(
+                          "flex items-center gap-3 rounded-md px-3 py-3 text-sm font-medium transition-colors",
+                          "hover:bg-accent hover:text-accent-foreground",
+                          isActive
+                            ? "bg-accent text-accent-foreground"
+                            : "text-muted-foreground"
+                        )
+                      }
+                    >
+                      <Icon className="h-5 w-5 shrink-0" />
+                      <span>{label}</span>
+                    </NavLink>
+                  ))}
+                </>
+              )}
             </nav>
           </SheetContent>
         </Sheet>
@@ -98,20 +135,24 @@ export function Header() {
         </Link>
 
         {/* Project Selector */}
-        <div className="relative ml-2 md:ml-4" onClick={e => e.stopPropagation()}>
+        <div className="relative ml-2" onClick={e => e.stopPropagation()}>
           <Button
             variant="outline"
-            size="default"
-            className="gap-1 min-w-0 md:min-w-[160px] justify-between"
+            size="sm"
+            className="gap-1 h-8"
             onClick={() => setShowProjects(!showProjects)}
           >
-            <span className="truncate max-w-[100px] md:max-w-none">{currentProject}</span>
-            <ChevronDown className="h-4 w-4 shrink-0 opacity-50" />
+            <FolderOpen className="h-4 w-4" />
+            <span className="hidden sm:inline max-w-[100px] truncate">{currentProject}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 opacity-50" />
           </Button>
           {showProjects && (
-            <div className="absolute top-full mt-1 left-0 z-50 min-w-[200px] rounded-md border bg-popover p-1 shadow-md">
+            <div className="absolute top-full mt-1 left-0 z-50 min-w-[150px] rounded-md border bg-popover p-1 shadow-md">
               <button
-                className="w-full text-left px-2 py-2.5 text-sm rounded-sm hover:bg-accent"
+                className={cn(
+                  "w-full text-left px-2 py-2 text-xs rounded-sm hover:bg-accent truncate",
+                  currentProject === 'GLOBAL' && "bg-accent"
+                )}
                 onClick={() => handleSwitch('none')}
               >
                 GLOBAL
@@ -119,16 +160,42 @@ export function Header() {
               {projectList.map(p => (
                 <button
                   key={p.id}
-                  className="w-full text-left px-2 py-2.5 text-sm rounded-sm hover:bg-accent"
+                  className={cn(
+                    "w-full text-left px-2 py-2 text-xs rounded-sm hover:bg-accent truncate",
+                    currentProject === p.id && "bg-accent"
+                  )}
                   onClick={() => handleSwitch(p.id)}
+                  title={p.description || p.id}
                 >
                   {p.id}
-                  {p.description && <span className="ml-2 text-muted-foreground text-xs">{p.description}</span>}
                 </button>
               ))}
             </div>
           )}
         </div>
+
+        {/* Global Navigation - desktop only */}
+        <nav className="hidden md:flex items-center gap-1 ml-4">
+          {globalNavItems.map(({ to, icon: Icon, label }) => (
+            <NavLink
+              key={to}
+              to={to}
+              end={to === '/'}
+              className={({ isActive }) =>
+                cn(
+                  "flex items-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors",
+                  "hover:bg-accent hover:text-accent-foreground",
+                  isActive
+                    ? "bg-accent text-accent-foreground"
+                    : "text-muted-foreground"
+                )
+              }
+            >
+              <Icon className="h-4 w-4" />
+              <span className="hidden lg:inline">{label}</span>
+            </NavLink>
+          ))}
+        </nav>
 
         <div className="flex-1" />
 

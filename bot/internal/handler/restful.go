@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"strconv"
 	"time"
 
@@ -11,6 +13,7 @@ import (
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
+	"parkjunwoo.com/claribot/internal/spec"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
@@ -432,17 +435,9 @@ func (r *Router) HandleStopTask(w http.ResponseWriter, req *http.Request) {
 
 // HandleListMessages handles GET /api/messages
 func (r *Router) HandleListMessages(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	projectPath := ctx.ProjectPath
-	if projectPath == "" {
-		projectPath = project.DefaultPath
-	}
-	if projectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트 경로가 설정되지 않았습니다")
-		return
-	}
+	// Messages are stored in global DB, no project path required
 	page, pageSize := r.parsePage(req)
-	writeResult(w, message.List(projectPath, pagination.NewPageRequest(page, pageSize)))
+	writeResult(w, message.List("", pagination.NewPageRequest(page, pageSize)))
 }
 
 // HandleSendMessage handles POST /api/messages
@@ -451,6 +446,12 @@ func (r *Router) HandleSendMessage(w http.ResponseWriter, req *http.Request) {
 	projectPath := ctx.ProjectPath
 	if projectPath == "" {
 		projectPath = project.DefaultPath
+	}
+	// Fallback to home directory for GLOBAL mode
+	if projectPath == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			projectPath = filepath.Join(home, ".claribot")
+		}
 	}
 	if projectPath == "" {
 		writeError(w, http.StatusBadRequest, "프로젝트 경로가 설정되지 않았습니다")
@@ -481,49 +482,25 @@ func (r *Router) HandleSendMessage(w http.ResponseWriter, req *http.Request) {
 
 // HandleGetMessage handles GET /api/messages/{id}
 func (r *Router) HandleGetMessage(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	projectPath := ctx.ProjectPath
-	if projectPath == "" {
-		projectPath = project.DefaultPath
-	}
-	if projectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트 경로가 설정되지 않았습니다")
-		return
-	}
+	// Messages are stored in global DB, no project path required
 	id := req.PathValue("id")
 	if id == "" {
 		writeError(w, http.StatusBadRequest, "message id required")
 		return
 	}
-	writeResult(w, message.Get(projectPath, id))
+	writeResult(w, message.Get("", id))
 }
 
 // HandleMessageStatus handles GET /api/messages/status
 func (r *Router) HandleMessageStatus(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	projectPath := ctx.ProjectPath
-	if projectPath == "" {
-		projectPath = project.DefaultPath
-	}
-	if projectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트 경로가 설정되지 않았습니다")
-		return
-	}
-	writeResult(w, message.Status(projectPath))
+	// Messages are stored in global DB, no project path required
+	writeResult(w, message.Status(""))
 }
 
 // HandleMessageProcessing handles GET /api/messages/processing
 func (r *Router) HandleMessageProcessing(w http.ResponseWriter, req *http.Request) {
-	ctx := r.SnapshotContext()
-	projectPath := ctx.ProjectPath
-	if projectPath == "" {
-		projectPath = project.DefaultPath
-	}
-	if projectPath == "" {
-		writeError(w, http.StatusBadRequest, "프로젝트 경로가 설정되지 않았습니다")
-		return
-	}
-	writeResult(w, message.Processing(projectPath))
+	// Messages are stored in global DB, no project path required
+	writeResult(w, message.Processing(""))
 }
 
 // --- Config handlers ---
@@ -870,6 +847,103 @@ func (r *Router) HandleStatus(w http.ResponseWriter, req *http.Request) {
 	writeJSON(w, http.StatusOK, resp)
 }
 
+// --- Spec handlers ---
+
+// HandleListSpecs handles GET /api/specs
+func (r *Router) HandleListSpecs(w http.ResponseWriter, req *http.Request) {
+	ctx := r.SnapshotContext()
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+	page, pageSize := r.parsePage(req)
+	writeResult(w, spec.List(ctx.ProjectPath, pagination.NewPageRequest(page, pageSize)))
+}
+
+// HandleAddSpec handles POST /api/specs
+func (r *Router) HandleAddSpec(w http.ResponseWriter, req *http.Request) {
+	ctx := r.SnapshotContext()
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+	var body struct {
+		Title   string `json:"title"`
+		Content string `json:"content"`
+	}
+	if err := decodeBody(req, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Title == "" {
+		writeError(w, http.StatusBadRequest, "title required")
+		return
+	}
+	result := spec.Add(ctx.ProjectPath, body.Title, body.Content)
+	status := http.StatusCreated
+	if !result.Success {
+		status = http.StatusBadRequest
+	}
+	writeJSON(w, status, result)
+}
+
+// HandleGetSpec handles GET /api/specs/{id}
+func (r *Router) HandleGetSpec(w http.ResponseWriter, req *http.Request) {
+	ctx := r.SnapshotContext()
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+	id := req.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "spec id required")
+		return
+	}
+	writeResult(w, spec.Get(ctx.ProjectPath, id))
+}
+
+// HandleUpdateSpec handles PATCH /api/specs/{id}
+func (r *Router) HandleUpdateSpec(w http.ResponseWriter, req *http.Request) {
+	ctx := r.SnapshotContext()
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+	id := req.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "spec id required")
+		return
+	}
+	var body struct {
+		Field string `json:"field"`
+		Value string `json:"value"`
+	}
+	if err := decodeBody(req, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Field == "" {
+		writeError(w, http.StatusBadRequest, "field required")
+		return
+	}
+	writeResult(w, spec.Set(ctx.ProjectPath, id, body.Field, body.Value))
+}
+
+// HandleDeleteSpec handles DELETE /api/specs/{id}
+func (r *Router) HandleDeleteSpec(w http.ResponseWriter, req *http.Request) {
+	ctx := r.SnapshotContext()
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+	id := req.PathValue("id")
+	if id == "" {
+		writeError(w, http.StatusBadRequest, "spec id required")
+		return
+	}
+	writeResult(w, spec.Delete(ctx.ProjectPath, id, true))
+}
+
 // RegisterRESTfulRoutes registers all RESTful API endpoints on the given mux.
 // The handlers are methods on Router so they share the same project context.
 func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
@@ -929,5 +1003,12 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 
 	// Schedule runs (separate path to avoid conflict with /api/schedules/{id}/runs)
 	mux.HandleFunc("GET /api/schedule-runs/{runId}", r.HandleScheduleRunDetail)
+
+	// Specs
+	mux.HandleFunc("GET /api/specs", r.HandleListSpecs)
+	mux.HandleFunc("POST /api/specs", r.HandleAddSpec)
+	mux.HandleFunc("GET /api/specs/{id}", r.HandleGetSpec)
+	mux.HandleFunc("PATCH /api/specs/{id}", r.HandleUpdateSpec)
+	mux.HandleFunc("DELETE /api/specs/{id}", r.HandleDeleteSpec)
 }
 

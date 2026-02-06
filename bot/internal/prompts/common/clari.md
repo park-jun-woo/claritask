@@ -45,6 +45,18 @@
 | `message processing` | 처리 중인 메시지 조회 |
 | `send <content>` | message send 단축 명령어 |
 
+## spec (요구사항 명세서)
+
+| 명령어 | 설명 |
+|--------|------|
+| `spec list [--all]` | 스펙 목록 조회 |
+| `spec add <title>` | 스펙 추가 |
+| `spec get <id>` | 스펙 상세 조회 |
+| `spec set <id> <field> <value>` | 스펙 필드 수정 (title, content, status, priority) |
+| `spec delete <id>` | 스펙 삭제 |
+
+**status 값**: draft, review, approved, deprecated
+
 ## schedule (스케줄링)
 
 | 명령어 | 설명 |

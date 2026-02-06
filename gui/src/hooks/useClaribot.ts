@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectAPI, taskAPI, messageAPI, scheduleAPI, statusAPI, health } from '@/api/client'
+import { projectAPI, taskAPI, specAPI, messageAPI, scheduleAPI, statusAPI, health } from '@/api/client'
 import type { StatusResponse } from '@/types'
 
 // --- Health ---
@@ -231,5 +231,50 @@ export function useToggleSchedule() {
     mutationFn: (params: { id: number | string; enable: boolean }) =>
       params.enable ? scheduleAPI.enable(params.id) : scheduleAPI.disable(params.id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['schedules'] }),
+  })
+}
+
+// --- Specs ---
+export function useSpecs(all = true) {
+  return useQuery({
+    queryKey: ['specs', { all }],
+    queryFn: () => specAPI.list(all),
+  })
+}
+
+export function useSpec(id?: number | string) {
+  return useQuery({
+    queryKey: ['spec', id],
+    queryFn: () => specAPI.get(id!),
+    enabled: id !== undefined,
+  })
+}
+
+export function useAddSpec() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (params: { title: string; content?: string }) =>
+      specAPI.add(params.title, params.content),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['specs'] }),
+  })
+}
+
+export function useSetSpec() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (params: { id: number | string; field: string; value: string }) =>
+      specAPI.set(params.id, params.field, params.value),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ['specs'] })
+      qc.invalidateQueries({ queryKey: ['spec'] })
+    },
+  })
+}
+
+export function useDeleteSpec() {
+  const qc = useQueryClient()
+  return useMutation({
+    mutationFn: (id: number | string) => specAPI.delete(id),
+    onSuccess: () => qc.invalidateQueries({ queryKey: ['specs'] }),
   })
 }

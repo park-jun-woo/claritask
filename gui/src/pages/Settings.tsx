@@ -3,9 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter }
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useStatus, useHealth } from '@/hooks/useClaribot'
-import { configYamlAPI, usageAPI } from '@/api/client'
-import { Server, Bot, Wifi, FileText, Save, RefreshCw, Settings2, MessageSquare, FolderOpen, List, ScrollText } from 'lucide-react'
+import { useHealth } from '@/hooks/useClaribot'
+import { configYamlAPI } from '@/api/client'
+import { Server, Bot, FileText, Save, Settings2, MessageSquare, FolderOpen, List, ScrollText } from 'lucide-react'
 import YAML from 'yaml'
 
 interface ConfigData {
@@ -45,7 +45,6 @@ const defaultConfig: ConfigData = {
 }
 
 export default function Settings() {
-  const { data: status } = useStatus()
   const { data: healthData, isError: isHealthError } = useHealth()
 
   const [config, setConfig] = useState<ConfigData>(defaultConfig)
@@ -54,23 +53,12 @@ export default function Settings() {
   const [configError, setConfigError] = useState('')
   const [configSuccess, setConfigSuccess] = useState('')
 
-  const [usageStats, setUsageStats] = useState<string | null>(null)
-  const [usageLive, setUsageLive] = useState<string | null>(null)
-  const [usageLiveUpdatedAt, setUsageLiveUpdatedAt] = useState<Date | null>(null)
-  const [usageLoading, setUsageLoading] = useState(false)
-  const [usageRefreshing, setUsageRefreshing] = useState(false)
-
-  const claudeMatch = status?.message?.match(/Claude: (\d+)\/(\d+)/)
-  const claudeUsed = claudeMatch?.[1] || '0'
-  const claudeMax = claudeMatch?.[2] || '3'
-
   const version = healthData?.version || 'unknown'
   const uptime = healthData?.uptime ? formatUptime(healthData.uptime) : 'N/A'
 
   // Load config.yaml on mount
   useEffect(() => {
     loadConfig()
-    loadUsage()
   }, [])
 
   const loadConfig = async () => {
@@ -155,35 +143,6 @@ export default function Settings() {
     }
   }
 
-  const loadUsage = async () => {
-    setUsageLoading(true)
-    try {
-      const res = await usageAPI.get()
-      setUsageStats(res.message || '')
-      setUsageLive(res.live || null)
-      if (res.updated_at) {
-        setUsageLiveUpdatedAt(new Date(res.updated_at))
-      }
-    } catch (e) {
-      setUsageStats('Failed to load usage')
-    } finally {
-      setUsageLoading(false)
-    }
-  }
-
-  const refreshUsageLive = async () => {
-    setUsageRefreshing(true)
-    try {
-      await usageAPI.refresh()
-      // Poll for update after a delay
-      setTimeout(loadUsage, 5000)
-    } catch (e) {
-      console.error('Failed to refresh usage:', e)
-    } finally {
-      setUsageRefreshing(false)
-    }
-  }
-
   const updateConfig = <K extends keyof ConfigData>(
     section: K,
     field: keyof ConfigData[K],
@@ -213,76 +172,14 @@ export default function Settings() {
           <InfoRow label="Claribot Version" value={`v${version}`} />
           <InfoRow label="Uptime" value={uptime} />
           <InfoRow label="DB Path" value="~/.claribot/db.clt" />
-        </CardContent>
-      </Card>
-
-      {/* Claude Code Usage */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Bot className="h-5 w-5" /> Claude Code Usage
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-4">
-          <div className="space-y-2">
-            <InfoRow label="Max Concurrent" value={claudeMax} />
-            <InfoRow label="Currently Used" value={claudeUsed} />
-            <InfoRow label="Available" value={String(Number(claudeMax) - Number(claudeUsed))} />
-          </div>
-
-          {/* Live Rate Limit */}
-          <div className="space-y-2">
-            <div className="flex items-center justify-between">
-              <h4 className="text-sm font-medium">Rate Limit (Live)</h4>
-              <div className="flex items-center gap-2">
-                {usageLiveUpdatedAt && (
-                  <span className="text-xs text-muted-foreground">
-                    {formatTimeAgo(usageLiveUpdatedAt)}
-                  </span>
-                )}
-                <Button
-                  variant="outline"
-                  size="sm"
-                  onClick={refreshUsageLive}
-                  disabled={usageRefreshing}
-                  className="h-7 px-2 text-xs"
-                >
-                  <RefreshCw className={`h-3 w-3 mr-1 ${usageRefreshing ? 'animate-spin' : ''}`} />
-                  {usageRefreshing ? 'Refreshing...' : 'Refresh'}
-                </Button>
-              </div>
-            </div>
-            {usageLive ? (
-              <div className="p-3 bg-muted rounded-md">
-                <pre className="text-xs whitespace-pre-wrap font-mono">{usageLive}</pre>
-              </div>
+          <div className="flex items-center justify-between">
+            <span className="text-sm text-muted-foreground">Service</span>
+            {isHealthError ? (
+              <Badge variant="destructive">Offline</Badge>
             ) : (
-              <div className="p-3 bg-muted rounded-md text-sm text-muted-foreground">
-                No cached data. Click Refresh to fetch live rate limit.
-              </div>
+              <Badge variant="success">Connected</Badge>
             )}
           </div>
-
-          {/* Stats History */}
-          {usageStats && (
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <h4 className="text-sm font-medium">Usage Statistics</h4>
-                <Button
-                  variant="ghost"
-                  size="sm"
-                  onClick={loadUsage}
-                  disabled={usageLoading}
-                  className="h-6 px-2"
-                >
-                  <RefreshCw className={`h-3 w-3 ${usageLoading ? 'animate-spin' : ''}`} />
-                </Button>
-              </div>
-              <div className="p-3 bg-muted rounded-md">
-                <pre className="text-xs whitespace-pre-wrap font-mono">{usageStats}</pre>
-              </div>
-            </div>
-          )}
         </CardContent>
       </Card>
 
@@ -446,24 +343,6 @@ export default function Settings() {
         </CardFooter>
       </Card>
 
-      {/* Connection Status */}
-      <Card>
-        <CardHeader>
-          <CardTitle className="text-lg flex items-center gap-2">
-            <Wifi className="h-5 w-5" /> Connection Status
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <div className="flex items-center justify-between">
-            <span className="text-sm">Service</span>
-            {isHealthError ? (
-              <Badge variant="destructive">Offline</Badge>
-            ) : (
-              <Badge variant="success">Connected (127.0.0.1:9847)</Badge>
-            )}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   )
 }
@@ -524,17 +403,4 @@ function formatUptime(seconds: number): string {
   if (hours > 0) parts.push(`${hours}h`)
   parts.push(`${mins}m`)
   return parts.join(' ')
-}
-
-function formatTimeAgo(date: Date): string {
-  const now = new Date()
-  const diffMs = now.getTime() - date.getTime()
-  const diffSec = Math.floor(diffMs / 1000)
-  const diffMin = Math.floor(diffSec / 60)
-  const diffHour = Math.floor(diffMin / 60)
-
-  if (diffSec < 60) return 'just now'
-  if (diffMin < 60) return `${diffMin} min ago`
-  if (diffHour < 24) return `${diffHour} hour${diffHour > 1 ? 's' : ''} ago`
-  return `${Math.floor(diffHour / 24)} day${diffHour >= 48 ? 's' : ''} ago`
 }

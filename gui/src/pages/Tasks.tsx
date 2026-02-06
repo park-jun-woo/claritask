@@ -6,7 +6,7 @@ import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { Separator } from '@/components/ui/separator'
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs'
 import {
   useTasks, useTask, useAddTask, useDeleteTask, useTaskPlan, useTaskRun, useTaskCycle, useSetTask, useStatus
 } from '@/hooks/useClaribot'
@@ -86,14 +86,17 @@ export default function Tasks() {
 
   const isDesktop = useMediaQuery('(min-width: 768px)')
 
+  const [activeTab, setActiveTab] = useState('spec')
+
   const detailContent = selectedTask ? (
-    <div className="flex flex-col h-full">
-      <ScrollArea className="flex-1 p-4">
+    <div className="flex flex-col flex-1 min-h-0">
+      <ScrollArea className="flex-1 min-h-0 p-4">
         <div className="space-y-4">
+          {/* Title & Status */}
           <div>
             <h4 className="text-lg font-medium">{selectedTask.title || selectedTask.Title}</h4>
             <div className="flex items-center gap-2 mt-1">
-              <StatusBadge status={selectedTask.status || selectedTask.Status} />
+              <StatusDot status={selectedTask.status || selectedTask.Status} />
               <span className="text-xs text-muted-foreground">
                 depth: {selectedTask.depth ?? selectedTask.Depth ?? 0}
               </span>
@@ -103,68 +106,27 @@ export default function Tasks() {
             </div>
           </div>
 
-          {/* Spec */}
-          <DetailSection
-            title="Spec"
-            content={selectedTask.spec || selectedTask.Spec || ''}
-            isEditing={editField === 'spec'}
-            onEdit={() => { setEditField('spec'); setEditValue(selectedTask.spec || selectedTask.Spec || '') }}
-            onSave={() => handleEdit(selectedTask.id || selectedTask.ID, 'spec', editValue)}
-            onCancel={() => setEditField(null)}
-            editValue={editValue}
-            onEditChange={setEditValue}
-          />
-
-          {/* Plan */}
-          <DetailSection
-            title="Plan"
-            content={selectedTask.plan || selectedTask.Plan || ''}
-            isEditing={editField === 'plan'}
-            onEdit={() => { setEditField('plan'); setEditValue(selectedTask.plan || selectedTask.Plan || '') }}
-            onSave={() => handleEdit(selectedTask.id || selectedTask.ID, 'plan', editValue)}
-            onCancel={() => setEditField(null)}
-            editValue={editValue}
-            onEditChange={setEditValue}
-          />
-
-          {/* Report */}
-          <DetailSection
-            title="Report"
-            content={selectedTask.report || selectedTask.Report || ''}
-            isEditing={editField === 'report'}
-            onEdit={() => { setEditField('report'); setEditValue(selectedTask.report || selectedTask.Report || '') }}
-            onSave={() => handleEdit(selectedTask.id || selectedTask.ID, 'report', editValue)}
-            onCancel={() => setEditField(null)}
-            editValue={editValue}
-            onEditChange={setEditValue}
-          />
-
-          <Separator />
-
           {/* Actions */}
           <div className="flex gap-2 flex-wrap">
             <Button
-              size="default"
+              size="sm"
               variant="outline"
-              className="min-h-[44px]"
               onClick={() => taskPlan.mutate(selectedTask.id || selectedTask.ID)}
               disabled={taskPlan.isPending}
             >
               <Play className="h-4 w-4 mr-1" /> Plan
             </Button>
             <Button
-              size="default"
+              size="sm"
               variant="outline"
-              className="min-h-[44px]"
               onClick={() => taskRun.mutate(selectedTask.id || selectedTask.ID)}
               disabled={taskRun.isPending}
             >
               <Play className="h-4 w-4 mr-1" /> Run
             </Button>
             <Button
-              size="default"
+              size="sm"
               variant="destructive"
-              className="min-h-[44px]"
               onClick={() => {
                 if (confirm('Delete this task?')) {
                   deleteTask.mutate(selectedTask.id || selectedTask.ID)
@@ -175,13 +137,58 @@ export default function Tasks() {
               Delete
             </Button>
           </div>
+
+          {/* Tabs: Spec / Plan / Report */}
+          <Tabs value={activeTab} onValueChange={setActiveTab} className="w-full">
+            <TabsList className="grid w-full grid-cols-3">
+              <TabsTrigger value="spec">Spec</TabsTrigger>
+              <TabsTrigger value="plan">Plan</TabsTrigger>
+              <TabsTrigger value="report">Report</TabsTrigger>
+            </TabsList>
+
+            <TabsContent value="spec">
+              <TabSection
+                content={selectedTask.spec || selectedTask.Spec || ''}
+                isEditing={editField === 'spec'}
+                onEdit={() => { setEditField('spec'); setEditValue(selectedTask.spec || selectedTask.Spec || '') }}
+                onSave={() => handleEdit(selectedTask.id || selectedTask.ID, 'spec', editValue)}
+                onCancel={() => setEditField(null)}
+                editValue={editValue}
+                onEditChange={setEditValue}
+              />
+            </TabsContent>
+
+            <TabsContent value="plan">
+              <TabSection
+                content={selectedTask.plan || selectedTask.Plan || ''}
+                isEditing={editField === 'plan'}
+                onEdit={() => { setEditField('plan'); setEditValue(selectedTask.plan || selectedTask.Plan || '') }}
+                onSave={() => handleEdit(selectedTask.id || selectedTask.ID, 'plan', editValue)}
+                onCancel={() => setEditField(null)}
+                editValue={editValue}
+                onEditChange={setEditValue}
+              />
+            </TabsContent>
+
+            <TabsContent value="report">
+              <TabSection
+                content={selectedTask.report || selectedTask.Report || ''}
+                isEditing={editField === 'report'}
+                onEdit={() => { setEditField('report'); setEditValue(selectedTask.report || selectedTask.Report || '') }}
+                onSave={() => handleEdit(selectedTask.id || selectedTask.ID, 'report', editValue)}
+                onCancel={() => setEditField(null)}
+                editValue={editValue}
+                onEditChange={setEditValue}
+              />
+            </TabsContent>
+          </Tabs>
         </div>
       </ScrollArea>
     </div>
   ) : null
 
   return (
-    <div className="flex flex-col md:flex-row gap-4 h-[calc(100vh-8rem)]">
+    <div className="flex flex-col md:flex-row gap-4 flex-1 min-h-0 h-full overflow-hidden">
       {/* List Panel */}
       <div className={cn(
         "flex flex-col space-y-2 min-w-0",
@@ -303,7 +310,7 @@ export default function Tasks() {
 
       {/* Desktop: Detail Panel (3/4) */}
       {isDesktop && (
-        <div className="w-1/2 border rounded-md flex flex-col min-w-0">
+        <div className="w-1/2 border rounded-md flex flex-col min-w-0 min-h-0 overflow-hidden">
           {selectedTask ? (
             <>
               <div className="flex items-center justify-between p-4 border-b">
@@ -343,22 +350,9 @@ export default function Tasks() {
 
 // --- Sub-components ---
 
-function StatusBadge({ status }: { status: string }) {
-  const variants: Record<string, { variant: any; icon: string }> = {
-    todo: { variant: 'secondary', icon: '\u25CB' },
-    split: { variant: 'info', icon: '\u25D0' },
-    planned: { variant: 'warning', icon: '\u25CF' },
-    done: { variant: 'success', icon: '\u2705' },
-    failed: { variant: 'destructive', icon: '\u274C' },
-  }
-  const v = variants[status] || { variant: 'secondary', icon: '?' }
-  return <Badge variant={v.variant}>{v.icon} {status}</Badge>
-}
-
-function DetailSection({
-  title, content, isEditing, onEdit, onSave, onCancel, editValue, onEditChange
+function TabSection({
+  content, isEditing, onEdit, onSave, onCancel, editValue, onEditChange
 }: {
-  title: string
   content: string
   isEditing: boolean
   onEdit: () => void
@@ -369,25 +363,28 @@ function DetailSection({
 }) {
   return (
     <div>
-      <div className="flex items-center justify-between">
-        <h5 className="text-sm font-medium text-muted-foreground">{title}</h5>
-        {!isEditing && (
-          <Button variant="ghost" size="sm" className="min-h-[44px] text-xs" onClick={onEdit}>
-            <FileText className="h-3 w-3 mr-1" /> Edit
-          </Button>
-        )}
-      </div>
       {isEditing ? (
-        <div className="mt-1 space-y-1">
-          <Textarea value={editValue} onChange={e => onEditChange(e.target.value)} rows={4} />
-          <div className="flex gap-1">
-            <Button size="sm" className="min-h-[44px] text-xs" onClick={onSave}>Save</Button>
-            <Button size="sm" variant="ghost" className="min-h-[44px] text-xs" onClick={onCancel}>Cancel</Button>
+        <div className="space-y-2">
+          <Textarea value={editValue} onChange={e => onEditChange(e.target.value)} rows={8} />
+          <div className="flex gap-2">
+            <Button size="sm" onClick={onSave}>Save</Button>
+            <Button size="sm" variant="ghost" onClick={onCancel}>Cancel</Button>
           </div>
         </div>
       ) : (
-        <div className="mt-1 bg-muted rounded p-2 max-h-[200px] overflow-auto">
-          <MarkdownRenderer content={content} />
+        <div>
+          <div className="flex justify-end mb-2">
+            <Button variant="ghost" size="sm" className="text-xs h-8" onClick={onEdit}>
+              <FileText className="h-3 w-3 mr-1" /> Edit
+            </Button>
+          </div>
+          <div className="bg-muted rounded p-3">
+            {content ? (
+              <MarkdownRenderer content={content} />
+            ) : (
+              <p className="text-sm text-muted-foreground">No content</p>
+            )}
+          </div>
         </div>
       )}
     </div>
@@ -465,7 +462,6 @@ function TreeView({
               <StatusDot status={status} />
               <span className="text-muted-foreground text-xs mr-1">#{id}</span>
               <span className="truncate">{title}</span>
-              <span className="ml-auto text-xs text-muted-foreground">{status}</span>
             </div>
             {hasChildren && isExpanded && (
               <TreeView
@@ -582,7 +578,7 @@ function StatusDot({ status }: { status: string }) {
     done: 'bg-green-400',
     failed: 'bg-red-400',
   }
-  return <span className={`w-2 h-2 rounded-full shrink-0 ${colors[status] || 'bg-gray-300'}`} />
+  return <span className={`inline-block w-3 h-3 rounded-full shrink-0 ${colors[status] || 'bg-gray-300'}`} />
 }
 
 function ListView({ items, onSelect, selectedId, isMobile }: { items: any[]; onSelect: (t: any) => void; selectedId?: number; isMobile?: boolean }) {
@@ -613,7 +609,7 @@ function ListView({ items, onSelect, selectedId, isMobile }: { items: any[]; onS
             >
               <div className="flex items-center justify-between mb-1">
                 <span className="text-xs text-muted-foreground">#{id}</span>
-                <StatusBadge status={status} />
+                <StatusDot status={status} />
               </div>
               <div className="font-medium text-sm truncate">{title}</div>
               <div className="flex items-center gap-3 mt-1.5 text-xs text-muted-foreground">
@@ -655,7 +651,7 @@ function ListView({ items, onSelect, selectedId, isMobile }: { items: any[]; onS
             >
               <td className="py-2.5 px-2 text-muted-foreground">#{id}</td>
               <td className="py-2.5 px-2">{title}</td>
-              <td className="py-2.5 px-2"><StatusBadge status={status} /></td>
+              <td className="py-2.5 px-2"><StatusDot status={status} /></td>
               <td className="py-2.5 px-2 text-center">{depth}</td>
               <td className="py-2.5 px-2 text-muted-foreground">{parentId ? `#${parentId}` : '-'}</td>
             </tr>

@@ -54,7 +54,17 @@ func Add(projectPath, title string, parentID *int, spec string) types.Result {
 
 	msg := fmt.Sprintf("작업 추가됨: #%d %s", id, title)
 	if parentID != nil {
-		msg += fmt.Sprintf(" (부모: #%d, depth: %d)", *parentID, depth)
+		// Update parent: set status to 'split' and is_leaf to 0
+		_, err = localDB.Exec(`
+			UPDATE tasks SET status = 'split', is_leaf = 0, updated_at = ? WHERE id = ?
+		`, now, *parentID)
+		if err != nil {
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("부모 작업 상태 업데이트 실패: %v", err),
+			}
+		}
+		msg += fmt.Sprintf(" (부모: #%d → split, depth: %d)", *parentID, depth)
 	}
 
 	return types.Result{

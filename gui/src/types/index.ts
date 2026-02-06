@@ -42,7 +42,7 @@ export interface Message {
   id: number
   project_id: string | null
   content: string
-  source: 'telegram' | 'cli' | 'schedule'
+  source: 'telegram' | 'cli' | 'gui' | 'schedule'
   status: 'pending' | 'processing' | 'done' | 'failed'
   result: string
   error: string
@@ -76,6 +76,17 @@ export interface ScheduleRun {
   completed_at: string | null
 }
 
+// Spec
+export interface Spec {
+  id: number
+  title: string
+  content: string
+  status: 'draft' | 'review' | 'approved' | 'deprecated'
+  priority: number
+  created_at: string
+  updated_at: string
+}
+
 // Claude Status
 export interface ClaudeStatus {
   used: number
@@ -106,6 +117,7 @@ export interface ProjectStats {
 export interface CycleStatus {
   status: 'idle' | 'running' | 'interrupted'
   type?: string
+  project_id?: string
   started_at?: string
   current_task_id?: number
   active_workers?: number

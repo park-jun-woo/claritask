@@ -2,9 +2,12 @@ package project
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strconv"
+	"strings"
 
 	"parkjunwoo.com/claribot/internal/config"
 	"parkjunwoo.com/claribot/internal/db"
@@ -105,6 +108,11 @@ func Create(id, description string) types.Result {
 		"parallel", strconv.Itoa(defaultParallel), now,
 	)
 
+	// GitHub repo auto-create (best-effort)
+	if err := ensureGitHub(projectPath, id); err != nil {
+		log.Printf("[project] GitHub 연결 실패 (무시): %v", err)
+	}
+
 	return types.Result{
 		Success: true,
 		Message: fmt.Sprintf("프로젝트 생성됨: %s\n%s\n[삭제:project delete %s]", id, description, id),
@@ -115,4 +123,24 @@ func Create(id, description string) types.Result {
 			Description: description,
 		},
 	}
+}
+
+// ensureGitHub initializes git and creates a private GitHub repo if not already set up.
+func ensureGitHub(projectPath, projectID string) error {
+	// 1. git init (skip if .git already exists)
+	if _, err := os.Stat(filepath.Join(projectPath, ".git")); os.IsNotExist(err) {
+		if err := exec.Command("git", "-C", projectPath, "init").Run(); err != nil {
+			return fmt.Errorf("git init failed: %w", err)
+		}
+	}
+
+	// 2. Check if remote origin already exists
+	out, _ := exec.Command("git", "-C", projectPath, "remote", "get-url", "origin").Output()
+	if len(strings.TrimSpace(string(out))) > 0 {
+		return nil // remote already configured
+	}
+
+	// 3. Create private GitHub repo
+	return exec.Command("gh", "repo", "create", projectID,
+		"--private", "--source", projectPath, "--remote", "origin").Run()
 }

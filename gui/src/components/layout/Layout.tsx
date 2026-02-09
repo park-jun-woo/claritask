@@ -17,7 +17,7 @@ export function Layout() {
             onToggle={() => setSidebarCollapsed(!sidebarCollapsed)}
           />
         </div>
-        <main className="flex-1 overflow-auto p-3 sm:p-4 md:p-6 flex flex-col">
+        <main className="flex-1 overflow-y-auto overflow-x-hidden p-3 sm:p-4 md:p-6 flex flex-col min-w-0 w-0">
           <Outlet />
         </main>
       </div>

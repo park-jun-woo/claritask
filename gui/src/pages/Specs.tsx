@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -8,7 +9,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
 import {
-  useSpecs, useSpec, useAddSpec, useSetSpec, useDeleteSpec, useStatus
+  useSpecs, useSpec, useAddSpec, useSetSpec, useDeleteSpec
 } from '@/hooks/useClaribot'
 import type { Spec } from '@/types'
 import {
@@ -32,6 +33,11 @@ function useMediaQuery(query: string): boolean {
 type StatusFilter = 'all' | 'draft' | 'review' | 'approved' | 'deprecated'
 
 export default function Specs() {
+  const { projectId, specId: specIdParam } = useParams<{ projectId?: string; specId?: string }>()
+  const navigate = useNavigate()
+
+  const basePath = projectId ? `/projects/${projectId}/specs` : '/specs'
+
   const { data: specsData } = useSpecs()
   const addSpec = useAddSpec()
   const setSpec = useSetSpec()
@@ -39,7 +45,17 @@ export default function Specs() {
 
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState({ title: '', content: '' })
-  const [selectedSpecId, setSelectedSpecId] = useState<number | null>(null)
+
+  // URL-based spec selection
+  const selectedSpecId = specIdParam ? Number(specIdParam) : null
+  const setSelectedSpecId = (id: number | null) => {
+    if (id !== null) {
+      navigate(`${basePath}/${id}`)
+    } else {
+      navigate(basePath)
+    }
+  }
+
   const { data: specDetail } = useSpec(selectedSpecId ?? undefined)
   const selectedSpec: Spec | null = specDetail?.data ?? null
   const [editField, setEditField] = useState<string | null>(null)
@@ -47,17 +63,6 @@ export default function Specs() {
   const [searchQuery, setSearchQuery] = useState('')
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('all')
   const [contentMode, setContentMode] = useState<'preview' | 'edit'>('preview')
-
-  // Get current project from status
-  const { data: statusData } = useStatus()
-  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
-
-  // Reset selection when project changes
-  useEffect(() => {
-    setSelectedSpecId(null)
-    setEditField(null)
-    setContentMode('preview')
-  }, [currentProject])
 
   const specItems = useMemo(() => parseItems(specsData?.data), [specsData])
 

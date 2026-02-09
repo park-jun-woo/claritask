@@ -33,6 +33,7 @@ const Version = "0.2.21"
 var router *handler.Router
 var bot *telegram.Bot
 var authService *auth.Auth
+var bridgeManager *claude.BridgeManager
 var startTime = time.Now()
 
 func main() {
@@ -90,6 +91,19 @@ func main() {
 	})
 	logger.Info("Claude manager initialized (max=%d, timeout=%ds, max_timeout=%ds)", cfg.Claude.Max, cfg.Claude.Timeout, cfg.Claude.MaxTimeout)
 
+	// Initialize Bridge manager (Agent SDK)
+	if cfg.Bridge.Enabled {
+		bridgeManager = claude.NewBridgeManager(claude.BridgeConfig{
+			BridgePath:     cfg.Bridge.Path,
+			NodePath:       cfg.Bridge.NodePath,
+			IdleTimeout:    time.Duration(cfg.Bridge.IdleTimeout) * time.Second,
+			PermissionMode: cfg.Bridge.PermissionMode,
+		})
+		logger.Info("Bridge manager initialized (path=%s, mode=%s)", cfg.Bridge.Path, cfg.Bridge.PermissionMode)
+	} else {
+		logger.Info("Bridge disabled (enable in config: bridge.enabled: true)")
+	}
+
 	// Initialize router
 	router = handler.NewRouter()
 
@@ -128,6 +142,10 @@ func main() {
 
 		// Setup handler (also registers menu commands)
 		tgHandler := tghandler.New(bot, router, cfg.Telegram.AllowedUsers)
+		if bridgeManager != nil {
+			tgHandler.SetBridgeManager(bridgeManager)
+			logger.Info("Bridge integration enabled for Telegram")
+		}
 		bot.SetHandler(tgHandler.HandleMessage)
 		bot.SetCallbackHandler(tgHandler.HandleCallback)
 
@@ -225,6 +243,16 @@ func main() {
 		logger.Info("Telegram bot stopped")
 	}
 
+	// Shutdown Bridge processes
+	if bridgeManager != nil {
+		activeBridges := bridgeManager.ActiveBridges()
+		if activeBridges > 0 {
+			logger.Info("Closing %d active Bridge processes...", activeBridges)
+			bridgeManager.Shutdown()
+			logger.Info("Bridge processes closed")
+		}
+	}
+
 	// Shutdown Claude sessions
 	activeSessions := claude.ActiveSessions()
 	if activeSessions > 0 {
@@ -311,7 +339,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		if origin != "" && strings.HasPrefix(origin, "http://localhost") {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 		}
 		if r.Method == http.MethodOptions {
@@ -401,6 +429,8 @@ func handleAuthSetup(w http.ResponseWriter, r *http.Request) {
 	if result.Token != "" {
 		auth.SetTokenCookie(w, result.Token)
 		resp["success"] = true
+		resp["token"] = result.Token
+		resp["expires_at"] = time.Now().Add(24 * time.Hour).Format(time.RFC3339)
 	}
 	json.NewEncoder(w).Encode(resp)
 }
@@ -433,7 +463,11 @@ func handleAuthLogin(w http.ResponseWriter, r *http.Request) {
 	}
 
 	auth.SetTokenCookie(w, token)
-	json.NewEncoder(w).Encode(map[string]interface{}{"success": true})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+		"success":    true,
+		"token":      token,
+		"expires_at": time.Now().Add(24 * time.Hour).Format(time.RFC3339),
+	})
 }
 
 // handleAuthStatus handles GET /api/auth/status

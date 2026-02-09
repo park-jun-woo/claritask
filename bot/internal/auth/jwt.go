@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"net/http"
+	"strings"
 	"time"
 
 	"github.com/golang-jwt/jwt/v5"
@@ -102,11 +103,20 @@ func ClearTokenCookie(w http.ResponseWriter) {
 	})
 }
 
-// GetTokenFromRequest extracts the JWT token from the request cookie.
+// GetTokenFromRequest extracts the JWT token from the request.
+// It first checks the cookie, then falls back to the Authorization: Bearer header.
 func GetTokenFromRequest(r *http.Request) string {
+	// 1. Try cookie first (Web UI)
 	cookie, err := r.Cookie(cookieName)
-	if err != nil {
-		return ""
+	if err == nil && cookie.Value != "" {
+		return cookie.Value
 	}
-	return cookie.Value
+
+	// 2. Fall back to Authorization: Bearer header (mobile app)
+	authHeader := r.Header.Get("Authorization")
+	if strings.HasPrefix(authHeader, "Bearer ") {
+		return strings.TrimPrefix(authHeader, "Bearer ")
+	}
+
+	return ""
 }

@@ -72,7 +72,8 @@ func Cycle(projectPath string) types.Result {
 		planResult := planAllInternal(ctx, projectPath)
 		messages = append(messages, planResult.Message)
 
-		if !planResult.Success {
+		// Only abort on auth error; other failures (empty spec etc.) continue
+		if !planResult.Success && planResult.ErrorType == "auth_error" {
 			return types.Result{
 				Success: false,
 				Message: strings.Join(messages, "\n\n"),
@@ -104,7 +105,8 @@ func Cycle(projectPath string) types.Result {
 		runResult := runAllInternal(ctx, projectPath)
 		messages = append(messages, runResult.Message)
 
-		if !runResult.Success {
+		// Only abort on auth error; individual task failures continue
+		if !runResult.Success && runResult.ErrorType == "auth_error" {
 			return types.Result{
 				Success: false,
 				Message: strings.Join(messages, "\n\n"),

@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
-import { projectAPI, taskAPI, specAPI, messageAPI, scheduleAPI, statusAPI, health } from '@/api/client'
+import { projectAPI, taskAPI, specAPI, messageAPI, scheduleAPI, statusAPI, fileAPI, health } from '@/api/client'
 import type { StatusResponse } from '@/types'
 
 // --- Health ---
@@ -53,8 +53,8 @@ export function useSwitchProject() {
   const qc = useQueryClient()
   return useMutation({
     mutationFn: (id: string) => id === 'none' ? projectAPI.switchNone() : projectAPI.switch(id),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: ['status'] })
+    onSuccess: async () => {
+      await qc.refetchQueries({ queryKey: ['status'] })
       qc.invalidateQueries({ queryKey: ['tasks'] })
       qc.invalidateQueries({ queryKey: ['task'] })
       qc.invalidateQueries({ queryKey: ['messages'] })
@@ -296,5 +296,21 @@ export function useDeleteSpec() {
   return useMutation({
     mutationFn: (id: number | string) => specAPI.delete(id),
     onSuccess: () => qc.invalidateQueries({ queryKey: ['specs'] }),
+  })
+}
+
+// --- Files ---
+export function useFiles(path?: string) {
+  return useQuery({
+    queryKey: ['files', path],
+    queryFn: () => fileAPI.list(path),
+  })
+}
+
+export function useFileContent(path?: string) {
+  return useQuery({
+    queryKey: ['fileContent', path],
+    queryFn: () => fileAPI.content(path!),
+    enabled: !!path,
   })
 }

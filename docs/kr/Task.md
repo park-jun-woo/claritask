@@ -121,14 +121,12 @@ ORDER BY depth DESC, id ASC
 ### task add
 
 ```bash
-# 기본 (첫 줄이 title로 자동 설정)
-clari task add "작업 내용"
+# Spec 파일로 추가 (권장) - 첫 줄이 title로 자동 설정
+clari task add --spec-file path/to/spec.md
+clari task add --spec-file path/to/spec.md --parent 1
 
-# 부모 지정
-clari task add "작업 내용" --parent 1
-
-# Spec 파일로 추가 (상세 내용 권장)
-clari task add --parent 1 --spec-file path/to/spec.md
+# 인라인 (짧은 내용만)
+clari task add "짧은 작업 내용"
 ```
 
 ### task plan

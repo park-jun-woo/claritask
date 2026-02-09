@@ -218,6 +218,19 @@ export const specAPI = {
     apiDelete(`/specs/${id}`),
 }
 
+// --- Files API ---
+
+export const fileAPI = {
+  list: (path?: string) => {
+    const params = new URLSearchParams()
+    if (path) params.set('path', path)
+    const qs = params.toString()
+    return apiGet(`/files${qs ? '?' + qs : ''}`)
+  },
+  content: (path: string) =>
+    apiGet(`/files/content?path=${encodeURIComponent(path)}`),
+}
+
 // --- Config API ---
 
 export const configAPI = {

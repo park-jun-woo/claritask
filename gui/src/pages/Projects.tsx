@@ -9,7 +9,7 @@ import { useProjects, useSwitchProject, useProjectStats, useTaskCycle, useTaskSt
 import { projectAPI } from '@/api/client'
 import { cn } from '@/lib/utils'
 import {
-  Plus, Pencil, ListTodo, Play, Search, Pin, PinOff,
+  Plus, MessageSquare, ListTodo, Play, Search, Pin, PinOff,
   Clock, Calendar, ArrowUpDown, Square, RefreshCw
 } from 'lucide-react'
 import type { StatusResponse } from '@/types'
@@ -198,7 +198,7 @@ export default function Projects() {
   }[sortField]
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 w-full max-w-full overflow-x-hidden">
       {/* Header */}
       <div className="flex items-center justify-between">
         <h1 className="text-2xl md:text-3xl font-bold">Projects</h1>
@@ -210,7 +210,7 @@ export default function Projects() {
       {/* Search & Filter Bar */}
       <div className="flex flex-wrap items-center gap-2">
         {/* Search */}
-        <div className="relative flex-1 min-w-[200px] max-w-[300px]">
+        <div className="relative flex-1 min-w-0 max-w-[300px]">
           <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="검색..."
@@ -372,7 +372,7 @@ export default function Projects() {
       )}
 
       {/* Project List */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-3">
+      <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
         {filteredProjects.map((p) => {
           const stats = statsMap.get(p.id)
           const s = stats?.stats || { total: 0, leaf: 0, todo: 0, planned: 0, done: 0, failed: 0 }
@@ -384,7 +384,7 @@ export default function Projects() {
             <Card
               key={p.id}
               className={cn(
-                "hover:border-primary/50 transition-colors relative group",
+                "hover:border-primary/50 transition-colors relative group overflow-hidden",
                 p.pinned && "border-primary/30"
               )}
             >
@@ -458,12 +458,12 @@ export default function Projects() {
                     className="flex-1 h-8 text-xs"
                     onClick={() => {
                       switchProject.mutate(p.id, {
-                        onSuccess: () => navigate(`/projects/${p.id}/edit`),
+                        onSuccess: () => navigate('/messages'),
                       })
                     }}
                   >
-                    <Pencil className="h-3 w-3 mr-1" />
-                    Edit
+                    <MessageSquare className="h-3 w-3 mr-1" />
+                    Msgs
                   </Button>
                   <Button
                     variant="outline"

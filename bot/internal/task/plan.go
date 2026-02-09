@@ -103,13 +103,15 @@ func Plan(projectPath, id string) types.Result {
 func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *Task) types.Result {
 	UpdateCurrentTask(projectPath, t.ID)
 
-	// Check spec - skip if empty
+	// Check spec - skip if empty (not an error, just skip)
 	if t.Spec == "" {
 		log.Printf("[Task] Plan skip: task #%d (%s) has empty spec", t.ID, t.Title)
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("작업 #%d에 Spec이 없습니다. 'task set %d spec <내용>'으로 명세서를 작성하세요.", t.ID, t.ID),
+		ret := types.Result{
+			Success: true,
+			Message: fmt.Sprintf("⏭️ #%d Spec이 비어 건너뜀", t.ID),
 		}
+		ret.ErrorType = "skipped"
+		return ret
 	}
 
 	// Check depth limit - force plan if at max depth
@@ -238,7 +240,7 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 		if len(children) == 0 {
 			log.Printf("[Task] Split failed: task #%d (%s) has no children after [SPLIT], reverting to todo", t.ID, t.Title)
 			_, err = localDB.Exec(`
-				UPDATE tasks SET status = 'todo', error = ?, updated_at = ? WHERE id = ?
+				UPDATE tasks SET status = 'todo', is_leaf = 1, error = ?, updated_at = ? WHERE id = ?
 			`, "분할 실패: Claude가 [SPLIT]을 출력했지만 하위 Task를 생성하지 않음", db.TimeNow(), t.ID)
 			if err != nil {
 				log.Printf("[Task] Failed to revert split status for task #%d: %v", t.ID, err)
@@ -475,13 +477,13 @@ func planAllSequential(ctx context.Context, projectPath string, tasks []Task) ty
 	}
 	defer localDB.Close()
 
-	var success, failed int
+	var success, failed, skipped int
 	var messages []string
 
 	for _, t := range tasks {
 		if IsCancelled() || ctx.Err() != nil {
-			skipped := len(tasks) - success - failed
-			messages = append(messages, fmt.Sprintf("🛑 중단 요청으로 %d개 작업 건너뜀", skipped))
+			remaining := len(tasks) - success - failed - skipped
+			messages = append(messages, fmt.Sprintf("🛑 중단 요청으로 %d개 작업 건너뜀", remaining))
 			break
 		}
 
@@ -494,26 +496,29 @@ func planAllSequential(ctx context.Context, projectPath string, tasks []Task) ty
 
 		result := planRecursive(ctx, localDB, projectPath, &t)
 		IncrementCompleted(projectPath)
-		if result.Success {
+		if result.ErrorType == "skipped" {
+			skipped++
+			messages = append(messages, result.Message)
+		} else if result.Success {
 			success++
 			messages = append(messages, result.Message)
 		} else {
 			failed++
 			messages = append(messages, fmt.Sprintf("❌ #%d %s: %s", t.ID, t.Title, result.Message))
 			if result.ErrorType == "auth_error" {
-				skipped := len(tasks) - success - failed
-				messages = append(messages, fmt.Sprintf("🔐 인증 오류로 순회 중단, %d개 작업 건너뜀", skipped))
+				remaining := len(tasks) - success - failed - skipped
+				messages = append(messages, fmt.Sprintf("🔐 인증 오류로 순회 중단, %d개 작업 건너뜀", remaining))
 				break
 			}
 			if result.ErrorType == "cancelled" {
-				skipped := len(tasks) - success - failed
-				messages = append(messages, fmt.Sprintf("🛑 중단 요청으로 %d개 작업 건너뜀", skipped))
+				remaining := len(tasks) - success - failed - skipped
+				messages = append(messages, fmt.Sprintf("🛑 중단 요청으로 %d개 작업 건너뜀", remaining))
 				break
 			}
 		}
 	}
 
-	summary := fmt.Sprintf("📋 Plan 생성 완료: 성공 %d개, 실패 %d개\n", success, failed)
+	summary := fmt.Sprintf("📋 Plan 생성 완료: 성공 %d개, 실패 %d개, 건너뜀 %d개\n", success, failed, skipped)
 	for _, msg := range messages {
 		summary += msg + "\n"
 	}

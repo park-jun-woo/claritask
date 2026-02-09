@@ -141,6 +141,27 @@ export interface StatusResponse {
   task_stats?: TaskStats
 }
 
+// File Entry
+export interface FileEntry {
+  name: string
+  type: 'file' | 'dir'
+  size: number
+  ext?: string
+  modified: string
+  // frontend-only fields
+  path?: string
+  children?: FileEntry[]
+}
+
+// File Content
+export interface FileContent {
+  path: string
+  content: string
+  size: number
+  ext: string
+  binary: boolean
+}
+
 // Pagination
 export interface PaginatedList<T> {
   items: T[]

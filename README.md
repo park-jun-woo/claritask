@@ -134,7 +134,7 @@ clari project delete <id>       # Delete project
 
 # Task management
 clari task list                 # List tasks
-clari task add <spec>           # Add task (first line = title)
+clari task add --spec-file f.md # Add task (first line = title)
 clari task get <id>             # Task details
 clari task run [id]             # Run task
 

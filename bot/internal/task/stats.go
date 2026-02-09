@@ -12,6 +12,13 @@ func GetStats(projectPath string) (*Stats, error) {
 	}
 	defer localDB.Close()
 
+	// Fix is_leaf inconsistency: tasks with no children should be leaf
+	_, _ = localDB.Exec(`
+		UPDATE tasks SET is_leaf = 1
+		WHERE is_leaf = 0
+		  AND id NOT IN (SELECT DISTINCT parent_id FROM tasks WHERE parent_id IS NOT NULL)
+	`)
+
 	stats := &Stats{}
 
 	err = localDB.QueryRow(`

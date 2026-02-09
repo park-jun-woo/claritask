@@ -1,10 +1,11 @@
 import { useState, useRef, useEffect } from 'react'
+import { useSearchParams, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Textarea } from '@/components/ui/textarea'
 import { ScrollArea } from '@/components/ui/scroll-area'
 import { Separator } from '@/components/ui/separator'
-import { useMessages, useMessage, useSendMessage, useStatus } from '@/hooks/useClaribot'
+import { useMessages, useMessage, useSendMessage } from '@/hooks/useClaribot'
 import { Send, MessageSquare, ArrowLeft } from 'lucide-react'
 import { MarkdownRenderer } from '@/components/MarkdownRenderer'
 import { ChatBubble } from '@/components/ChatBubble'
@@ -12,18 +13,26 @@ import { ChatBubble } from '@/components/ChatBubble'
 type MobileView = 'chat' | 'detail'
 
 export default function Messages() {
-  const { data: statusData } = useStatus()
+  const { projectId } = useParams<{ projectId?: string }>()
 
-  // Get current project from status (📌 project-id — ...)
-  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1]
+  const currentProject = projectId
   const isGlobal = !currentProject
 
   // When global: show all messages; when project selected: filter by project
   const { data: messagesData } = useMessages(isGlobal, isGlobal ? undefined : currentProject)
   const sendMessage = useSendMessage()
   const [input, setInput] = useState('')
-  const [selectedMessageId, setSelectedMessageId] = useState<number | null>(null)
-  const [mobileView, setMobileView] = useState<MobileView>('chat')
+  const [searchParams, setSearchParams] = useSearchParams()
+  const initialId = searchParams.get('id')
+  const [selectedMessageId, setSelectedMessageId] = useState<number | null>(initialId ? Number(initialId) : null)
+  const [mobileView, setMobileView] = useState<MobileView>(initialId ? 'detail' : 'chat')
+
+  // Clear query param after consuming
+  useEffect(() => {
+    if (initialId) {
+      setSearchParams({}, { replace: true })
+    }
+  }, [])
   const [pendingMessages, setPendingMessages] = useState<Array<{ id: string; content: string; created_at: string }>>([])
 
   const { data: messageDetail } = useMessage(selectedMessageId ?? undefined)
@@ -31,10 +40,21 @@ export default function Messages() {
 
   const messageItems = parseItems(messagesData?.data)
 
+  // Remove pending messages that already appeared in actual messages
+  const actualContents = new Set(messageItems.map((m: any) => m.content || m.Content || ''))
+  const activePending = pendingMessages.filter(pm => !actualContents.has(pm.content))
+
+  // Clean up state if pending messages were resolved
+  useEffect(() => {
+    if (activePending.length < pendingMessages.length) {
+      setPendingMessages(activePending)
+    }
+  }, [activePending.length, pendingMessages.length])
+
   // Merge pending messages with actual messages
   const allMessages = [
     ...messageItems,
-    ...pendingMessages.map(pm => ({
+    ...activePending.map(pm => ({
       id: pm.id,
       content: pm.content,
       status: 'pending',
@@ -74,12 +94,7 @@ export default function Messages() {
     sendMessage.mutate(
       { content, projectId: currentProject },
       {
-        onSuccess: () => {
-          // Remove from pending after successful send (actual message will appear from query)
-          setPendingMessages(prev => prev.filter(m => m.id !== tempId))
-        },
         onError: () => {
-          // Remove from pending on error
           setPendingMessages(prev => prev.filter(m => m.id !== tempId))
         },
       }

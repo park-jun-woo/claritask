@@ -1,21 +1,30 @@
+import { useState, useRef, useEffect } from 'react'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
-import { useStatus, useProjectStats, useSwitchProject, useMessages, useSchedules, useTaskCycle, useTaskStop, useProjects } from '@/hooks/useClaribot'
-import { useNavigate } from 'react-router-dom'
-import { Bot, MessageSquare, Clock, FolderOpen, RefreshCw, Pencil, ListTodo, Play, ArrowRight, Square } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Textarea } from '@/components/ui/textarea'
+import { ScrollArea } from '@/components/ui/scroll-area'
+import { useStatus, useProjectStats, useMessages, useSendMessage, useTaskCycle, useTaskStop, useProjects } from '@/hooks/useClaribot'
+import { useNavigate } from 'react-router-dom'
+import { MessageSquare, FolderOpen, RefreshCw, ListTodo, Play, Square, Send } from 'lucide-react'
+import { ChatBubble } from '@/components/ChatBubble'
 import type { ProjectStats, StatusResponse } from '@/types'
 
 export default function Dashboard() {
   const { data: status } = useStatus() as { data: StatusResponse | undefined }
   const { data: statsData } = useProjectStats()
   const { data: projectsData } = useProjects()
-  const { data: messagesData } = useMessages()
-  const { data: schedulesData } = useSchedules()
-  const switchProject = useSwitchProject()
+  const { data: messagesData } = useMessages(true)
+  const sendMessage = useSendMessage()
   const taskCycle = useTaskCycle()
   const taskStop = useTaskStop()
   const navigate = useNavigate()
+
+  // Chat state
+  const [input, setInput] = useState('')
+  const [pendingMessages, setPendingMessages] = useState<Array<{ id: string; content: string; created_at: string }>>([])
+  const chatEndRef = useRef<HTMLDivElement>(null)
+  const isInitialLoad = useRef(true)
 
   // Create category map from projects data
   const categoryMap = new Map<string, string>()
@@ -26,147 +35,150 @@ export default function Dashboard() {
     if (cat) categoryMap.set(id, cat)
   })
 
-  // Parse status
-  const claudeMatch = status?.message?.match(/Claude: (\d+)\/(\d+)/)
-  const claudeUsed = claudeMatch?.[1] || '0'
-  const claudeMax = claudeMatch?.[2] || '3'
-
   // Cycle status
   const cycleStatus = status?.cycle_status
 
+  // Messages
   const messageItems = parseItems(messagesData?.data)
-  const scheduleItems = parseItems(schedulesData?.data)
+  const allMessages = [
+    ...messageItems,
+    ...pendingMessages.map(pm => ({
+      id: pm.id,
+      content: pm.content,
+      status: 'pending',
+      source: 'gui',
+      created_at: pm.created_at,
+      result: '',
+      error: '',
+    }))
+  ]
+  const sortedMessages = [...allMessages].sort((a, b) => {
+    const ta = new Date(a.created_at || a.CreatedAt || 0).getTime()
+    const tb = new Date(b.created_at || b.CreatedAt || 0).getTime()
+    return ta - tb
+  })
 
-  const msgProcessing = messageItems.filter((m: any) => (m.status || m.Status) === 'processing').length
-  const msgDone = messageItems.filter((m: any) => (m.status || m.Status) === 'done').length
-  const schedActive = scheduleItems.filter((s: any) => s.enabled || s.Enabled).length
+  // Auto-scroll
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: isInitialLoad.current ? 'instant' : 'smooth' })
+    isInitialLoad.current = false
+  }, [sortedMessages.length])
+
+  const handleSend = () => {
+    if (!input.trim()) return
+    const content = input.trim()
+    const tempId = `pending-${Date.now()}`
+    const now = new Date().toISOString()
+    setPendingMessages(prev => [...prev, { id: tempId, content, created_at: now }])
+    setInput('')
+    sendMessage.mutate(
+      { content },
+      {
+        onSuccess: () => setPendingMessages(prev => prev.filter(m => m.id !== tempId)),
+        onError: () => setPendingMessages(prev => prev.filter(m => m.id !== tempId)),
+      }
+    )
+  }
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      handleSend()
+    }
+  }
 
   // Project stats from API
   const projects: ProjectStats[] = parseItems(statsData?.data)
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl md:text-3xl font-bold">Dashboard</h1>
+    <div className="flex flex-col h-full gap-4 min-h-0">
+      {/* Top: Global Messages Chat */}
+      <div className="flex-1 flex flex-col border rounded-lg min-h-0">
+        <div className="px-4 py-3 border-b shrink-0">
+          <h2 className="text-lg font-semibold flex items-center gap-2">
+            <MessageSquare className="h-5 w-5" />
+            Messages
+            <span className="text-xs font-normal text-muted-foreground bg-muted px-2 py-0.5 rounded">Global</span>
+          </h2>
+        </div>
 
-      {/* Summary Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Claude</CardTitle>
-            <Bot className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{claudeUsed}/{claudeMax}</div>
-            <p className="text-xs text-muted-foreground">
-              {Number(claudeUsed) > 0 ? 'Running' : 'Idle'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Cycle</CardTitle>
-            <RefreshCw className={`h-4 w-4 text-muted-foreground ${cycleStatus?.status === 'running' ? 'animate-spin' : ''}`} />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">
-              {cycleStatus?.status === 'running' && (
-                <span className="text-green-600 dark:text-green-400">Running</span>
-              )}
-              {cycleStatus?.status === 'interrupted' && (
-                <span className="text-yellow-600 dark:text-yellow-400">Interrupted</span>
-              )}
-              {(!cycleStatus || cycleStatus.status === 'idle') && (
-                <span className="text-muted-foreground">Idle</span>
-              )}
-            </div>
-            <p className="text-xs text-muted-foreground">
-              {cycleStatus?.status === 'running' && (
-                <>
-                  {cycleStatus.type} {cycleStatus.phase && `(${cycleStatus.phase})`}
-                  {cycleStatus.current_task_id ? ` Task #${cycleStatus.current_task_id}` : ''}
-                  {cycleStatus.elapsed_sec != null && ` ${formatElapsed(cycleStatus.elapsed_sec)}`}
-                </>
-              )}
-              {cycleStatus?.status === 'interrupted' && (
-                <>
-                  {cycleStatus.type}
-                  {cycleStatus.current_task_id ? ` stopped at #${cycleStatus.current_task_id}` : ''}
-                </>
-              )}
-              {(!cycleStatus || cycleStatus.status === 'idle') && 'No active cycle'}
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Messages</CardTitle>
-            <MessageSquare className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{msgProcessing} in progress</div>
-            <p className="text-xs text-muted-foreground">
-              {msgDone} completed
-            </p>
-          </CardContent>
-        </Card>
-
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-            <CardTitle className="text-sm font-medium">Schedules</CardTitle>
-            <Clock className="h-4 w-4 text-muted-foreground" />
-          </CardHeader>
-          <CardContent>
-            <div className="text-2xl font-bold">{schedActive} active</div>
-            <p className="text-xs text-muted-foreground">
-              {scheduleItems.length} total
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Messages */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <CardTitle className="text-lg">Recent Messages</CardTitle>
-          <Button variant="ghost" size="sm" onClick={() => navigate('/messages')}>
-            <ArrowRight className="h-4 w-4" />
-          </Button>
-        </CardHeader>
-        <CardContent>
-          <div className="space-y-2">
-            {messageItems.slice(0, 5).map((msg: any, i: number) => {
-              const s = msg.status || msg.Status || 'pending'
+        <ScrollArea className="flex-1 px-4">
+          <div className="py-4">
+            {sortedMessages.map((msg: any) => {
               const content = msg.content || msg.Content || ''
+              const msgStatus = msg.status || msg.Status || 'pending'
               const source = msg.source || msg.Source || 'cli'
+              const result = msg.result || msg.Result || ''
+              const error = msg.error || msg.Error || ''
+              const createdAt = msg.created_at || msg.CreatedAt || ''
+              const completedAt = msg.completed_at || msg.CompletedAt || ''
+
               return (
-                <div key={i} className="flex items-center gap-2 text-sm">
-                  <Badge variant={s === 'done' ? 'success' : s === 'processing' ? 'warning' : 'secondary'} className="text-xs">
-                    {s}
-                  </Badge>
-                  <span className="text-xs text-muted-foreground">[{source}]</span>
-                  <span className="truncate flex-1">{content}</span>
+                <div key={msg.id || msg.ID}>
+                  <ChatBubble
+                    type="user"
+                    content={content}
+                    source={source}
+                    time={formatTime(createdAt)}
+                  />
+                  <ChatBubble
+                    type="bot"
+                    content={
+                      error
+                        ? error.slice(0, 120) + (error.length > 120 ? '...' : '')
+                        : result
+                          ? getResponseSummary(result)
+                          : statusMessage(msgStatus)
+                    }
+                    result={result || undefined}
+                    status={msgStatus}
+                    time={formatTime(completedAt || createdAt)}
+                    onDetailClick={() => navigate(`/messages?id=${msg.id || msg.ID}`)}
+                  />
                 </div>
               )
             })}
-            {messageItems.length === 0 && (
-              <p className="text-sm text-muted-foreground">No messages yet</p>
+            {sortedMessages.length === 0 && (
+              <div className="flex flex-col items-center justify-center py-10 text-muted-foreground">
+                <MessageSquare className="h-8 w-8 mb-2 opacity-30" />
+                <p className="text-sm">메시지가 없습니다</p>
+              </div>
             )}
+            <div ref={chatEndRef} />
           </div>
-        </CardContent>
-      </Card>
+        </ScrollArea>
 
-      {/* Project Stats Board */}
-      <div>
-        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2">
+        <div className="p-3 border-t shrink-0">
+          <div className="flex gap-2 items-end">
+            <Textarea
+              placeholder="메시지를 입력하세요... (Ctrl+Enter)"
+              value={input}
+              onChange={e => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              rows={2}
+              className="text-sm resize-none flex-1"
+            />
+            <Button
+              size="sm"
+              onClick={handleSend}
+              disabled={!input.trim()}
+              className="h-[52px] px-4 shrink-0"
+            >
+              <Send className="h-4 w-4" />
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Bottom: Projects Grid */}
+      <div className="flex-1 flex flex-col min-h-0">
+        <h2 className="text-lg font-semibold mb-3 flex items-center gap-2 shrink-0">
           <FolderOpen className="h-5 w-5" />
           Projects
         </h2>
         {projects.length === 0 ? (
           <p className="text-sm text-muted-foreground">No projects found</p>
         ) : (
-          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3">
+          <div className="grid gap-4 grid-cols-1 md:grid-cols-2 lg:grid-cols-3 overflow-auto flex-1 min-h-0">
             {projects.map((p) => {
               const s = p.stats
               const leafDone = s.done
@@ -209,7 +221,7 @@ export default function Dashboard() {
                       {s.failed > 0 && <Badge variant="destructive">{s.failed} failed</Badge>}
                     </div>
 
-                    {/* Stacked status bar (leaf tasks only) */}
+                    {/* Stacked status bar */}
                     {leafTotal > 0 && (
                       <div className="h-2 rounded-full bg-secondary flex overflow-hidden">
                         {s.done > 0 && <div className="bg-green-400 h-full" style={{ width: `${(s.done / leafTotal) * 100}%` }} />}
@@ -219,13 +231,10 @@ export default function Dashboard() {
                       </div>
                     )}
 
-                    {/* Progress bar (leaf-based) */}
+                    {/* Progress */}
                     <div className="space-y-1">
                       <div className="h-1.5 rounded-full bg-secondary overflow-hidden">
-                        <div
-                          className="h-full bg-primary transition-all"
-                          style={{ width: `${progress}%` }}
-                        />
+                        <div className="h-full bg-primary transition-all" style={{ width: `${progress}%` }} />
                       </div>
                       <div className="flex justify-between text-xs text-muted-foreground">
                         <span>Done/Task: {leafDone}/{leafTotal}</span>
@@ -239,24 +248,16 @@ export default function Dashboard() {
                         variant="outline"
                         size="sm"
                         className="flex-1 h-8 text-xs"
-                        onClick={() => {
-                          switchProject.mutate(p.project_id, {
-                            onSuccess: () => navigate(`/projects/${p.project_id}/edit`),
-                          })
-                        }}
+                        onClick={() => navigate(`/projects/${p.project_id}/messages`)}
                       >
-                        <Pencil className="h-3 w-3 mr-1" />
-                        Edit
+                        <MessageSquare className="h-3 w-3 mr-1" />
+                        Msgs
                       </Button>
                       <Button
                         variant="outline"
                         size="sm"
                         className="flex-1 h-8 text-xs"
-                        onClick={() => {
-                          switchProject.mutate(p.project_id, {
-                            onSuccess: () => navigate('/tasks'),
-                          })
-                        }}
+                        onClick={() => navigate(`/projects/${p.project_id}/tasks`)}
                       >
                         <ListTodo className="h-3 w-3 mr-1" />
                         Tasks
@@ -301,11 +302,29 @@ function parseItems(data: any): any[] {
   return []
 }
 
-function formatElapsed(sec: number): string {
-  if (sec < 60) return `${sec}s`
-  const m = Math.floor(sec / 60)
-  const s = sec % 60
-  if (m < 60) return `${m}m ${s}s`
-  const h = Math.floor(m / 60)
-  return `${h}h ${m % 60}m`
+function formatTime(ts: string): string {
+  if (!ts) return ''
+  try {
+    const d = new Date(ts)
+    return d.toLocaleString('ko-KR', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
+  } catch {
+    return ts
+  }
+}
+
+function getResponseSummary(result: string): string {
+  if (!result) return ''
+  const plain = result.replace(/[#*`>\-\[\]()!]/g, '').trim()
+  const first = plain.split('\n').find(l => l.trim())?.trim() || ''
+  return first.length > 100 ? first.slice(0, 100) + '...' : first
+}
+
+function statusMessage(status: string): string {
+  switch (status) {
+    case 'pending': return '대기 중...'
+    case 'processing': return '처리 중...'
+    case 'done': return '완료'
+    case 'failed': return '실패'
+    default: return status
+  }
 }

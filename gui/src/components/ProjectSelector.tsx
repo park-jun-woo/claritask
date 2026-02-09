@@ -1,10 +1,11 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useLocation } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
 import { ScrollArea } from '@/components/ui/scroll-area'
-import { useProjects, useSwitchProject, useStatus } from '@/hooks/useClaribot'
+import { useProjects } from '@/hooks/useClaribot'
 import { projectAPI } from '@/api/client'
 import {
   FolderOpen, ChevronDown, Search, Pin, PinOff, ArrowUpDown,
@@ -26,19 +27,21 @@ interface ProjectItem {
 
 interface ProjectSelectorProps {
   collapsed?: boolean
+  onProjectSelect?: (projectId: string) => void
 }
 
-export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
+export function ProjectSelector({ collapsed = false, onProjectSelect }: ProjectSelectorProps) {
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [sortField, setSortField] = useState<SortField>('last_accessed')
   const [sortDir, setSortDir] = useState<SortDir>('desc')
   const [categoryFilter, setCategoryFilter] = useState<string | null>(null)
-  const { data: status } = useStatus()
+  const location = useLocation()
   const { data: projects, refetch } = useProjects()
-  const switchProject = useSwitchProject()
 
-  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
+  // Detect project from URL (consistent with Sidebar/Header)
+  const projectFromUrl = location.pathname.match(/^\/projects\/([^/]+)/)?.[1]
+  const currentProject = projectFromUrl || 'GLOBAL'
 
   // Parse project list
   const projectList: ProjectItem[] = useMemo(() => {
@@ -121,7 +124,8 @@ export function ProjectSelector({ collapsed = false }: ProjectSelectorProps) {
   }, [open])
 
   const handleSwitch = (id: string) => {
-    switchProject.mutate(id)
+    // Navigate to project URL; ProjectLayout handles backend switch
+    onProjectSelect?.(id)
     setOpen(false)
   }
 

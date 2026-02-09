@@ -1,0 +1,16 @@
+[Unit]
+Description=Claribot Watchdog - Auto rebuild and deploy when service dies
+After=network.target
+
+[Service]
+Type=simple
+User=__USER__
+ExecStart=/bin/bash __PROJECT__/deploy/claribot-watchdog.sh
+Restart=always
+RestartSec=10
+Environment=HOME=__HOME__
+Environment=PATH=__HOME__/.local/bin:__HOME__/go/bin:/usr/local/go/bin:/usr/local/bin:/usr/bin:/bin
+Environment=GOPATH=__HOME__/go
+
+[Install]
+WantedBy=multi-user.target

@@ -103,8 +103,13 @@ scp <파일> bastion:~/
 
 ```bash
 # 빌드 + 배포
-make build && nohup deploy/claribot-deploy.sh > /tmp/deploy.log 2>&1 &
+make build && bash deploy/claribot-deploy.sh
 ```
+
+### 서비스 중지 규칙
+- **서비스 중지가 필요하면 반드시 `deploy/claribot-deploy.sh`를 사용**한다. `systemctl stop`을 직접 호출하지 않는다.
+- deploy.sh는 lock 파일(`/tmp/claribot-deploy.lock`)을 생성하여 watchdog과 충돌을 방지한다.
+- Watchdog(`claribot-watchdog.service`)가 서비스 상태를 감시하며, 60초 이상 죽어있으면 자동 재빌드+배포한다.
 
 ## 버전 표기 규칙
 - vX.X.N 형식이며 테스트하며 수정할때 N 숫자만 올려라. 10이 넘어도 vX.X.11로 표기하라.

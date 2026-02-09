@@ -54,12 +54,13 @@ Spec에 반드시 포함해야 할 항목:
 
 ⚠️ **경고**: Spec이 비어있거나 한 줄짜리면 sub task 실행 시 품질이 크게 저하됩니다. 반드시 상세하게 작성하세요.
 
-❌ **잘못된 예시**:
+❌ **금지: 인라인 문자열로 task 생성** (title/spec 분리 실패, 개행 손실):
 ```bash
 clari task add "UI를 수정한다" --parent {{.TaskID}}
+clari task add "긴 내용을 인라인으로..." --parent {{.TaskID}}
 ```
 
-✅ **올바른 예시**:
+✅ **필수: --spec-file로 파일 전달** (첫 줄=title, 이후=spec):
 ```bash
 cat > /tmp/task-spec-1.md << 'SPEC'
 Settings 페이지에 다크모드 토글 스위치를 추가
@@ -75,7 +76,7 @@ Settings 페이지에 다크모드 토글 스위치를 추가
 - CSS 변수 기반으로 색상 전환
 SPEC
 
-clari task add --parent {{.TaskID}} --spec-file /tmp/task-spec-1.md
+clari task add --spec-file /tmp/task-spec-1.md --parent {{.TaskID}}
 ```
 
 ### 규칙
@@ -156,7 +157,7 @@ clari task add --parent {{.TaskID}} --spec-file /tmp/task-spec-1.md
 | 명령어 | 설명 |
 |--------|------|
 | `task list [parent_id]` | 작업 목록 조회 |
-| `task add <spec> [--parent <id>] [--spec-file <path>]` | 작업 추가 (첫 줄이 title) |
+| `task add --spec-file <path> [--parent <id>]` | 작업 추가 (파일로 전달, 첫 줄=title) |
 | `task get <id>` | 작업 상세 조회 |
 | `task set <id> <field> <value>` | 작업 필드 수정 |
 | `task delete <id>` | 작업 삭제 |

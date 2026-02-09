@@ -11,6 +11,7 @@ import (
 	"parkjunwoo.com/claribot/internal/handler"
 	"parkjunwoo.com/claribot/internal/task"
 	"parkjunwoo.com/claribot/internal/types"
+	"parkjunwoo.com/claribot/pkg/claude"
 	"parkjunwoo.com/claribot/pkg/telegram"
 )
 
@@ -67,6 +68,12 @@ type Handler struct {
 	pendingContext map[int64]pendingEntry
 	mu             sync.RWMutex // protects pendingContext
 	sem            chan struct{}
+
+	// Bridge integration
+	bridgeManager *claude.BridgeManager
+	bridgeEnabled bool
+	bridgeChatMap map[string]int64 // projectID → chatID for bridge events
+	bridgeMu      sync.RWMutex
 }
 
 // New creates a new Telegram handler
@@ -77,6 +84,7 @@ func New(bot *telegram.Bot, router *handler.Router, allowedUsers []int64) *Handl
 		allowedUsers:   allowedUsers,
 		pendingContext: make(map[int64]pendingEntry),
 		sem:            make(chan struct{}, maxConcurrentGoroutines),
+		bridgeChatMap:  make(map[string]int64),
 	}
 
 	// Register menu commands
@@ -90,6 +98,12 @@ func New(bot *telegram.Bot, router *handler.Router, allowedUsers []int64) *Handl
 	})
 
 	return h
+}
+
+// SetBridgeManager enables Bridge-based Claude interaction
+func (h *Handler) SetBridgeManager(bm *claude.BridgeManager) {
+	h.bridgeManager = bm
+	h.bridgeEnabled = bm != nil
 }
 
 // isAllowed checks if a chat ID is in the allowed users list.
@@ -134,7 +148,7 @@ func parseButtons(msg string) (string, [][]telegram.Button) {
 			value := match[2]
 			// Use value directly if it already has a known callback prefix
 			data := value
-			if !strings.HasPrefix(value, "resume:") && !strings.HasPrefix(value, "switch:") {
+			if !strings.HasPrefix(value, "resume:") && !strings.HasPrefix(value, "switch:") && !strings.HasPrefix(value, "bridge:") {
 				data = "input:" + value
 			}
 			row = append(row, telegram.Button{Text: name, Data: data})
@@ -336,14 +350,19 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		return
 	}
 
-	// Handle message with current project context (or global)
+	// ---- Bridge-enabled message handling ----
+	if h.bridgeEnabled {
+		h.handleBridgeMessage(msg)
+		return
+	}
+
+	// ---- Legacy: Route plain text to "message send" command ----
 	projectID, _ := h.router.GetProject()
 	label := projectID
 	if label == "" {
 		label = "global"
 	}
 
-	// Route plain text to "message send" command with telegram source (async)
 	snapshot := h.router.SnapshotContext()
 	procMsgID, _ := h.bot.SendAndGetID(msg.ChatID, fmt.Sprintf("[%s] 메시지 처리 중...", label))
 	h.safeGo(msg.ChatID, func() {
@@ -353,6 +372,186 @@ func (h *Handler) HandleMessage(msg telegram.Message) {
 		}
 		h.sendReport(msg.ChatID, result)
 	})
+}
+
+// handleBridgeMessage sends a plain text message through the Agent Bridge
+func (h *Handler) handleBridgeMessage(msg telegram.Message) {
+	projectID, projectPath := h.router.GetProject()
+	label := projectID
+	if label == "" {
+		label = "global"
+	}
+
+	if projectPath == "" {
+		h.bot.Send(msg.ChatID, "프로젝트를 먼저 선택하세요: /project")
+		return
+	}
+
+	if projectID == "" {
+		projectID = "global"
+	}
+
+	// Get or create bridge for the project
+	bridge, err := h.bridgeManager.GetOrCreate(projectID, projectPath)
+	if err != nil {
+		log.Printf("[Bridge] Failed to create bridge for %s: %v", projectID, err)
+		h.bot.Send(msg.ChatID, fmt.Sprintf("Bridge 시작 실패: %v", err))
+		return
+	}
+
+	// Map this project to the chat for event delivery
+	h.bridgeMu.Lock()
+	h.bridgeChatMap[projectID] = msg.ChatID
+	h.bridgeMu.Unlock()
+
+	// Set up message handler for this bridge (only once per bridge)
+	bridge.SetMessageHandler(func(bmsg claude.BridgeMessage) {
+		h.handleBridgeEvent(projectID, bmsg)
+	})
+
+	// Send the user message to the bridge
+	h.bot.Send(msg.ChatID, fmt.Sprintf("[%s] 🤖 처리 중...", label))
+	if err := bridge.SendMessage(msg.Text); err != nil {
+		log.Printf("[Bridge] Failed to send message to bridge %s: %v", projectID, err)
+		h.bot.Send(msg.ChatID, fmt.Sprintf("메시지 전송 실패: %v", err))
+	}
+}
+
+// handleBridgeEvent processes events received from the Agent Bridge
+func (h *Handler) handleBridgeEvent(projectID string, msg claude.BridgeMessage) {
+	h.bridgeMu.RLock()
+	chatID, ok := h.bridgeChatMap[projectID]
+	h.bridgeMu.RUnlock()
+
+	if !ok {
+		log.Printf("[Bridge/%s] No chat mapped for bridge event: %s", projectID, msg.Type)
+		return
+	}
+
+	switch msg.Type {
+	case "init":
+		log.Printf("[Bridge/%s] Session initialized: %s", projectID, msg.SessionID)
+
+	case "assistant_text":
+		if msg.Content != "" {
+			text := fmt.Sprintf("📌 %s\n\n%s", projectID, msg.Content)
+			if err := h.bot.SendReport(chatID, text); err != nil {
+				log.Printf("[Bridge/%s] Failed to send assistant text: %v", projectID, err)
+			}
+		}
+
+	case "ask_user":
+		h.handleBridgeAskUser(chatID, projectID, msg)
+
+	case "plan_review":
+		h.handleBridgePlanReview(chatID, projectID, msg)
+
+	case "tool_request":
+		h.handleBridgeToolRequest(chatID, projectID, msg)
+
+	case "result":
+		status := "✅"
+		if msg.Status == "error" {
+			status = "❌"
+		}
+		text := fmt.Sprintf("📌 %s\n\n%s 완료\n\n%s", projectID, status, msg.Result)
+		if msg.CostUSD > 0 {
+			text += fmt.Sprintf("\n\n💰 $%.4f", msg.CostUSD)
+		}
+		if err := h.bot.SendReport(chatID, text); err != nil {
+			log.Printf("[Bridge/%s] Failed to send result: %v", projectID, err)
+		}
+
+	case "error":
+		errText := fmt.Sprintf("📌 %s\n\n❌ 오류: %s", projectID, msg.Message)
+		h.bot.Send(chatID, errText)
+	}
+}
+
+// handleBridgeAskUser sends AskUserQuestion as inline keyboard buttons
+func (h *Handler) handleBridgeAskUser(chatID int64, projectID string, msg claude.BridgeMessage) {
+	if msg.RequestID == "" || len(msg.Questions) == 0 {
+		return
+	}
+
+	for _, q := range msg.Questions {
+		text := fmt.Sprintf("📌 %s\n\n❓ %s\n%s", projectID, q.Header, q.Question)
+
+		var buttons [][]telegram.Button
+		for _, opt := range q.Options {
+			// Callback data format: bridge:<requestID>:ask:<question_text>:<label>
+			// Truncate to fit Telegram's 64-byte callback data limit
+			data := fmt.Sprintf("bridge:%s:ask:%s", msg.RequestID, opt.Label)
+			if len(data) > 64 {
+				data = data[:64]
+			}
+			btn := telegram.Button{
+				Text: fmt.Sprintf("%s — %s", opt.Label, opt.Description),
+				Data: data,
+			}
+			buttons = append(buttons, []telegram.Button{btn})
+		}
+
+		if err := h.bot.SendWithButtons(chatID, text, buttons); err != nil {
+			log.Printf("[Bridge/%s] Failed to send ask_user buttons: %v", projectID, err)
+		}
+	}
+}
+
+// handleBridgePlanReview sends plan for review with approve/deny buttons
+func (h *Handler) handleBridgePlanReview(chatID int64, projectID string, msg claude.BridgeMessage) {
+	if msg.RequestID == "" {
+		return
+	}
+
+	text := fmt.Sprintf("📌 %s\n\n📋 Plan Review\n\n%s", projectID, msg.Plan)
+
+	approveData := fmt.Sprintf("bridge:%s:plan:approve", msg.RequestID)
+	denyData := fmt.Sprintf("bridge:%s:plan:deny", msg.RequestID)
+
+	buttons := [][]telegram.Button{
+		{
+			{Text: "✅ 승인", Data: approveData},
+			{Text: "❌ 거부", Data: denyData},
+		},
+	}
+
+	if err := h.bot.SendReportWithButtons(chatID, text, buttons); err != nil {
+		log.Printf("[Bridge/%s] Failed to send plan review: %v", projectID, err)
+	}
+}
+
+// handleBridgeToolRequest sends dangerous tool request for approval
+func (h *Handler) handleBridgeToolRequest(chatID int64, projectID string, msg claude.BridgeMessage) {
+	if msg.RequestID == "" {
+		return
+	}
+
+	// Show tool details
+	var detail string
+	if msg.ToolName == "Bash" {
+		if cmd, ok := msg.Input["command"].(string); ok {
+			detail = fmt.Sprintf("```\n%s\n```", cmd)
+		}
+	} else {
+		detail = fmt.Sprintf("Tool: %s", msg.ToolName)
+	}
+
+	text := fmt.Sprintf("📌 %s\n\n⚠️ 위험 명령 승인 요청\n\n%s", projectID, detail)
+
+	allowData := fmt.Sprintf("bridge:%s:tool:allow", msg.RequestID)
+	denyData := fmt.Sprintf("bridge:%s:tool:deny", msg.RequestID)
+
+	buttons := [][]telegram.Button{
+		{
+			{Text: "✅ 허용", Data: allowData},
+			{Text: "❌ 거부", Data: denyData},
+		},
+	}
+
+	if err := h.bot.SendWithButtons(chatID, text, buttons); err != nil {
+		log.Printf("[Bridge/%s] Failed to send tool request: %v", projectID, err)
+	}
 }
 
 // isCLIOnly checks if a command is CLI-only
@@ -372,6 +571,12 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 	if !h.isAllowed(cb.ChatID) {
 		log.Printf("[Telegram] Unauthorized callback from chat ID %d (%s)", cb.ChatID, cb.Username)
 		h.bot.AnswerCallback(cb.ID, "인증되지 않은 사용자입니다.")
+		return
+	}
+
+	// Handle bridge callbacks (bridge:<requestID>:<type>:<value>)
+	if strings.HasPrefix(cb.Data, "bridge:") {
+		h.handleBridgeCallback(cb)
 		return
 	}
 
@@ -468,4 +673,74 @@ func (h *Handler) HandleCallback(cb telegram.Callback) {
 	}
 
 	h.bot.AnswerCallback(cb.ID, "")
+}
+
+// handleBridgeCallback processes bridge-related callback button clicks
+// Format: bridge:<requestID>:<type>:<value>
+func (h *Handler) handleBridgeCallback(cb telegram.Callback) {
+	parts := strings.SplitN(cb.Data, ":", 4)
+	if len(parts) < 3 {
+		h.bot.AnswerCallback(cb.ID, "잘못된 콜백 데이터")
+		return
+	}
+
+	requestID := parts[1]
+	cbType := parts[2]
+	value := ""
+	if len(parts) > 3 {
+		value = parts[3]
+	}
+
+	// Find the bridge that has this requestID
+	// We search all active bridges since we don't know which project it belongs to
+	h.bridgeMu.RLock()
+	var bridge *claude.Bridge
+	for pid := range h.bridgeChatMap {
+		if b := h.bridgeManager.GetBridge(pid); b != nil {
+			bridge = b
+			break
+		}
+	}
+	h.bridgeMu.RUnlock()
+
+	if bridge == nil {
+		h.bot.AnswerCallback(cb.ID, "Bridge가 실행 중이지 않습니다")
+		return
+	}
+
+	switch cbType {
+	case "ask":
+		// AskUserQuestion answer: value is the selected label
+		h.bot.AnswerCallback(cb.ID, value)
+		// For simplicity, we send the answer for the first question
+		// The requestID maps to the full AskUserQuestion call
+		answers := map[string]string{}
+		// We store the answer with a placeholder key — the bridge will match it
+		answers["_selected"] = value
+		bridge.RespondToQuestion(requestID, answers, nil)
+
+	case "plan":
+		// Plan review: approve or deny
+		approve := value == "approve"
+		if approve {
+			h.bot.AnswerCallback(cb.ID, "계획 승인됨")
+		} else {
+			h.bot.AnswerCallback(cb.ID, "계획 거부됨")
+		}
+		bridge.RespondToPlan(requestID, approve)
+
+	case "tool":
+		// Tool request: allow or deny
+		allow := value == "allow"
+		if allow {
+			h.bot.AnswerCallback(cb.ID, "명령 허용됨")
+			bridge.RespondToTool(requestID, true, map[string]interface{}{}, "")
+		} else {
+			h.bot.AnswerCallback(cb.ID, "명령 거부됨")
+			bridge.RespondToTool(requestID, false, nil, "User denied this action")
+		}
+
+	default:
+		h.bot.AnswerCallback(cb.ID, "")
+	}
 }

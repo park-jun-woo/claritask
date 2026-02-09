@@ -1,19 +1,19 @@
 import { useState } from 'react'
+import { useParams } from 'react-router-dom'
 import { Card, CardContent, CardFooter, CardHeader, CardTitle } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import {
-  useSchedules, useAddSchedule, useDeleteSchedule, useToggleSchedule, useScheduleRuns, useProjects, useStatus
+  useSchedules, useAddSchedule, useDeleteSchedule, useToggleSchedule, useScheduleRuns, useProjects
 } from '@/hooks/useClaribot'
 import { Plus, Trash2, Clock, History, Power, PowerOff, Bot, Terminal } from 'lucide-react'
 
 export default function Schedules() {
-  const { data: statusData } = useStatus()
+  const { projectId } = useParams<{ projectId?: string }>()
 
-  // Get current project from status (📌 project-id — ...)
-  const currentProject = statusData?.message?.match(/📌 (.+?) —/u)?.[1]
+  const currentProject = projectId
   const isGlobal = !currentProject
 
   // When global: show all schedules; when project selected: filter by project

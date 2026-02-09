@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"time"
 
@@ -507,7 +508,41 @@ func (r *Router) HandleListMessages(w http.ResponseWriter, req *http.Request) {
 // HandleSendMessage handles POST /api/messages
 func (r *Router) HandleSendMessage(w http.ResponseWriter, req *http.Request) {
 	ctx := r.getContextFromRequest(req)
+
+	var body struct {
+		Content   string  `json:"content"`
+		Source    string  `json:"source"`
+		ProjectID *string `json:"project_id"`
+	}
+	if err := decodeBody(req, &body); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if body.Content == "" {
+		writeError(w, http.StatusBadRequest, "content required")
+		return
+	}
+	if body.Source == "" {
+		body.Source = "api"
+	}
+
+	// Resolve project path: body.project_id takes priority over context
 	projectPath := ctx.ProjectPath
+	var projectID *string
+	if body.ProjectID != nil && *body.ProjectID != "" {
+		result := project.Get(*body.ProjectID)
+		if !result.Success {
+			writeError(w, http.StatusBadRequest, "프로젝트를 찾을 수 없습니다: "+*body.ProjectID)
+			return
+		}
+		if p, ok := result.Data.(*project.Project); ok {
+			projectPath = p.Path
+			projectID = &p.ID
+		}
+	} else if ctx.ProjectID != "" {
+		projectID = &ctx.ProjectID
+	}
+
 	if projectPath == "" {
 		projectPath = project.DefaultPath
 	}
@@ -521,22 +556,8 @@ func (r *Router) HandleSendMessage(w http.ResponseWriter, req *http.Request) {
 		writeError(w, http.StatusBadRequest, "프로젝트 경로가 설정되지 않았습니다")
 		return
 	}
-	var body struct {
-		Content string `json:"content"`
-		Source  string `json:"source"`
-	}
-	if err := decodeBody(req, &body); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	if body.Content == "" {
-		writeError(w, http.StatusBadRequest, "content required")
-		return
-	}
-	if body.Source == "" {
-		body.Source = "api"
-	}
-	result := message.Send(projectPath, body.Content, body.Source)
+
+	result := message.SendWithProject(projectID, projectPath, body.Content, body.Source)
 	status := http.StatusCreated
 	if !result.Success {
 		status = http.StatusBadRequest
@@ -1009,6 +1030,305 @@ func (r *Router) HandleDeleteSpec(w http.ResponseWriter, req *http.Request) {
 	writeResult(w, spec.Delete(ctx.ProjectPath, id, true))
 }
 
+// --- File handlers ---
+
+// fileItem represents a file or directory entry in the API response
+type fileItem struct {
+	Name     string `json:"name"`
+	Type     string `json:"type"` // "file" or "dir"
+	Size     int64  `json:"size"`
+	Ext      string `json:"ext,omitempty"`
+	Modified string `json:"modified"`
+}
+
+// sensitiveExts contains file extensions that should be blocked from reading
+var sensitiveExts = map[string]bool{
+	".env": true, ".key": true, ".pem": true, ".p12": true, ".pfx": true,
+	".jks": true, ".keystore": true, ".secret": true, ".credentials": true,
+}
+
+// skipDirs contains directory names to skip when listing files
+var skipDirs = map[string]bool{
+	".git": true, "node_modules": true, ".next": true, "dist": true,
+	"build": true, "__pycache__": true, ".cache": true, "vendor": true,
+	".idea": true, ".vscode": true, "bin": true, ".claribot": true,
+}
+
+// validateFilePath checks for path traversal attacks and returns the safe absolute path.
+// Rejects: absolute paths, ".." components, symlinks escaping project root.
+func validateFilePath(projectPath, relPath string) (string, error) {
+	if relPath == "" {
+		relPath = "."
+	}
+	// Reject absolute paths
+	if filepath.IsAbs(relPath) {
+		return "", fmt.Errorf("absolute paths are not allowed")
+	}
+	// Reject ".." components
+	cleaned := filepath.Clean(relPath)
+	for _, part := range filepath.SplitList(cleaned) {
+		if part == ".." {
+			return "", fmt.Errorf("path traversal is not allowed")
+		}
+	}
+	// filepath.Clean may still produce ".." — check explicitly
+	if cleaned == ".." || len(cleaned) >= 3 && cleaned[:3] == ".."+string(filepath.Separator) {
+		return "", fmt.Errorf("path traversal is not allowed")
+	}
+	// Also check within the path
+	if cleaned != "." {
+		parts := splitPath(cleaned)
+		for _, p := range parts {
+			if p == ".." {
+				return "", fmt.Errorf("path traversal is not allowed")
+			}
+		}
+	}
+
+	absProject, err := filepath.Abs(projectPath)
+	if err != nil {
+		return "", fmt.Errorf("invalid project path")
+	}
+
+	var absTarget string
+	if cleaned == "." {
+		absTarget = absProject
+	} else {
+		absTarget = filepath.Join(absProject, cleaned)
+	}
+
+	// Resolve symlinks and verify still within project
+	realTarget, err := filepath.EvalSymlinks(absTarget)
+	if err != nil {
+		// If the target doesn't exist, check the parent for symlink escape
+		if os.IsNotExist(err) {
+			return "", fmt.Errorf("path not found")
+		}
+		return "", fmt.Errorf("invalid path")
+	}
+	realProject, _ := filepath.EvalSymlinks(absProject)
+	if realTarget != realProject && !isSubPath(realProject, realTarget) {
+		return "", fmt.Errorf("path is outside project directory")
+	}
+
+	return realTarget, nil
+}
+
+// splitPath splits a filepath into its components
+func splitPath(p string) []string {
+	var parts []string
+	for {
+		dir, file := filepath.Split(p)
+		if file != "" {
+			parts = append([]string{file}, parts...)
+		}
+		if dir == "" || dir == p {
+			break
+		}
+		p = filepath.Clean(dir)
+	}
+	return parts
+}
+
+// isSubPath checks if child is a subdirectory/file of parent
+func isSubPath(parent, child string) bool {
+	return len(child) > len(parent) && child[:len(parent)+1] == parent+string(filepath.Separator)
+}
+
+// isBinaryContent detects if content is binary by checking for null bytes in first 512 bytes
+func isBinaryContent(content []byte) bool {
+	checkLen := 512
+	if len(content) < checkLen {
+		checkLen = len(content)
+	}
+	for i := 0; i < checkLen; i++ {
+		if content[i] == 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// isSensitiveFile checks if a filename has a sensitive extension
+func isSensitiveFile(name string) bool {
+	ext := filepath.Ext(name)
+	if sensitiveExts[ext] {
+		return true
+	}
+	// Also check for .env.* patterns (e.g. .env.local, .env.production)
+	if name == ".env" || (len(name) > 4 && name[:4] == ".env") {
+		return true
+	}
+	return false
+}
+
+// HandleListFiles handles GET /api/files?path=<relative_path>
+// Returns 1-depth directory listing (lazy loading) for the current project.
+func (r *Router) HandleListFiles(w http.ResponseWriter, req *http.Request) {
+	ctx := r.getContextFromRequest(req)
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+
+	relPath := req.URL.Query().Get("path")
+	if relPath == "" {
+		relPath = "."
+	}
+
+	absDir, err := validateFilePath(ctx.ProjectPath, relPath)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	info, err := os.Stat(absDir)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "directory not found")
+		return
+	}
+	if !info.IsDir() {
+		writeError(w, http.StatusBadRequest, "path is not a directory")
+		return
+	}
+
+	dirEntries, err := os.ReadDir(absDir)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read directory: "+err.Error())
+		return
+	}
+
+	// Build items: 1 depth only, sorted folders first then by name
+	var dirs []fileItem
+	var files []fileItem
+	for _, entry := range dirEntries {
+		name := entry.Name()
+
+		// Skip .git and other noisy directories
+		if entry.IsDir() && skipDirs[name] {
+			continue
+		}
+		// Skip hidden files/dirs starting with dot (except known config files)
+		if len(name) > 0 && name[0] == '.' && skipDirs[name] {
+			continue
+		}
+
+		entryInfo, err := entry.Info()
+		if err != nil {
+			continue
+		}
+
+		item := fileItem{
+			Name:     name,
+			Size:     entryInfo.Size(),
+			Modified: entryInfo.ModTime().Format(time.RFC3339),
+		}
+
+		if entry.IsDir() {
+			item.Type = "dir"
+			dirs = append(dirs, item)
+		} else {
+			item.Type = "file"
+			item.Ext = filepath.Ext(name)
+			files = append(files, item)
+		}
+	}
+
+	// Sort each group by name
+	sort.Slice(dirs, func(i, j int) bool { return dirs[i].Name < dirs[j].Name })
+	sort.Slice(files, func(i, j int) bool { return files[i].Name < files[j].Name })
+
+	// Folders first, then files
+	items := append(dirs, files...)
+
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Data: map[string]interface{}{
+			"path":  relPath,
+			"items": items,
+		},
+	})
+}
+
+// HandleFileContent handles GET /api/files/content?path=<relative_path>
+// Returns the text content of a file within the project.
+func (r *Router) HandleFileContent(w http.ResponseWriter, req *http.Request) {
+	ctx := r.getContextFromRequest(req)
+	if ctx.ProjectPath == "" {
+		writeError(w, http.StatusBadRequest, "프로젝트를 먼저 선택하세요")
+		return
+	}
+
+	filePath := req.URL.Query().Get("path")
+	if filePath == "" {
+		writeError(w, http.StatusBadRequest, "path parameter required")
+		return
+	}
+
+	absPath, err := validateFilePath(ctx.ProjectPath, filePath)
+	if err != nil {
+		writeError(w, http.StatusForbidden, err.Error())
+		return
+	}
+
+	info, err := os.Stat(absPath)
+	if err != nil {
+		writeError(w, http.StatusNotFound, "file not found")
+		return
+	}
+	if info.IsDir() {
+		writeError(w, http.StatusBadRequest, "path is a directory, not a file")
+		return
+	}
+
+	// Block sensitive files
+	if isSensitiveFile(info.Name()) {
+		writeError(w, http.StatusForbidden, "access to sensitive files is not allowed")
+		return
+	}
+
+	ext := filepath.Ext(info.Name())
+
+	// Check file size (limit to 1MB)
+	const maxFileSize = 1 << 20
+	if info.Size() > maxFileSize {
+		writeJSON(w, http.StatusOK, types.Result{
+			Success: true,
+			Data: map[string]interface{}{
+				"path":    filePath,
+				"content": "",
+				"size":    info.Size(),
+				"ext":     ext,
+				"binary":  true,
+			},
+		})
+		return
+	}
+
+	content, err := os.ReadFile(absPath)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to read file: "+err.Error())
+		return
+	}
+
+	binary := isBinaryContent(content)
+	var contentStr string
+	if !binary {
+		contentStr = string(content)
+	}
+
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Data: map[string]interface{}{
+			"path":    filePath,
+			"content": contentStr,
+			"size":    info.Size(),
+			"ext":     ext,
+			"binary":  binary,
+		},
+	})
+}
+
 // RegisterRESTfulRoutes registers all RESTful API endpoints on the given mux.
 // The handlers are methods on Router so they share the same project context.
 func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
@@ -1075,5 +1395,9 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/specs/{id}", r.HandleGetSpec)
 	mux.HandleFunc("PATCH /api/specs/{id}", r.HandleUpdateSpec)
 	mux.HandleFunc("DELETE /api/specs/{id}", r.HandleDeleteSpec)
+
+	// Files
+	mux.HandleFunc("GET /api/files", r.HandleListFiles)
+	mux.HandleFunc("GET /api/files/content", r.HandleFileContent)
 }
 

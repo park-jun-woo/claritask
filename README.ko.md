@@ -134,7 +134,7 @@ clari project delete <id>       # 프로젝트 삭제
 
 # 태스크 관리
 clari task list                 # 태스크 목록
-clari task add <spec>           # 태스크 추가 (첫 줄 = title)
+clari task add --spec-file f.md # 태스크 추가 (첫 줄 = title)
 clari task get <id>             # 태스크 상세
 clari task run [id]             # 태스크 실행
 

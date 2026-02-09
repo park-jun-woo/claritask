@@ -1,9 +1,11 @@
-.PHONY: all build build-cli build-bot build-gui clean install uninstall install-cli install-bot uninstall-cli uninstall-bot
+.PHONY: all build build-cli build-bot build-gui build-bridge clean install uninstall install-cli install-bot uninstall-cli uninstall-bot install-watchdog uninstall-watchdog
 
 # 변수
 BIN_DIR = /usr/local/bin
 SYSTEMD_DIR = /etc/systemd/system
 SERVICE_NAME = claribot.service
+WATCHDOG_NAME = claribot-watchdog.service
+PROJECT_DIR = $(shell pwd)
 USER = $(shell whoami)
 HOME_DIR = $(shell echo ~)
 
@@ -11,13 +13,18 @@ HOME_DIR = $(shell echo ~)
 all: build
 
 # 전체 빌드
-build: build-gui build-cli build-bot
+build: build-gui build-bridge build-cli build-bot
 
 # CLI 빌드
 build-cli:
 	@echo "Building clari CLI..."
 	@mkdir -p bin
 	cd cli && go build -o ../bin/clari ./cmd/clari
+
+# Bridge 빌드 (TypeScript → dist)
+build-bridge:
+	@echo "Building Agent Bridge..."
+	cd bot/bridge && npm install && npm run build
 
 # GUI 빌드 (React → dist → Go embed)
 build-gui:
@@ -39,6 +46,8 @@ clean:
 	rm -rf bin/
 	rm -rf gui/dist
 	rm -rf bot/internal/webui/dist
+	rm -rf bot/bridge/dist
+	rm -rf bot/bridge/node_modules
 
 # 전체 설치
 install: build install-cli install-bot
@@ -85,6 +94,26 @@ uninstall-bot:
 	sudo systemctl daemon-reload
 	@echo "claribot service removed!"
 
+# Watchdog 설치
+install-watchdog:
+	@echo "Installing claribot-watchdog service..."
+	chmod +x deploy/claribot-watchdog.sh
+	@sed -e 's|__USER__|$(USER)|g' -e 's|__HOME__|$(HOME_DIR)|g' -e 's|__PROJECT__|$(PROJECT_DIR)|g' deploy/claribot-watchdog.service.template > /tmp/$(WATCHDOG_NAME)
+	sudo mv /tmp/$(WATCHDOG_NAME) $(SYSTEMD_DIR)/$(WATCHDOG_NAME)
+	sudo systemctl daemon-reload
+	sudo systemctl enable $(WATCHDOG_NAME)
+	sudo systemctl start $(WATCHDOG_NAME)
+	@echo "claribot-watchdog installed and started!"
+
+# Watchdog 제거
+uninstall-watchdog:
+	@echo "Stopping and removing claribot-watchdog service..."
+	-sudo systemctl stop $(WATCHDOG_NAME)
+	-sudo systemctl disable $(WATCHDOG_NAME)
+	-sudo rm -f $(SYSTEMD_DIR)/$(WATCHDOG_NAME)
+	sudo systemctl daemon-reload
+	@echo "claribot-watchdog removed!"
+
 # 서비스 상태 확인
 status:
 	sudo systemctl status $(SERVICE_NAME)
@@ -118,21 +147,24 @@ help:
 	@echo "Claribot Makefile"
 	@echo ""
 	@echo "빌드:"
-	@echo "  make build        - GUI, CLI, Bot 전체 빌드"
+	@echo "  make build        - GUI, Bridge, CLI, Bot 전체 빌드"
 	@echo "  make build-cli    - CLI만 빌드"
 	@echo "  make build-bot    - Bot 빌드 (GUI embed 포함)"
 	@echo "  make build-gui    - GUI만 빌드 (npm)"
+	@echo "  make build-bridge - Agent Bridge 빌드 (TypeScript)"
 	@echo "  make clean        - 빌드 결과물 삭제"
 	@echo ""
 	@echo "설치:"
 	@echo "  make install      - 전체 설치 (CLI + Bot 서비스)"
 	@echo "  make install-cli  - CLI만 설치 (/usr/local/bin/clari)"
-	@echo "  make install-bot  - Bot 서비스 설치 (systemd)"
+	@echo "  make install-bot      - Bot 서비스 설치 (systemd)"
+	@echo "  make install-watchdog - Watchdog 설치 (서비스 죽으면 자동 재빌드+배포)"
 	@echo ""
 	@echo "제거:"
-	@echo "  make uninstall    - 전체 제거"
-	@echo "  make uninstall-cli- CLI만 제거"
-	@echo "  make uninstall-bot- Bot 서비스 제거"
+	@echo "  make uninstall          - 전체 제거"
+	@echo "  make uninstall-cli      - CLI만 제거"
+	@echo "  make uninstall-bot      - Bot 서비스 제거"
+	@echo "  make uninstall-watchdog - Watchdog 제거"
 	@echo ""
 	@echo "서비스 관리:"
 	@echo "  make status       - 서비스 상태 확인"

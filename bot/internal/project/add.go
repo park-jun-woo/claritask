@@ -2,6 +2,7 @@ package project
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -130,6 +131,11 @@ func Add(path, description string) types.Result {
 		"INSERT OR REPLACE INTO config (key, value, updated_at) VALUES (?, ?, ?)",
 		"parallel", strconv.Itoa(defaultParallel), now,
 	)
+
+	// GitHub repo auto-create (best-effort)
+	if err := ensureGitHub(absPath, id); err != nil {
+		log.Printf("[project] GitHub 연결 실패 (무시): %v", err)
+	}
 
 	return types.Result{
 		Success: true,

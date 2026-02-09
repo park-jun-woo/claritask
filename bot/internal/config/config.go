@@ -13,6 +13,7 @@ type Config struct {
 	Service    ServiceConfig    `yaml:"service"`
 	Telegram   TelegramConfig   `yaml:"telegram"`
 	Claude     ClaudeConfig     `yaml:"claude"`
+	Bridge     BridgeConfig     `yaml:"bridge"`
 	Project    ProjectConfig    `yaml:"project"`
 	Pagination PaginationConfig `yaml:"pagination"`
 	Log        LogConfig        `yaml:"log"`
@@ -50,6 +51,15 @@ type PaginationConfig struct {
 	PageSize int `yaml:"page_size"` // default: 10
 }
 
+// BridgeConfig for Agent Bridge (Claude Agent SDK)
+type BridgeConfig struct {
+	Enabled        bool   `yaml:"enabled"`         // enable Agent Bridge for messages (default: false)
+	Path           string `yaml:"path"`             // path to compiled bridge JS (default: bot/bridge/dist/index.js)
+	NodePath       string `yaml:"node_path"`        // path to node binary (default: node)
+	IdleTimeout    int    `yaml:"idle_timeout"`     // bridge idle timeout seconds (default: 1800)
+	PermissionMode string `yaml:"permission_mode"`  // bypassPermissions, default, acceptEdits, plan
+}
+
 // LogConfig for logging
 type LogConfig struct {
 	Level string `yaml:"level"` // debug, info, warn, error (default: info)
@@ -67,6 +77,10 @@ const (
 	DefaultParallelCount  = 3
 	DefaultPageSize       = 10
 	DefaultLogLevel   = "info"
+	DefaultBridgePath           = "bot/bridge/dist/index.js"
+	DefaultBridgeNodePath       = "node"
+	DefaultBridgeIdleTimeout    = 1800 // 30 minutes
+	DefaultBridgePermissionMode = "bypassPermissions"
 )
 
 // Load loads config from ~/.claribot/config.yaml
@@ -105,6 +119,10 @@ func (c *Config) setDefaults() {
 	c.Claude.MaxTimeout = DefaultMaxTimeout
 	c.Claude.Max = DefaultMaxClaude
 	c.Claude.ContextMax = DefaultContextMax
+	c.Bridge.Path = DefaultBridgePath
+	c.Bridge.NodePath = DefaultBridgeNodePath
+	c.Bridge.IdleTimeout = DefaultBridgeIdleTimeout
+	c.Bridge.PermissionMode = DefaultBridgePermissionMode
 	c.Project.DefaultParallel = DefaultParallelCount
 	c.Pagination.PageSize = DefaultPageSize
 	c.Log.Level = DefaultLogLevel
@@ -128,6 +146,18 @@ func (c *Config) applyDefaults() {
 	}
 	if c.Claude.ContextMax == 0 {
 		c.Claude.ContextMax = DefaultContextMax
+	}
+	if c.Bridge.Path == "" {
+		c.Bridge.Path = DefaultBridgePath
+	}
+	if c.Bridge.NodePath == "" {
+		c.Bridge.NodePath = DefaultBridgeNodePath
+	}
+	if c.Bridge.IdleTimeout == 0 {
+		c.Bridge.IdleTimeout = DefaultBridgeIdleTimeout
+	}
+	if c.Bridge.PermissionMode == "" {
+		c.Bridge.PermissionMode = DefaultBridgePermissionMode
 	}
 	if c.Project.DefaultParallel == 0 {
 		c.Project.DefaultParallel = DefaultParallelCount

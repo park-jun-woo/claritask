@@ -11,8 +11,13 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 
 LOG="/tmp/claribot-deploy.log"
+LOCK="/tmp/claribot-deploy.lock"
 BIN_SRC="$PROJECT_ROOT/bin"
 BIN_DST="/usr/local/bin"
+
+# 배포 lock (watchdog과 충돌 방지)
+touch "$LOCK"
+trap 'rm -f "$LOCK"' EXIT
 
 echo "[$(date)] Deploy started" > "$LOG"
 

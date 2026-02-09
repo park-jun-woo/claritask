@@ -71,7 +71,7 @@ Context Map에 표시된 정보의 상세 내용이 필요하면 아래 명령�
 
 ### task (작업 관리)
 - `task list [parent_id] [--all]` - 작업 목록 조회
-- `task add <spec> [--parent <id>] [--spec-file <path>]` - 작업 추가 (첫 줄이 title)
+- `task add --spec-file <path> [--parent <id>]` - 작업 추가 (파일로 전달, 첫 줄=title)
 - `task get <id>` - 작업 상세 조회
 - `task set <id> <field> <value>` - 작업 필드 수정
 - `task delete <id>` - 작업 삭제

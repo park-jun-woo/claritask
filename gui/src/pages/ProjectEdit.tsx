@@ -9,7 +9,7 @@ import { projectAPI } from '@/api/client'
 import { ArrowLeft, Save, Trash2, Plus } from 'lucide-react'
 
 export default function ProjectEdit() {
-  const { id } = useParams<{ id: string }>()
+  const { projectId: id } = useParams<{ projectId: string }>()
   const navigate = useNavigate()
   const { data: projectData, isLoading } = useProject(id)
   const { data: projectsData } = useProjects()

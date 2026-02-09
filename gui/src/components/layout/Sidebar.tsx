@@ -1,4 +1,4 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, Link, useNavigate, useLocation } from 'react-router-dom'
 import {
   LayoutDashboard,
   FolderOpen,
@@ -10,6 +10,7 @@ import {
   PanelLeftClose,
   Pencil,
   BookOpen,
+  FileCode,
   RefreshCw,
   Layers,
   Wifi,
@@ -42,6 +43,7 @@ export const globalNavItems = [
 export const projectNavItems = [
   { to: '/specs', icon: BookOpen, label: 'Specs' },
   { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
+  { to: '/files', icon: FileCode, label: 'Files' },
   { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/schedules', icon: Clock, label: 'Schedules' },
 ]
@@ -76,9 +78,12 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { data: statsData } = useProjectStats()
   const { data: projectsData } = useProjects()
   const logout = useLogout()
+  const navigate = useNavigate()
+  const location = useLocation()
 
-  // Parse current project from status message (📌 project-id — ...)
-  const currentProject = status?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
+  // Detect project from URL (preferred) or status message (fallback)
+  const projectFromUrl = location.pathname.match(/^\/projects\/([^/]+)/)?.[1]
+  const currentProject = projectFromUrl || status?.project_id || 'GLOBAL'
   const hasProject = currentProject !== 'GLOBAL'
 
   // Claude status
@@ -119,10 +124,10 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Logo + Toggle */}
       <div className="flex items-center justify-between p-2">
         {!collapsed && (
-          <div className="flex items-center gap-2 pl-1">
+          <Link to="/" className="flex items-center gap-2 pl-1 hover:opacity-80 transition-opacity">
             <Layers className="h-5 w-5 text-primary shrink-0" />
             <span className="font-bold text-sm">Claribot</span>
-          </div>
+          </Link>
         )}
         <Button variant="ghost" size="icon" onClick={onToggle} className="min-h-[44px] min-w-[44px]">
           {collapsed ? <PanelLeft className="h-4 w-4" /> : <PanelLeftClose className="h-4 w-4" />}
@@ -131,7 +136,15 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
       {/* Project Selector - always at top */}
       <div className="px-2 pb-2 border-b">
-        <ProjectSelector collapsed={collapsed} />
+        <ProjectSelector collapsed={collapsed} onProjectSelect={(id) => {
+          if (id !== 'none') {
+            // Navigate to project-scoped tasks page
+            navigate(`/projects/${id}/tasks`)
+          } else {
+            // Navigate to global dashboard
+            navigate('/')
+          }
+        }} />
       </div>
 
       {/* Status Card */}
@@ -209,7 +222,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
             )}
             <NavItem to={`/projects/${currentProject}/edit`} icon={Pencil} label="Edit" collapsed={collapsed} />
             {projectNavItems.map((item) => (
-              <NavItem key={item.to} {...item} collapsed={collapsed} />
+              <NavItem key={item.to} to={`/projects/${currentProject}${item.to}`} icon={item.icon} label={item.label} collapsed={collapsed} />
             ))}
           </div>
         )}

@@ -1,4 +1,5 @@
 import { useState, useMemo, useEffect } from 'react'
+import { useParams, useNavigate } from 'react-router-dom'
 import { cn } from '@/lib/utils'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -32,6 +33,12 @@ function useMediaQuery(query: string): boolean {
 type ViewMode = 'tree' | 'list'
 
 export default function Tasks() {
+  const { projectId, taskId: taskIdParam } = useParams<{ projectId?: string; taskId?: string }>()
+  const navigate = useNavigate()
+
+  const currentProject = projectId || 'GLOBAL'
+  const basePath = projectId ? `/projects/${projectId}/tasks` : '/tasks'
+
   const { data: tasksData } = useTasks()
   const addTask = useAddTask()
   const deleteTask = useDeleteTask()
@@ -42,7 +49,17 @@ export default function Tasks() {
   const [viewMode, setViewMode] = useState<ViewMode>('list')
   const [showAdd, setShowAdd] = useState(false)
   const [addForm, setAddForm] = useState({ spec: '', parentId: '' })
-  const [selectedTaskId, setSelectedTaskId] = useState<number | null>(null)
+
+  // URL-based task selection
+  const selectedTaskId = taskIdParam ? Number(taskIdParam) : null
+  const setSelectedTaskId = (id: number | null) => {
+    if (id !== null) {
+      navigate(`${basePath}/${id}`)
+    } else {
+      navigate(basePath)
+    }
+  }
+
   const { data: taskDetail } = useTask(selectedTaskId ?? undefined)
   const selectedTask = taskDetail?.data ?? null
   const [expandedNodes, setExpandedNodes] = useState<Set<number>>(new Set())
@@ -50,21 +67,11 @@ export default function Tasks() {
   const [editValue, setEditValue] = useState('')
   const [statusFilter, setStatusFilter] = useState<string | null>(null)
 
-  // Get current project from status
-  const { data: statusData } = useStatus() as { data: StatusResponse | undefined }
-  const currentProject = statusData?.project_id || statusData?.message?.match(/📌 (.+?) —/u)?.[1] || 'GLOBAL'
-
   // Check if current project is running
+  const { data: statusData } = useStatus() as { data: StatusResponse | undefined }
   const isProjectRunning = statusData?.cycle_statuses?.some(
     c => c.status === 'running' && c.project_id === currentProject
   ) || (statusData?.cycle_status?.status === 'running' && statusData?.cycle_status?.project_id === currentProject)
-
-  // Reset selection when project changes
-  useEffect(() => {
-    setSelectedTaskId(null)
-    setEditField(null)
-    setStatusFilter(null)
-  }, [currentProject])
 
   const taskItems = useMemo(() => parseItems(tasksData?.data), [tasksData])
 

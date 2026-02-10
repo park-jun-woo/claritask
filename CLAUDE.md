@@ -7,7 +7,7 @@ LLM 기반 프로젝트 자동 실행 시스템. 텔레그램 봇과 CLI로 Clau
 **아키텍처**: `claribot(daemon)` ← HTTP → `clari(CLI)` / 텔레그램 / Web UI
 - **claribot**: 항상 실행되는 서비스. 텔레그램 핸들러 + CLI 핸들러 + Web UI + TTY 매니저
 - **clari CLI**: 서비스에 HTTP 요청을 보내는 클라이언트 (127.0.0.1:9847)
-- **Web UI**: 브라우저 기반 대시보드 (Go embed, 같은 포트)
+- **Web UI**: 브라우저 기반 대시보드 (같은 포트, 디스크 서빙 모드)
 
 **DB 분리**:
 - 전역 DB (`~/.claribot/db.clt`): 프로젝트 목록, 경로 매핑
@@ -101,10 +101,23 @@ scp <파일> bastion:~/
 ### 배포 Trigger
 - 명확하게 Claribot을 배포하라고 말하면 배포한다.
 
+### 전체 배포 (서비스 재시작 필요)
+Go 코드 변경, config 변경 등 백엔드 수정이 있을 때 사용.
+
 ```bash
-# 빌드 + 배포
 make build && bash deploy/claribot-deploy.sh
 ```
+
+### GUI만 배포 (서비스 재시작 불필요)
+GUI(React) 코드만 변경했을 때 사용. 서비스를 중지하지 않고 파일만 교체하면 즉시 반영된다.
+
+```bash
+# GUI 빌드 + bastion에 rsync
+cd gui && npm run build && rsync -a --delete dist/ bastion:~/gui-dist/
+```
+
+> **원리**: bastion의 `~/.claribot/config.yaml`에 `webui_dir: /home/parkjunwoo/gui-dist`가 설정되어 있어
+> Go embed 대신 디스크에서 직접 서빙한다. 파일 교체 시 다음 요청부터 새 파일이 적용된다.
 
 ### 서비스 중지 규칙
 - **서비스 중지가 필요하면 반드시 `deploy/claribot-deploy.sh`를 사용**한다. `systemctl stop`을 직접 호출하지 않는다.

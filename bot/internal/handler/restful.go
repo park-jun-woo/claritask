@@ -10,16 +10,25 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gorilla/websocket"
 	"parkjunwoo.com/claribot/internal/config"
 	"parkjunwoo.com/claribot/internal/message"
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/spec"
 	"parkjunwoo.com/claribot/internal/task"
+	"parkjunwoo.com/claribot/internal/terminal"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
+	"parkjunwoo.com/claribot/pkg/logger"
 	"parkjunwoo.com/claribot/pkg/pagination"
 )
+
+var wsUpgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Auth is handled by middleware before upgrade
+	},
+}
 
 // --- JSON helpers ---
 
@@ -557,6 +566,37 @@ func (r *Router) HandleSendMessage(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	// PTY path: if termManager exists and project has a terminal session
+	usePTY := false
+	if r.termManager != nil && projectID != nil && *projectID != "" {
+		session := r.termManager.GetSession(*projectID)
+		if session == nil {
+			// Auto-create terminal session with claude
+			initialCmd := fmt.Sprintf("cd %s && claude --dangerously-skip-permissions", projectPath)
+			var createErr error
+			session, _, createErr = r.termManager.GetOrCreate(*projectID, 120, 40, projectPath, initialCmd)
+			if createErr != nil {
+				logger.Debug("[message] PTY session creation failed, falling back to sync: %v", createErr)
+			} else {
+				// Wait for claude to start
+				time.Sleep(2 * time.Second)
+				usePTY = true
+			}
+		} else {
+			usePTY = true
+		}
+		if usePTY {
+			result := message.SendViaPTY(projectID, projectPath, body.Content, body.Source, session)
+			status := http.StatusCreated
+			if !result.Success {
+				status = http.StatusBadRequest
+			}
+			writeJSON(w, status, result)
+			return
+		}
+	}
+
+	// Sync path (claude.Run)
 	result := message.SendWithProject(projectID, projectPath, body.Content, body.Source)
 	status := http.StatusCreated
 	if !result.Success {
@@ -1329,6 +1369,119 @@ func (r *Router) HandleFileContent(w http.ResponseWriter, req *http.Request) {
 	})
 }
 
+// HandleTerminalWS handles GET /api/terminal/ws → WebSocket upgrade
+func (r *Router) HandleTerminalWS(w http.ResponseWriter, req *http.Request) {
+	if r.termManager == nil {
+		writeError(w, http.StatusServiceUnavailable, "terminal not available")
+		return
+	}
+
+	cols := uint16(80)
+	rows := uint16(24)
+	if c := req.URL.Query().Get("cols"); c != "" {
+		if v, err := strconv.ParseUint(c, 10, 16); err == nil && v > 0 {
+			cols = uint16(v)
+		}
+	}
+	if rr := req.URL.Query().Get("rows"); rr != "" {
+		if v, err := strconv.ParseUint(rr, 10, 16); err == nil && v > 0 {
+			rows = uint16(v)
+		}
+	}
+
+	// Determine session key and work dir
+	sessionKey := "__global__"
+	var workDir, initialCmd string
+	if pid := req.URL.Query().Get("project_id"); pid != "" {
+		result := project.Get(pid)
+		if result.Success {
+			if p, ok := result.Data.(*project.Project); ok {
+				sessionKey = p.ID
+				workDir = p.Path
+				initialCmd = fmt.Sprintf("cd %s && claude --dangerously-skip-permissions", p.Path)
+			}
+		}
+	}
+
+	ws, err := wsUpgrader.Upgrade(w, req, nil)
+	if err != nil {
+		logger.Error("[terminal] websocket upgrade failed: %v", err)
+		return
+	}
+
+	// GetOrCreate: reuse existing PTY or create new one
+	session, isNew, err := r.termManager.GetOrCreate(sessionKey, cols, rows, workDir, initialCmd)
+	if err != nil {
+		logger.Error("[terminal] session create failed: %v", err)
+		ws.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.ClosePolicyViolation, err.Error()))
+		ws.Close()
+		return
+	}
+
+	// Attach WS to PTY session (replays ring buffer)
+	replayed, err := session.Attach(ws)
+	if err != nil {
+		logger.Error("[terminal] attach failed: %v", err)
+		ws.WriteMessage(websocket.CloseMessage,
+			websocket.FormatCloseMessage(websocket.CloseInternalServerErr, err.Error()))
+		ws.Close()
+		return
+	}
+
+	// Send attached notification (through bridge to avoid concurrent write)
+	attachMsg, _ := json.Marshal(map[string]interface{}{
+		"type":     "attached",
+		"key":      sessionKey,
+		"replayed": replayed,
+		"is_new":   isNew,
+	})
+	session.SendMessage(websocket.TextMessage, attachMsg)
+
+	if !isNew {
+		logger.Info("[terminal] session %s reattached (replayed=%d bytes)", sessionKey, replayed)
+	}
+}
+
+// HandleListTerminalSessions handles GET /api/terminal/sessions
+func (r *Router) HandleListTerminalSessions(w http.ResponseWriter, req *http.Request) {
+	if r.termManager == nil {
+		writeError(w, http.StatusServiceUnavailable, "terminal not available")
+		return
+	}
+	sessions := r.termManager.ListSessions()
+	if sessions == nil {
+		sessions = []terminal.SessionInfo{}
+	}
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Data:    sessions,
+	})
+}
+
+// HandleDeleteTerminalSession handles DELETE /api/terminal/sessions/{key}
+func (r *Router) HandleDeleteTerminalSession(w http.ResponseWriter, req *http.Request) {
+	if r.termManager == nil {
+		writeError(w, http.StatusServiceUnavailable, "terminal not available")
+		return
+	}
+	key := req.PathValue("key")
+	if key == "" {
+		writeError(w, http.StatusBadRequest, "session key required")
+		return
+	}
+	r.termManager.Remove(key)
+	writeJSON(w, http.StatusOK, types.Result{
+		Success: true,
+		Message: fmt.Sprintf("session %s closed", key),
+	})
+}
+
+// SetTerminalManager sets the terminal session manager.
+func (r *Router) SetTerminalManager(tm *terminal.Manager) {
+	r.termManager = tm
+}
+
 // RegisterRESTfulRoutes registers all RESTful API endpoints on the given mux.
 // The handlers are methods on Router so they share the same project context.
 func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
@@ -1399,5 +1552,10 @@ func (r *Router) RegisterRESTfulRoutes(mux *http.ServeMux) {
 	// Files
 	mux.HandleFunc("GET /api/files", r.HandleListFiles)
 	mux.HandleFunc("GET /api/files/content", r.HandleFileContent)
+
+	// Terminal
+	mux.HandleFunc("GET /api/terminal/ws", r.HandleTerminalWS)
+	mux.HandleFunc("GET /api/terminal/sessions", r.HandleListTerminalSessions)
+	mux.HandleFunc("DELETE /api/terminal/sessions/{key}", r.HandleDeleteTerminalSession)
 }
 

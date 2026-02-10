@@ -3,6 +3,7 @@ package task
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 	"time"
 
@@ -23,6 +24,8 @@ func Cycle(projectPath string) types.Result {
 	}
 
 	ResetCancel()
+	SetBatchMode(true)
+	defer SetBatchMode(false)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	startTime := time.Now()
@@ -116,10 +119,18 @@ func Cycle(projectPath string) types.Result {
 		messages = append(messages, "🔄 2회차 순회: 실행할 작업 없음")
 	}
 
+	// Auto-sync: 파일 ↔ DB 일치 확인
+	if syncResult, err := Sync(projectPath); err != nil {
+		log.Printf("[Task] auto-sync 실패: %v", err)
+	} else if syncResult.Inserted+syncResult.Updated+syncResult.Deleted > 0 {
+		log.Printf("[Task] auto-sync: +%d ~%d -%d", syncResult.Inserted, syncResult.Updated, syncResult.Deleted)
+	}
+
 	// Summary
 	var doneCount, failedCount int
 	localDB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE status = 'done'`).Scan(&doneCount)
 	localDB.QueryRow(`SELECT COUNT(*) FROM tasks WHERE status = 'failed'`).Scan(&failedCount)
+	gitCommitBatch(projectPath, fmt.Sprintf("cycle: %d done, %d failed", doneCount, failedCount))
 
 	messages = append(messages, fmt.Sprintf("🏁 Cycle 완료: done %d개, failed %d개", doneCount, failedCount))
 

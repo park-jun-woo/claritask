@@ -104,7 +104,7 @@ export default function Specs() {
 
   const detailContent = selectedSpec ? (
     <div className="flex flex-col flex-1 min-h-0">
-      <ScrollArea className="flex-1 min-h-0 p-4">
+      <ScrollArea className="flex-1 min-h-0 p-4 overscroll-contain">
         <div className="space-y-4">
           {/* Title */}
           <div>
@@ -253,11 +253,11 @@ export default function Specs() {
     <div className="flex flex-col md:flex-row gap-4 flex-1 min-h-0 h-full overflow-hidden">
       {/* List Panel */}
       <div className={cn(
-        "flex flex-col space-y-2 min-w-0",
-        isDesktop ? "w-1/3" : "w-full flex-1"
+        "flex flex-col space-y-2 min-w-0 min-h-0",
+        isDesktop ? "w-1/3" : "w-full flex-1 overflow-hidden"
       )}>
         {/* Toolbar */}
-        <div className="flex flex-wrap items-center justify-between gap-1">
+        <div className="flex flex-wrap items-center justify-between gap-1 shrink-0">
           <h1 className="text-xl font-bold shrink-0">Specs</h1>
           <Button size="icon" className="h-8 w-8" onClick={() => setShowAdd(!showAdd)}>
             <Plus className="h-4 w-4" />
@@ -265,7 +265,7 @@ export default function Specs() {
         </div>
 
         {/* Search */}
-        <div className="relative">
+        <div className="relative shrink-0">
           <Search className="absolute left-2 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
           <Input
             placeholder="Search specs..."
@@ -276,7 +276,7 @@ export default function Specs() {
         </div>
 
         {/* Status Filter */}
-        <div className="flex flex-wrap gap-1">
+        <div className="flex flex-wrap gap-1 shrink-0">
           {(['all', 'draft', 'review', 'approved', 'deprecated'] as const).map(s => (
             <Button
               key={s}
@@ -340,7 +340,7 @@ export default function Specs() {
 
       {/* Desktop: Detail Panel */}
       {isDesktop && (
-        <div className="w-2/3 border rounded-md flex flex-col min-w-0">
+        <div className="w-2/3 border rounded-md flex flex-col min-w-0 min-h-0 overflow-hidden">
           {selectedSpec ? (
             <>
               <div className="flex items-center justify-between p-4 border-b">
@@ -364,8 +364,8 @@ export default function Specs() {
 
       {/* Mobile: Full-screen overlay */}
       {!isDesktop && selectedSpec && (
-        <div className="fixed inset-0 z-50 bg-background flex flex-col">
-          <div className="flex items-center justify-between p-4 border-b">
+        <div className="fixed inset-0 z-50 bg-background flex flex-col h-[100dvh] overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b shrink-0">
             <h3 className="font-semibold">Spec #{selectedSpec.id}</h3>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => { setSelectedSpecId(null); setContentMode('preview'); setEditField(null) }}>
               <X className="h-4 w-4" />

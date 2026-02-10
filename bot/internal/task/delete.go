@@ -3,6 +3,9 @@ package task
 import (
 	"database/sql"
 	"fmt"
+	"log"
+	"os"
+	"strconv"
 
 	"parkjunwoo.com/claribot/internal/db"
 	"parkjunwoo.com/claribot/internal/types"
@@ -51,6 +54,20 @@ func Delete(projectPath, id string, confirmed bool) types.Result {
 			Message: fmt.Sprintf("삭제 실패: %v", err),
 		}
 	}
+
+	// 파일 삭제
+	taskID, _ := strconv.Atoi(id)
+	for _, f := range []string{
+		TaskFilePath(projectPath, taskID),
+		PlanFilePath(projectPath, taskID),
+		ReportFilePath(projectPath, taskID),
+		ErrorFilePath(projectPath, taskID),
+	} {
+		if err := os.Remove(f); err != nil && !os.IsNotExist(err) {
+			log.Printf("[Task] 파일 삭제 실패 (%s): %v", f, err)
+		}
+	}
+	gitCommitTask(projectPath, taskID, "deleted")
 
 	return types.Result{
 		Success: true,

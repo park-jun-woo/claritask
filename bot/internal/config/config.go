@@ -21,8 +21,9 @@ type Config struct {
 
 // ServiceConfig for HTTP server
 type ServiceConfig struct {
-	Host string `yaml:"host"` // default: 127.0.0.1
-	Port int    `yaml:"port"` // default: 9847
+	Host     string `yaml:"host"`      // default: 127.0.0.1
+	Port     int    `yaml:"port"`      // default: 9847
+	WebUIDir string `yaml:"webui_dir"` // serve GUI from filesystem (empty = use embedded)
 }
 
 // TelegramConfig for telegram bot

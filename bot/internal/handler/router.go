@@ -15,6 +15,7 @@ import (
 	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/spec"
 	"parkjunwoo.com/claribot/internal/task"
+	"parkjunwoo.com/claribot/internal/terminal"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/pkg/claude"
 	"parkjunwoo.com/claribot/pkg/pagination"
@@ -29,9 +30,10 @@ type Context struct {
 
 // Router handles command routing
 type Router struct {
-	ctx      *Context
-	mu       sync.RWMutex // protects ctx for concurrent access
-	pageSize int          // 페이지당 항목 수
+	ctx         *Context
+	mu          sync.RWMutex // protects ctx for concurrent access
+	pageSize    int          // 페이지당 항목 수
+	termManager *terminal.Manager
 }
 
 // NewRouter creates a new router
@@ -514,6 +516,20 @@ func (r *Router) handleTask(ctx *Context, cmd string, args []string) types.Resul
 	case "cycle":
 		// task cycle - 1회차 + 2회차 자동 실행
 		return task.Cycle(ctx.ProjectPath)
+	case "migrate":
+		count, err := task.MigrateContentToFiles(ctx.ProjectPath)
+		if err != nil {
+			return types.Result{Success: false, Message: fmt.Sprintf("마이그레이션 실패: %v", err)}
+		}
+		return types.Result{Success: true, Message: fmt.Sprintf("마이그레이션 완료: %d개 task 파일 생성", count)}
+	case "rebuild":
+		confirmed := len(args) > 0 && args[0] == "yes"
+		if len(args) > 0 && args[0] == "no" {
+			return types.Result{Success: true, Message: "재구축 취소됨"}
+		}
+		return task.RebuildCommand(ctx.ProjectPath, confirmed)
+	case "sync":
+		return task.SyncCommand(ctx.ProjectPath)
 	default:
 		return types.Result{Success: false, Message: fmt.Sprintf("unknown task command: %s", cmd)}
 	}

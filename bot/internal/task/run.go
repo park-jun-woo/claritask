@@ -55,10 +55,10 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 	if id == "" {
 		// Get next planned leaf task
 		err = localDB.QueryRow(`
-			SELECT id, title, spec, plan, status FROM tasks
+			SELECT id, title, status FROM tasks
 			WHERE status = 'planned' AND is_leaf = 1
 			ORDER BY priority DESC, depth DESC, id ASC LIMIT 1
-		`).Scan(&t.ID, &t.Title, &t.Spec, &t.Plan, &t.Status)
+		`).Scan(&t.ID, &t.Title, &t.Status)
 		if err == sql.ErrNoRows {
 			return types.Result{
 				Success: true,
@@ -67,8 +67,8 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 		}
 	} else {
 		err = localDB.QueryRow(`
-			SELECT id, title, spec, plan, status FROM tasks WHERE id = ?
-		`, id).Scan(&t.ID, &t.Title, &t.Spec, &t.Plan, &t.Status)
+			SELECT id, title, status FROM tasks WHERE id = ?
+		`, id).Scan(&t.ID, &t.Title, &t.Status)
 		if err == sql.ErrNoRows {
 			return types.Result{
 				Success: false,
@@ -83,6 +83,9 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 			Message: fmt.Sprintf("조회 실패: %v", err),
 		}
 	}
+
+	// Load content from files
+	LoadContent(projectPath, &t)
 
 	if t.Status != "planned" {
 		return types.Result{
@@ -165,10 +168,17 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 			log.Printf("[Task] Run 인증 오류 감지 (task #%d)", t.ID)
 		}
 
-		// Save error and mark as failed
-		if _, err := localDB.Exec(`UPDATE tasks SET error = ?, status = 'failed', updated_at = ? WHERE id = ?`, result.Output, now, t.ID); err != nil {
-			log.Printf("[Task] Run 에러 저장 실패 (task #%d): %v", t.ID, err)
+		// Save error to file and mark as failed
+		if err := WriteErrorContent(projectPath, t.ID, result.Output); err != nil {
+			log.Printf("[Task] Run 에러 파일 생성 실패 (task #%d): %v", t.ID, err)
 		}
+		if _, err := localDB.Exec(`UPDATE tasks SET status = 'failed', updated_at = ? WHERE id = ?`, now, t.ID); err != nil {
+			log.Printf("[Task] Run 상태 저장 실패 (task #%d): %v", t.ID, err)
+		}
+		if err := updateTaskFileStatus(projectPath, t.ID, "failed"); err != nil {
+			log.Printf("[Task] task 파일 status 갱신 실패 (#%d): %v", t.ID, err)
+		}
+		gitCommitTask(projectPath, t.ID, "failed")
 		// Clean up report file
 		if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
 			log.Printf("[Task] Run report 파일 삭제 실패 (task #%d): %v", t.ID, err)
@@ -187,17 +197,24 @@ func RunWithContext(ctx context.Context, projectPath, id string) types.Result {
 		return ret
 	}
 
-	// Save report and update status to done
-	_, err = localDB.Exec(`UPDATE tasks SET report = ?, status = 'done', updated_at = ? WHERE id = ?`, result.Output, now, t.ID)
+	// Save report to file (sole source of truth) and update DB status
+	if err := WriteReportContent(projectPath, t.ID, result.Output); err != nil {
+		log.Printf("[Task] report 파일 생성 실패 (#%d): %v", t.ID, err)
+	}
+	_, err = localDB.Exec(`UPDATE tasks SET status = 'done', updated_at = ? WHERE id = ?`, now, t.ID)
 	if err != nil {
 		if travErr == nil {
 			finishTraversal(localDB, travID, "failed", 1, 0, 1)
 		}
 		return types.Result{
 			Success: false,
-			Message: fmt.Sprintf("Report 저장 실패: %v", err),
+			Message: fmt.Sprintf("상태 저장 실패: %v", err),
 		}
 	}
+	if err := updateTaskFileStatus(projectPath, t.ID, "done"); err != nil {
+		log.Printf("[Task] task 파일 status 갱신 실패 (#%d): %v", t.ID, err)
+	}
+	gitCommitTask(projectPath, t.ID, "done")
 
 	// Clean up report file after DB save
 	if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
@@ -227,6 +244,8 @@ func RunAll(projectPath string) types.Result {
 	}
 
 	ResetCancel()
+	SetBatchMode(true)
+	defer SetBatchMode(false)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	startTime := time.Now()
@@ -255,6 +274,7 @@ func RunAll(projectPath string) types.Result {
 	}
 
 	result := runAllInternal(ctx, projectPath)
+	gitCommitBatch(projectPath, fmt.Sprintf("runAll: %s", summarizeResult(result.Message)))
 
 	// Update traversal record
 	if travErr == nil {

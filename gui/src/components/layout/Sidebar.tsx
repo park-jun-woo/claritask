@@ -9,18 +9,16 @@ import {
   PanelLeft,
   PanelLeftClose,
   Pencil,
-  BookOpen,
   FileCode,
   RefreshCw,
   Layers,
-  Wifi,
-  WifiOff,
   LogOut,
+  TerminalSquare,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
-import { useStatus, useHealth, useProjectStats, useProjects } from '@/hooks/useClaribot'
+import { useStatus, useProjectStats, useProjects } from '@/hooks/useClaribot'
 import { useLogout } from '@/hooks/useAuth'
 import { ProjectSelector } from '@/components/ProjectSelector'
 import type { ProjectStats, StatusResponse } from '@/types'
@@ -36,20 +34,44 @@ export const globalNavItems = [
   { to: '/projects', icon: FolderOpen, label: 'Projects' },
   { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/schedules', icon: Clock, label: 'Schedules' },
+  { to: '/terminal', icon: TerminalSquare, label: 'Terminal' },
   { to: '/settings', icon: Settings, label: 'Settings' },
 ]
 
 // Project-specific navigation items (context-aware)
 export const projectNavItems = [
-  { to: '/specs', icon: BookOpen, label: 'Specs' },
-  { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
   { to: '/files', icon: FileCode, label: 'Files' },
+  { to: '/tasks', icon: CheckSquare, label: 'Tasks' },
   { to: '/messages', icon: MessageSquare, label: 'Messages' },
   { to: '/schedules', icon: Clock, label: 'Schedules' },
+  { to: '/terminal', icon: TerminalSquare, label: 'Terminal' },
 ]
 
 // Combined for Header mobile menu
 export const navItems = [...globalNavItems, ...projectNavItems]
+
+// Helper: determine navigation target when switching projects, preserving current page
+export function getProjectSwitchTarget(currentPath: string, targetProjectId: string | 'none'): string {
+  const projectMatch = currentPath.match(/^\/projects\/[^/]+\/([^/]+)/)
+  const globalMatch = currentPath.match(/^\/([^/]*)/)
+  const currentSegment = projectMatch?.[1] || globalMatch?.[1] || ''
+
+  if (targetProjectId !== 'none') {
+    // Navigating to a project — keep page if it exists in project routes
+    const projectSegments = ['files', 'tasks', 'messages', 'schedules', 'terminal', 'specs', 'edit']
+    if (projectSegments.includes(currentSegment)) {
+      return `/projects/${targetProjectId}/${currentSegment}`
+    }
+    return `/projects/${targetProjectId}/tasks`
+  } else {
+    // Navigating to global — keep page if it exists in global routes
+    const globalSegments = ['messages', 'schedules', 'terminal', 'settings', 'projects']
+    if (globalSegments.includes(currentSegment)) {
+      return `/${currentSegment}`
+    }
+    return '/'
+  }
+}
 
 function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: React.ComponentType<{ className?: string }>; label: string; collapsed: boolean }) {
   return (
@@ -74,23 +96,16 @@ function NavItem({ to, icon: Icon, label, collapsed }: { to: string; icon: React
 
 export function Sidebar({ collapsed, onToggle }: SidebarProps) {
   const { data: status } = useStatus() as { data: StatusResponse | undefined }
-  const { data: healthData } = useHealth()
   const { data: statsData } = useProjectStats()
   const { data: projectsData } = useProjects()
   const logout = useLogout()
   const navigate = useNavigate()
   const location = useLocation()
 
-  // Detect project from URL (preferred) or status message (fallback)
+  // Detect project from URL only (global state when not in /projects/:id)
   const projectFromUrl = location.pathname.match(/^\/projects\/([^/]+)/)?.[1]
-  const currentProject = projectFromUrl || status?.project_id || 'GLOBAL'
+  const currentProject = projectFromUrl || 'GLOBAL'
   const hasProject = currentProject !== 'GLOBAL'
-
-  // Claude status
-  const claudeInfo = status?.message?.match(/\u{1F916} Claude: (\d+)\/(\d+)/u)
-  const claudeUsed = claudeInfo?.[1] || '0'
-  const claudeMax = claudeInfo?.[2] || '3'
-  const isConnected = !!healthData
 
   // Get current project stats
   const projectStats: ProjectStats[] = statsData?.data
@@ -137,35 +152,9 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
       {/* Project Selector - always at top */}
       <div className="px-2 pb-2 border-b">
         <ProjectSelector collapsed={collapsed} onProjectSelect={(id) => {
-          if (id !== 'none') {
-            // Navigate to project-scoped tasks page
-            navigate(`/projects/${id}/tasks`)
-          } else {
-            // Navigate to global dashboard
-            navigate('/')
-          }
+          navigate(getProjectSwitchTarget(location.pathname, id))
         }} />
       </div>
-
-      {/* Status Card */}
-      {!collapsed && (
-        <div className="mx-3 my-2 p-2 rounded-md border bg-card text-card-foreground">
-          <div className="flex items-center justify-between">
-            <Badge variant={Number(claudeUsed) > 0 ? "warning" : "secondary"} className="text-[10px] h-5 gap-1">
-              Claude {claudeUsed}/{claudeMax}
-            </Badge>
-            {isConnected ? (
-              <Badge variant="success" className="text-[10px] h-5 gap-1">
-                <Wifi className="h-3 w-3" /> Connected
-              </Badge>
-            ) : (
-              <Badge variant="destructive" className="text-[10px] h-5 gap-1">
-                <WifiOff className="h-3 w-3" /> Offline
-              </Badge>
-            )}
-          </div>
-        </div>
-      )}
 
       <nav className="flex-1 px-2 overflow-auto">
         {/* Project Stats Card - only when project selected and not collapsed */}
@@ -214,12 +203,7 @@ export function Sidebar({ collapsed, onToggle }: SidebarProps) {
 
         {/* Project Navigation - only when project selected */}
         {hasProject && (
-          <div className="space-y-1">
-            {!collapsed && (
-              <div className="px-3 py-2 text-xs font-semibold text-muted-foreground uppercase tracking-wider">
-                Project
-              </div>
-            )}
+          <div className="space-y-1 mt-2">
             <NavItem to={`/projects/${currentProject}/edit`} icon={Pencil} label="Edit" collapsed={collapsed} />
             {projectNavItems.map((item) => (
               <NavItem key={item.to} to={`/projects/${currentProject}${item.to}`} icon={item.icon} label={item.label} collapsed={collapsed} />

@@ -21,9 +21,9 @@ func Get(projectPath, id string) types.Result {
 
 	var t Task
 	err = localDB.QueryRow(`
-		SELECT id, parent_id, title, spec, plan, report, status, error, priority, created_at, updated_at
+		SELECT id, parent_id, title, status, priority, is_leaf, depth, created_at, updated_at
 		FROM tasks WHERE id = ?
-	`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Report, &t.Status, &t.Error, &t.Priority, &t.CreatedAt, &t.UpdatedAt)
+	`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Status, &t.Priority, &t.IsLeaf, &t.Depth, &t.CreatedAt, &t.UpdatedAt)
 
 	if err == sql.ErrNoRows {
 		return types.Result{
@@ -37,6 +37,12 @@ func Get(projectPath, id string) types.Result {
 			Message: fmt.Sprintf("조회 실패: %v", err),
 		}
 	}
+
+	// 삭제 보호: DB에 있는데 파일 없으면 git restore 시도
+	CheckAndRestoreTaskFile(projectPath, t.ID)
+
+	// Load content from files (sole source of truth)
+	LoadContent(projectPath, &t)
 
 	statusIcon := statusToIcon(t.Status)
 	msg := fmt.Sprintf("%s #%d %s\nStatus: %s\nCreated: %s", statusIcon, t.ID, t.Title, t.Status, t.CreatedAt)

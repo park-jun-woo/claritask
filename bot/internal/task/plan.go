@@ -32,10 +32,10 @@ func Plan(projectPath, id string) types.Result {
 	if id == "" {
 		// Get next todo task (priority first, then root level first)
 		err = localDB.QueryRow(`
-			SELECT id, parent_id, title, spec, plan, status, is_leaf, depth FROM tasks
+			SELECT id, parent_id, title, status, is_leaf, depth FROM tasks
 			WHERE status = 'todo'
 			ORDER BY priority DESC, depth ASC, id ASC LIMIT 1
-		`).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Status, &t.IsLeaf, &t.Depth)
+		`).Scan(&t.ID, &t.ParentID, &t.Title, &t.Status, &t.IsLeaf, &t.Depth)
 		if err == sql.ErrNoRows {
 			return types.Result{
 				Success: true,
@@ -44,8 +44,8 @@ func Plan(projectPath, id string) types.Result {
 		}
 	} else {
 		err = localDB.QueryRow(`
-			SELECT id, parent_id, title, spec, plan, status, is_leaf, depth FROM tasks WHERE id = ?
-		`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Status, &t.IsLeaf, &t.Depth)
+			SELECT id, parent_id, title, status, is_leaf, depth FROM tasks WHERE id = ?
+		`, id).Scan(&t.ID, &t.ParentID, &t.Title, &t.Status, &t.IsLeaf, &t.Depth)
 		if err == sql.ErrNoRows {
 			return types.Result{
 				Success: false,
@@ -60,6 +60,9 @@ func Plan(projectPath, id string) types.Result {
 			Message: fmt.Sprintf("조회 실패: %v", err),
 		}
 	}
+
+	// Load content from files
+	LoadContent(projectPath, &t)
 
 	if t.Status != "todo" {
 		return types.Result{
@@ -170,11 +173,15 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 			log.Printf("[Task] Plan 인증 오류 감지 (task #%d)", t.ID)
 		}
 
-		// Save error
+		// Save error to file
 		now := db.TimeNow()
-		if _, err := localDB.Exec(`UPDATE tasks SET error = ?, updated_at = ? WHERE id = ?`, result.Output, now, t.ID); err != nil {
-			log.Printf("[Task] Plan 에러 저장 실패 (task #%d): %v", t.ID, err)
+		if err := WriteErrorContent(projectPath, t.ID, result.Output); err != nil {
+			log.Printf("[Task] Plan 에러 파일 생성 실패 (task #%d): %v", t.ID, err)
 		}
+		if _, err := localDB.Exec(`UPDATE tasks SET updated_at = ? WHERE id = ?`, now, t.ID); err != nil {
+			log.Printf("[Task] Plan updated_at 갱신 실패 (task #%d): %v", t.ID, err)
+		}
+		gitCommitTask(projectPath, t.ID, "plan error")
 
 		ret := types.Result{
 			Success: false,
@@ -202,6 +209,12 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 			}
 		}
 
+		// Dual-write: update task file status
+		if err := updateTaskFileStatus(projectPath, t.ID, "split"); err != nil {
+			log.Printf("[Task] task 파일 status 갱신 실패 (#%d): %v", t.ID, err)
+		}
+		gitCommitTask(projectPath, t.ID, "split")
+
 		// Clean up report file after DB save
 		if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
 			log.Printf("[Task] Plan report 파일 삭제 실패 (task #%d): %v", t.ID, err)
@@ -209,7 +222,7 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 
 		// Get newly created children and recursively plan them
 		rows, err := localDB.Query(`
-			SELECT id, parent_id, title, spec, plan, status, is_leaf, depth FROM tasks
+			SELECT id, parent_id, title, status, is_leaf, depth FROM tasks
 			WHERE parent_id = ? AND status = 'todo'
 			ORDER BY id ASC
 		`, t.ID)
@@ -224,9 +237,10 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 		var children []Task
 		for rows.Next() {
 			var child Task
-			if err := rows.Scan(&child.ID, &child.ParentID, &child.Title, &child.Spec, &child.Plan, &child.Status, &child.IsLeaf, &child.Depth); err != nil {
+			if err := rows.Scan(&child.ID, &child.ParentID, &child.Title, &child.Status, &child.IsLeaf, &child.Depth); err != nil {
 				continue
 			}
+			LoadContent(projectPath, &child)
 			children = append(children, child)
 		}
 		if err := rows.Err(); err != nil {
@@ -239,9 +253,13 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 		// If no children were created, revert to todo with error
 		if len(children) == 0 {
 			log.Printf("[Task] Split failed: task #%d (%s) has no children after [SPLIT], reverting to todo", t.ID, t.Title)
+			splitErr := "분할 실패: Claude가 [SPLIT]을 출력했지만 하위 Task를 생성하지 않음"
+			if err := WriteErrorContent(projectPath, t.ID, splitErr); err != nil {
+				log.Printf("[Task] split error 파일 생성 실패 (#%d): %v", t.ID, err)
+			}
 			_, err = localDB.Exec(`
-				UPDATE tasks SET status = 'todo', is_leaf = 1, error = ?, updated_at = ? WHERE id = ?
-			`, "분할 실패: Claude가 [SPLIT]을 출력했지만 하위 Task를 생성하지 않음", db.TimeNow(), t.ID)
+				UPDATE tasks SET status = 'todo', is_leaf = 1, updated_at = ? WHERE id = ?
+			`, db.TimeNow(), t.ID)
 			if err != nil {
 				log.Printf("[Task] Failed to revert split status for task #%d: %v", t.ID, err)
 			}
@@ -296,15 +314,23 @@ func planRecursive(ctx context.Context, localDB *db.DB, projectPath string, t *T
 	}
 
 	// Planned (leaf)
+	// Write plan to file (sole source of truth)
+	if err := WritePlanContent(projectPath, t.ID, planResult.Plan); err != nil {
+		log.Printf("[Task] plan 파일 생성 실패 (#%d): %v", t.ID, err)
+	}
 	_, err = localDB.Exec(`
-		UPDATE tasks SET plan = ?, status = 'planned', is_leaf = 1, updated_at = ? WHERE id = ?
-	`, planResult.Plan, now, t.ID)
+		UPDATE tasks SET status = 'planned', is_leaf = 1, updated_at = ? WHERE id = ?
+	`, now, t.ID)
 	if err != nil {
 		return types.Result{
 			Success: false,
-			Message: fmt.Sprintf("Plan 저장 실패: %v", err),
+			Message: fmt.Sprintf("Plan 상태 저장 실패: %v", err),
 		}
 	}
+	if err := updateTaskFileStatus(projectPath, t.ID, "planned"); err != nil {
+		log.Printf("[Task] task 파일 status 갱신 실패 (#%d): %v", t.ID, err)
+	}
+	gitCommitTask(projectPath, t.ID, "planned")
 
 	// Clean up report file after DB save
 	if err := os.Remove(reportPath); err != nil && !os.IsNotExist(err) {
@@ -329,6 +355,8 @@ func PlanAll(projectPath string) types.Result {
 	}
 
 	ResetCancel()
+	SetBatchMode(true)
+	defer SetBatchMode(false)
 	ctx, cancel := context.WithCancel(context.Background())
 
 	startTime := time.Now()
@@ -357,6 +385,7 @@ func PlanAll(projectPath string) types.Result {
 	}
 
 	result := planAllInternal(ctx, projectPath)
+	gitCommitBatch(projectPath, fmt.Sprintf("planAll: %s", summarizeResult(result.Message)))
 
 	// Update traversal record
 	if travErr == nil {
@@ -409,7 +438,7 @@ func planAllInternal(ctx context.Context, projectPath string) types.Result {
 
 	// Get all root todo tasks (no parent or parent is split), priority first
 	rows, err := localDB.Query(`
-		SELECT id, parent_id, title, spec, plan, status, is_leaf, depth FROM tasks
+		SELECT id, parent_id, title, status, is_leaf, depth FROM tasks
 		WHERE status = 'todo' AND (parent_id IS NULL OR parent_id IN (
 			SELECT id FROM tasks WHERE status = 'split'
 		))
@@ -426,7 +455,7 @@ func planAllInternal(ctx context.Context, projectPath string) types.Result {
 	var tasks []Task
 	for rows.Next() {
 		var t Task
-		if err := rows.Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Status, &t.IsLeaf, &t.Depth); err != nil {
+		if err := rows.Scan(&t.ID, &t.ParentID, &t.Title, &t.Status, &t.IsLeaf, &t.Depth); err != nil {
 			rows.Close()
 			localDB.Close()
 			return types.Result{
@@ -434,6 +463,7 @@ func planAllInternal(ctx context.Context, projectPath string) types.Result {
 				Message: fmt.Sprintf("스캔 실패: %v", err),
 			}
 		}
+		LoadContent(projectPath, &t)
 		tasks = append(tasks, t)
 	}
 	if err := rows.Err(); err != nil {

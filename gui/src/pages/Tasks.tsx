@@ -204,8 +204,8 @@ export default function Tasks() {
     <div className="flex flex-col md:flex-row gap-4 flex-1 min-h-0 h-full overflow-hidden">
       {/* List Panel */}
       <div className={cn(
-        "flex flex-col space-y-2 min-w-0",
-        isDesktop ? "w-1/2" : "w-full flex-1"
+        "flex flex-col space-y-2 min-w-0 min-h-0",
+        isDesktop ? "w-1/2" : "w-full flex-1 overflow-hidden"
       )}>
         {/* Toolbar */}
         <div className="flex flex-wrap items-center justify-between gap-1">
@@ -350,14 +350,16 @@ export default function Tasks() {
 
       {/* Mobile: Full-screen overlay */}
       {!isDesktop && selectedTask && (
-        <div className="fixed inset-0 z-50 bg-background flex flex-col">
-          <div className="flex items-center justify-between p-4 border-b">
+        <div className="fixed inset-0 z-50 bg-background flex flex-col h-[100dvh] overflow-hidden">
+          <div className="flex items-center justify-between p-4 border-b shrink-0">
             <h3 className="font-semibold">Task #{selectedTask.id || selectedTask.ID}</h3>
             <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => setSelectedTaskId(null)}>
               <X className="h-4 w-4" />
             </Button>
           </div>
-          {detailContent}
+          <div className="flex-1 min-h-0 overflow-y-auto overscroll-contain">
+            {detailContent}
+          </div>
         </div>
       )}
     </div>

@@ -9,6 +9,12 @@
 - **Task ID**: {{.TaskID}}
 - **Title**: {{.Title}}
 
+## 파일 구조
+
+- Spec: `.claribot/tasks/{{.TaskID}}.md`
+- Plan: `.claribot/tasks/{{.TaskID}}.plan.md`
+- Report: `.claribot/tasks/{{.TaskID}}.report.md`
+
 ## 계획서
 
 {{.Plan}}
@@ -67,6 +73,8 @@
 - `clari task get <id>` - Task 상세 조회 (spec, plan, report)
 - `clari task list [parent_id]` - Task 목록 조회
 - `clari task set <id> <field> <value>` - Task 필드 수정
+- `clari task rebuild yes` - DB를 파일에서 재구축
+- `clari task sync` - 파일 ↔ DB 동기화
 
 ### spec
 - `clari spec list` - 스펙 목록 조회

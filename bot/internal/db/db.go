@@ -270,12 +270,9 @@ CREATE TABLE IF NOT EXISTS tasks (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
     parent_id INTEGER,
     title TEXT NOT NULL,
-    spec TEXT DEFAULT '',
-    plan TEXT DEFAULT '',
-    report TEXT DEFAULT '',
     status TEXT DEFAULT 'todo'
         CHECK(status IN ('todo', 'split', 'planned', 'done', 'failed')),
-    error TEXT DEFAULT '',
+    priority INTEGER DEFAULT 0,
     is_leaf INTEGER DEFAULT 1,
     depth INTEGER DEFAULT 0,
     created_at TEXT NOT NULL,
@@ -285,6 +282,7 @@ CREATE TABLE IF NOT EXISTS tasks (
 
 CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id);
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+CREATE INDEX IF NOT EXISTS idx_tasks_leaf ON tasks(is_leaf);
 
 CREATE TABLE IF NOT EXISTS traversals (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -339,32 +337,53 @@ CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
 			id INTEGER PRIMARY KEY AUTOINCREMENT,
 			parent_id INTEGER,
 			title TEXT NOT NULL,
-			spec TEXT DEFAULT '',
-			plan TEXT DEFAULT '',
-			report TEXT DEFAULT '',
 			status TEXT DEFAULT 'todo'
 				CHECK(status IN ('todo', 'split', 'planned', 'done', 'failed')),
-			error TEXT DEFAULT '',
+			priority INTEGER DEFAULT 0,
 			is_leaf INTEGER DEFAULT 1,
 			depth INTEGER DEFAULT 0,
 			created_at TEXT NOT NULL,
 			updated_at TEXT NOT NULL,
-			priority INTEGER DEFAULT 0,
 			FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
 		)`)
-		db.Exec(`INSERT INTO tasks_new (id, parent_id, title, spec, plan, report, status, error, is_leaf, depth, created_at, updated_at, priority)
+		db.Exec(`INSERT INTO tasks_new (id, parent_id, title, status, priority, is_leaf, depth, created_at, updated_at)
 			SELECT id, parent_id, title,
-				COALESCE(spec,''), COALESCE(plan,''), COALESCE(report,''),
 				CASE status
 					WHEN 'spec_ready' THEN 'todo'
 					WHEN 'plan_ready' THEN 'planned'
 					WHEN 'subdivided' THEN 'split'
 					ELSE status
 				END,
-				COALESCE(error,''),
+				COALESCE(priority,0),
 				COALESCE(is_leaf,1), COALESCE(depth,0),
-				created_at, updated_at,
-				COALESCE(priority,0)
+				created_at, updated_at
+			FROM tasks`)
+		db.Exec(`DROP TABLE tasks`)
+		db.Exec(`ALTER TABLE tasks_new RENAME TO tasks`)
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_parent ON tasks(parent_id)`)
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status)`)
+		db.Exec(`CREATE INDEX IF NOT EXISTS idx_tasks_leaf ON tasks(is_leaf)`)
+		db.Exec(`PRAGMA foreign_keys=ON`)
+	}
+
+	// Phase 5: remove content columns (spec, plan, report, error) from existing DBs
+	if err == nil && strings.Contains(taskSQL, "spec TEXT") {
+		db.Exec(`PRAGMA foreign_keys=OFF`)
+		db.Exec(`CREATE TABLE tasks_new (
+			id INTEGER PRIMARY KEY AUTOINCREMENT,
+			parent_id INTEGER,
+			title TEXT NOT NULL,
+			status TEXT DEFAULT 'todo'
+				CHECK(status IN ('todo', 'split', 'planned', 'done', 'failed')),
+			priority INTEGER DEFAULT 0,
+			is_leaf INTEGER DEFAULT 1,
+			depth INTEGER DEFAULT 0,
+			created_at TEXT NOT NULL,
+			updated_at TEXT NOT NULL,
+			FOREIGN KEY (parent_id) REFERENCES tasks(id) ON DELETE CASCADE
+		)`)
+		db.Exec(`INSERT INTO tasks_new (id, parent_id, title, status, priority, is_leaf, depth, created_at, updated_at)
+			SELECT id, parent_id, title, status, COALESCE(priority,0), COALESCE(is_leaf,1), COALESCE(depth,0), created_at, updated_at
 			FROM tasks`)
 		db.Exec(`DROP TABLE tasks`)
 		db.Exec(`ALTER TABLE tasks_new RENAME TO tasks`)
@@ -378,17 +397,12 @@ CREATE INDEX IF NOT EXISTS idx_specs_status ON specs(status);
 	migrations := []string{
 		`ALTER TABLE tasks ADD COLUMN is_leaf INTEGER DEFAULT 1`,
 		`ALTER TABLE tasks ADD COLUMN depth INTEGER DEFAULT 0`,
-		`ALTER TABLE tasks ADD COLUMN spec TEXT DEFAULT ''`,
-		`ALTER TABLE tasks ADD COLUMN plan TEXT DEFAULT ''`,
-		`ALTER TABLE tasks ADD COLUMN report TEXT DEFAULT ''`,
-		`ALTER TABLE tasks ADD COLUMN error TEXT DEFAULT ''`,
+		`ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0`,
 		`CREATE INDEX IF NOT EXISTS idx_tasks_leaf ON tasks(is_leaf)`,
 		// Migrate status values: spec_ready→todo, plan_ready→planned, subdivided→split
 		`UPDATE tasks SET status = 'todo' WHERE status = 'spec_ready'`,
 		`UPDATE tasks SET status = 'planned' WHERE status = 'plan_ready'`,
 		`UPDATE tasks SET status = 'split' WHERE status = 'subdivided'`,
-		// Add priority column for task execution ordering
-		`ALTER TABLE tasks ADD COLUMN priority INTEGER DEFAULT 0`,
 	}
 
 	for _, migration := range migrations {

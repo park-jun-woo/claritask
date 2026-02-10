@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 
 	"parkjunwoo.com/claribot/internal/db"
@@ -82,14 +83,72 @@ func Set(projectPath, id, field, value string) types.Result {
 	}
 
 	now := db.TimeNow()
+	taskID, _ := strconv.Atoi(id)
 
-	// Update field and updated_at
-	query := fmt.Sprintf("UPDATE tasks SET %s = ?, updated_at = ? WHERE id = ?", field)
-	_, err = localDB.Exec(query, value, now, id)
-	if err != nil {
-		return types.Result{
-			Success: false,
-			Message: fmt.Sprintf("업데이트 실패: %v", err),
+	switch field {
+	case "spec":
+		tc, err := ReadTaskContent(projectPath, taskID)
+		if err != nil {
+			// File doesn't exist — query DB for meta and create new file
+			var parentID *int
+			var title string
+			localDB.QueryRow("SELECT parent_id, title FROM tasks WHERE id = ?", id).Scan(&parentID, &title)
+			fm := Frontmatter{Status: currentStatus, Parent: parentID}
+			if err := WriteTaskContent(projectPath, taskID, fm, title, value); err != nil {
+				log.Printf("[Task] spec 파일 생성 실패 (#%d): %v", taskID, err)
+			}
+		} else {
+			if err := WriteTaskContent(projectPath, taskID, tc.Frontmatter, tc.Title, value); err != nil {
+				log.Printf("[Task] spec 파일 업데이트 실패 (#%d): %v", taskID, err)
+			}
+		}
+		localDB.Exec("UPDATE tasks SET updated_at = ? WHERE id = ?", now, id)
+		gitCommitTask(projectPath, taskID, "spec updated")
+
+	case "plan":
+		if err := WritePlanContent(projectPath, taskID, value); err != nil {
+			log.Printf("[Task] plan 파일 생성 실패 (#%d): %v", taskID, err)
+		}
+		localDB.Exec("UPDATE tasks SET updated_at = ? WHERE id = ?", now, id)
+		gitCommitTask(projectPath, taskID, "plan updated")
+
+	case "report":
+		if err := WriteReportContent(projectPath, taskID, value); err != nil {
+			log.Printf("[Task] report 파일 생성 실패 (#%d): %v", taskID, err)
+		}
+		localDB.Exec("UPDATE tasks SET updated_at = ? WHERE id = ?", now, id)
+		gitCommitTask(projectPath, taskID, "report updated")
+
+	case "title":
+		// DB update + file title sync
+		localDB.Exec("UPDATE tasks SET title = ?, updated_at = ? WHERE id = ?", value, now, id)
+		if tc, err := ReadTaskContent(projectPath, taskID); err == nil {
+			if err := WriteTaskContent(projectPath, taskID, tc.Frontmatter, value, tc.Body); err != nil {
+				log.Printf("[Task] title 파일 업데이트 실패 (#%d): %v", taskID, err)
+			}
+		}
+		gitCommitTask(projectPath, taskID, "title updated")
+
+	case "status":
+		query := "UPDATE tasks SET status = ?, updated_at = ? WHERE id = ?"
+		_, err = localDB.Exec(query, value, now, id)
+		if err != nil {
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("업데이트 실패: %v", err),
+			}
+		}
+		updateTaskFileStatus(projectPath, taskID, value)
+		gitCommitTask(projectPath, taskID, value)
+
+	case "priority":
+		query := "UPDATE tasks SET priority = ?, updated_at = ? WHERE id = ?"
+		_, err = localDB.Exec(query, value, now, id)
+		if err != nil {
+			return types.Result{
+				Success: false,
+				Message: fmt.Sprintf("업데이트 실패: %v", err),
+			}
 		}
 	}
 

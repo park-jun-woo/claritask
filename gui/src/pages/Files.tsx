@@ -368,7 +368,22 @@ export default function Files() {
 
   const handleSelectFile = useCallback((path: string) => {
     setSelectedPath(path)
-  }, [])
+    if (!isDesktop) {
+      window.history.pushState({ fileView: true }, '')
+    }
+  }, [isDesktop])
+
+  // Mobile back button: close file viewer instead of leaving page
+  useEffect(() => {
+    const handlePopState = (e: PopStateEvent) => {
+      if (selectedPath && !isDesktop) {
+        e.preventDefault()
+        setSelectedPath(null)
+      }
+    }
+    window.addEventListener('popstate', handlePopState)
+    return () => window.removeEventListener('popstate', handlePopState)
+  }, [selectedPath, isDesktop])
 
   return (
     <div className="flex flex-col flex-1 min-h-0 h-full overflow-hidden">
@@ -441,7 +456,7 @@ export default function Files() {
             <h3 className="font-semibold text-sm truncate">
               {selectedPath.split('/').pop() || selectedPath}
             </h3>
-            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => setSelectedPath(null)}>
+            <Button variant="ghost" size="icon" className="h-8 w-8 shrink-0" onClick={() => { window.history.back() }}>
               <X className="h-4 w-4" />
             </Button>
           </div>

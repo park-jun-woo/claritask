@@ -89,6 +89,25 @@ clari task add --spec-file /tmp/task-spec-1.md --parent {{.TaskID}}
 - **중복 Task 검증**: 분할 전 연관 Task 목록에서 동일하거나 유사한 목적의 기존 Task가 있는지 확인하세요. 이미 done/planned/split 상태인 Task와 범위가 겹치는 sub task를 만들지 마세요.
 - **선행 Task 확인**: 연관 Task 목록에서 현재 Task의 선행 조건이 되는 Task가 미완료(todo/planned 등)인 경우, 현재 Task를 분할하지 말고 [PLANNED]로 출력하되 계획 내에 선행 Task 완료 후 진행이 필요함을 명시하세요.
 
+### 대안: 파일 직접 작성
+
+Task 파일을 직접 작성할 수도 있습니다:
+
+```
+파일: .claribot/tasks/{id}.md
+
+---
+status: todo
+parent: {{.TaskID}}
+---
+# {title}
+
+{spec 내용}
+```
+
+⚠️ 직접 작성 시 `clari task sync`를 호출해야 DB에 반영됩니다.
+권장: `clari task add --spec-file` 사용 (DB 즉시 반영)
+
 ### 출력 형식
 
 ```
@@ -161,6 +180,8 @@ clari task add --spec-file /tmp/task-spec-1.md --parent {{.TaskID}}
 | `task get <id>` | 작업 상세 조회 |
 | `task set <id> <field> <value>` | 작업 필드 수정 |
 | `task delete <id>` | 작업 삭제 |
+| `task rebuild yes` | DB를 파일에서 재구축 |
+| `task sync` | 파일 ↔ DB 동기화 |
 
 ---
 
@@ -173,11 +194,14 @@ clari task add --spec-file /tmp/task-spec-1.md --parent {{.TaskID}}
 - **Depth**: {{.Depth}}
 - **Max Depth**: {{.MaxDepth}}
 
-{{if .RelatedTasks}}
-## 연관 Task
+### 파일 구조
+- Spec: `.claribot/tasks/{{.TaskID}}.md` (frontmatter + H1 title + body)
+- Plan: `.claribot/tasks/{{.TaskID}}.plan.md`
+- Report: `.claribot/tasks/{{.TaskID}}.report.md`
 
-{{range .RelatedTasks}}
-### Task #{{.ID}}: {{.Title}}
-{{.Spec}}
-{{end}}
+{{if .ContextMap}}
+## Context Map
+
+```
+{{.ContextMap}}```
 {{end}}

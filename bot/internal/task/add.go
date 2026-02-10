@@ -2,6 +2,7 @@ package task
 
 import (
 	"fmt"
+	"log"
 	"strings"
 
 	"parkjunwoo.com/claribot/internal/db"
@@ -45,9 +46,9 @@ func Add(projectPath, title string, parentID *int, spec string) types.Result {
 
 	now := db.TimeNow()
 	result, err := localDB.Exec(`
-		INSERT INTO tasks (parent_id, title, spec, status, is_leaf, depth, created_at, updated_at)
-		VALUES (?, ?, ?, 'todo', 1, ?, ?, ?)
-	`, parentID, title, spec, depth, now, now)
+		INSERT INTO tasks (parent_id, title, status, is_leaf, depth, created_at, updated_at)
+		VALUES (?, ?, 'todo', 1, ?, ?, ?)
+	`, parentID, title, depth, now, now)
 	if err != nil {
 		return types.Result{
 			Success: false,
@@ -62,6 +63,13 @@ func Add(projectPath, title string, parentID *int, spec string) types.Result {
 			Message: fmt.Sprintf("작업 ID 획득 실패: %v", err),
 		}
 	}
+
+	// Dual-write: create task file
+	fm := Frontmatter{Status: "todo", Parent: parentID}
+	if err := WriteTaskContent(projectPath, int(id), fm, title, spec); err != nil {
+		log.Printf("[Task] task 파일 생성 실패 (#%d): %v", id, err)
+	}
+	gitCommitTask(projectPath, int(id), "created")
 
 	msg := fmt.Sprintf("작업 추가됨: #%d %s", id, title)
 	if parentID != nil {

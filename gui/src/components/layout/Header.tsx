@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { Sheet, SheetTrigger, SheetContent } from '@/components/ui/sheet'
-import { globalNavItems, projectNavItems } from '@/components/layout/Sidebar'
+import { globalNavItems, projectNavItems, getProjectSwitchTarget } from '@/components/layout/Sidebar'
 import { useStatus, useHealth, useProjectStats, useProjects } from '@/hooks/useClaribot'
 import { useLogout } from '@/hooks/useAuth'
 import { ProjectSelector } from '@/components/ProjectSelector'
@@ -27,9 +27,9 @@ export function Header() {
   const navigate = useNavigate()
   const logout = useLogout()
 
-  // Detect project from URL (preferred) or status
+  // Detect project from URL only (global state when not in /projects/:id)
   const projectFromUrl = location.pathname.match(/^\/projects\/([^/]+)/)?.[1]
-  const currentProject = projectFromUrl || status?.project_id || 'GLOBAL'
+  const currentProject = projectFromUrl || 'GLOBAL'
   const hasProject = currentProject !== 'GLOBAL'
 
   // Claude status
@@ -75,11 +75,7 @@ export function Header() {
             {/* Project Selector */}
             <div className="px-3 pb-2 border-b">
               <ProjectSelector collapsed={false} onProjectSelect={(id) => {
-                if (id !== 'none') {
-                  navigate(`/projects/${id}/tasks`)
-                } else {
-                  navigate('/')
-                }
+                navigate(getProjectSwitchTarget(location.pathname, id))
               }} />
             </div>
 

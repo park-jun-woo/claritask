@@ -10,7 +10,7 @@ import (
 // - Child Tasks
 func GetRelated(localDB *db.DB, taskID int) ([]Task, error) {
 	query := `
-		SELECT DISTINCT t.id, t.parent_id, t.title, t.spec, t.plan, t.report, t.status, t.error, t.created_at, t.updated_at
+		SELECT DISTINCT t.id, t.parent_id, t.title, t.status, t.created_at, t.updated_at
 		FROM tasks t
 		WHERE t.id != ?
 		AND (
@@ -31,7 +31,7 @@ func GetRelated(localDB *db.DB, taskID int) ([]Task, error) {
 	var tasks []Task
 	for rows.Next() {
 		var t Task
-		err := rows.Scan(&t.ID, &t.ParentID, &t.Title, &t.Spec, &t.Plan, &t.Report, &t.Status, &t.Error, &t.CreatedAt, &t.UpdatedAt)
+		err := rows.Scan(&t.ID, &t.ParentID, &t.Title, &t.Status, &t.CreatedAt, &t.UpdatedAt)
 		if err != nil {
 			return nil, err
 		}

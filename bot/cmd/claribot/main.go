@@ -19,6 +19,7 @@ import (
 	"parkjunwoo.com/claribot/internal/project"
 	"parkjunwoo.com/claribot/internal/schedule"
 	"parkjunwoo.com/claribot/internal/task"
+	"parkjunwoo.com/claribot/internal/terminal"
 	"parkjunwoo.com/claribot/internal/tghandler"
 	"parkjunwoo.com/claribot/internal/types"
 	"parkjunwoo.com/claribot/internal/webui"
@@ -34,6 +35,7 @@ var router *handler.Router
 var bot *telegram.Bot
 var authService *auth.Auth
 var bridgeManager *claude.BridgeManager
+var termManager *terminal.Manager
 var startTime = time.Now()
 
 func main() {
@@ -106,6 +108,11 @@ func main() {
 
 	// Initialize router
 	router = handler.NewRouter()
+
+	// Initialize terminal manager
+	termManager = terminal.NewManager(5, 30*time.Minute)
+	router.SetTerminalManager(termManager)
+	logger.Info("Terminal manager initialized (max sessions: 5, idle timeout: 30m)")
 
 	// Set pagination page size
 	if cfg.Pagination.PageSize > 0 {
@@ -193,7 +200,7 @@ func main() {
 	mux.HandleFunc("/api", handleAPIRequest)
 
 	// Web UI: all non-API GET requests serve static files
-	webuiHandler := webui.Handler()
+	webuiHandler := webui.Handler(cfg.Service.WebUIDir)
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 
 		// GET with ?args= = CLI backward compatibility
@@ -250,6 +257,16 @@ func main() {
 			logger.Info("Closing %d active Bridge processes...", activeBridges)
 			bridgeManager.Shutdown()
 			logger.Info("Bridge processes closed")
+		}
+	}
+
+	// Shutdown terminal sessions
+	if termManager != nil {
+		activeTerminals := termManager.ActiveCount()
+		if activeTerminals > 0 {
+			logger.Info("Closing %d active terminal sessions...", activeTerminals)
+			termManager.CloseAll()
+			logger.Info("Terminal sessions closed")
 		}
 	}
 

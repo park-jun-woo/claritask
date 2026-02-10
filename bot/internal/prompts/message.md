@@ -80,6 +80,15 @@ Context Map에 표시된 정보의 상세 내용이 필요하면 아래 명령�
 - `task run [id]` - 단일 Task 실행
 - `task run --all` - 전체 planned Task 실행
 - `task cycle` - 1회차(Plan) + 2회차(실행) 자동 순회
+- `task rebuild yes` - DB를 파일에서 재구축
+- `task sync` - 파일 ↔ DB 동기화
+
+#### Task 파일 구조
+Task 콘텐츠는 `.claribot/tasks/` 디렉토리에 파일로 저장됩니다:
+- `{id}.md` - Spec (frontmatter: status, parent, priority + H1 title + body)
+- `{id}.plan.md` - 계획서
+- `{id}.report.md` - 완료 보고서
+- `{id}.error.md` - 에러 내용
 
 ### message (메시지)
 - `message list [--all]` - 메시지 목록 조회

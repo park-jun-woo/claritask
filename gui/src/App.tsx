@@ -12,6 +12,7 @@ import Schedules from '@/pages/Schedules'
 import Settings from '@/pages/Settings'
 import Specs from '@/pages/Specs'
 import Files from '@/pages/Files'
+import Terminal from '@/pages/Terminal'
 import Setup from '@/pages/Setup'
 import Login from '@/pages/Login'
 import { Loader2 } from 'lucide-react'
@@ -97,9 +98,11 @@ export default function App() {
           <Route path="schedules" element={<Schedules />} />
           <Route path="files" element={<Files />} />
           <Route path="files/*" element={<Files />} />
+          <Route path="terminal" element={<Terminal />} />
         </Route>
         <Route path="messages" element={<Messages />} />
         <Route path="schedules" element={<Schedules />} />
+        <Route path="terminal" element={<Terminal />} />
         <Route path="settings" element={<Settings />} />
         {/* Legacy redirects */}
         <Route path="tasks" element={<LegacyRedirect to="tasks" />} />
